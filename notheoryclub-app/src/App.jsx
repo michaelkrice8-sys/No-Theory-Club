@@ -757,126 +757,12 @@ function ModeTabs({ options, value, onChange }) {
   );
 }
 
-const CHORD_VARIATIONS = {
-  "G":    ["G/B"],
-  "C":    ["Cadd9", "C7", "C/G", "C/B"],
-  "D":    ["Dsus4", "D7"],
-  "Em":   ["Em7"],
-  "Am":   ["Am7"],
-  "A":    ["A7"],
-  "Bm":   ["B7"],
-  "Fmaj7":["F"],
-  "E":    ["E7"],
-};
-
 function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColor,
   isPlaying, stopMetronome, setIsPlaying, setChordIndex, setBeatCount, beatRef, chordRef }) {
-  const [popup, setPopup] = useState(null); // chord name that has popup open
-
-  const handleChordTap = (chord, isSel, isDis) => {
-    if(isDis) return;
-    if(isPlaying){stopMetronome();setIsPlaying(false);}
-
-    const variations = CHORD_VARIATIONS[chord];
-    if(variations && variations.length > 0 && !isSel) {
-      // Show popup with variations
-      setPopup(chord);
-    } else {
-      // No variations or already selected — just toggle
-      setCustomChords(p=>isSel?p.filter(c=>c!==chord):[...p,chord]);
-      setChordIndex(0); setBeatCount(0);
-      if(beatRef) beatRef.current=0;
-      if(chordRef) chordRef.current=0;
-    }
-  };
-
-  const handleSelectVariation = (baseChord, variation) => {
-    const chordToAdd = variation === "base" ? baseChord : variation;
-    setCustomChords(p=>[...p, chordToAdd]);
-    setChordIndex(0); setBeatCount(0);
-    if(beatRef) beatRef.current=0;
-    if(chordRef) chordRef.current=0;
-    setPopup(null);
-  };
-
   return (
     <div style={{ width:"100%", background:"#0a0a0a",
       border:"1px solid #2a2a2a", borderRadius:20, padding:"16px 14px", marginBottom:20,
-      boxShadow:"0 8px 32px rgba(0,0,0,0.5)", position:"relative" }}>
-
-      {/* Variation Popup */}
-      {popup && (
-        <>
-          {/* Backdrop */}
-          <div onClick={()=>setPopup(null)} style={{
-            position:"fixed", inset:0, zIndex:50, background:"rgba(0,0,0,0.7)",
-          }} />
-          {/* Modal */}
-          <div style={{
-            position:"fixed", left:"50%", top:"50%",
-            transform:"translate(-50%,-50%)",
-            zIndex:51, background:"#111", border:"1px solid #2a2a2a",
-            borderRadius:20, padding:"20px 16px", width:"90%", maxWidth:400,
-            boxShadow:"0 16px 48px rgba(0,0,0,0.8)",
-          }}>
-            <div style={{ textAlign:"center", marginBottom:16 }}>
-              <div style={{ fontSize:16, fontWeight:900, color:"#fff", marginBottom:4 }}>
-                Choose a <span style={{ color:"#FFBE0B" }}>{popup}</span> voicing
-              </div>
-              <div style={{ fontSize:11, color:"#555" }}>Tap to select or close to cancel</div>
-            </div>
-
-            <div style={{ display:"grid", gridTemplateColumns:`repeat(${Math.min(CHORD_VARIATIONS[popup].length + 1, 3)}, 1fr)`, gap:8 }}>
-              {/* Base chord first */}
-              <button onClick={()=>handleSelectVariation(popup, "base")} style={{
-                borderRadius:12, border:"2px solid #FFBE0B", padding:"0 0 6px",
-                background:"#000", cursor:"pointer", display:"flex",
-                flexDirection:"column", alignItems:"center", overflow:"hidden",
-                boxShadow:"0 0 12px rgba(255,190,11,0.3)",
-              }}>
-                {CHORD_IMAGES[popup]
-                  ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                      <img src={CHORD_IMAGES[popup]} alt={popup}
-                        style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                    </div>
-                  : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
-                      justifyContent:"center", fontSize:20, fontWeight:900, color:"#FFBE0B" }}>{popup}</div>
-                }
-                <div style={{ fontSize:11, fontWeight:900, color:"#FFBE0B", marginTop:4 }}>{popup}</div>
-                <div style={{ fontSize:9, color:"#888", marginTop:1 }}>standard</div>
-              </button>
-
-              {/* Variations */}
-              {CHORD_VARIATIONS[popup].map(v => (
-                <button key={v} onClick={()=>handleSelectVariation(popup, v)} style={{
-                  borderRadius:12, border:"1px solid #2a2a2a", padding:"0 0 6px",
-                  background:"#000", cursor:"pointer", display:"flex",
-                  flexDirection:"column", alignItems:"center", overflow:"hidden",
-                  transition:"all 0.15s",
-                }}>
-                  {CHORD_IMAGES[v]
-                    ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                        <img src={CHORD_IMAGES[v]} alt={v}
-                          style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                      </div>
-                    : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
-                        justifyContent:"center", fontSize:16, fontWeight:900, color:"#aaa" }}>{v}</div>
-                  }
-                  <div style={{ fontSize:11, fontWeight:900, color:"#aaa", marginTop:4 }}>{v}</div>
-                </button>
-              ))}
-            </div>
-
-            <button onClick={()=>setPopup(null)} style={{
-              width:"100%", marginTop:14, padding:"10px",
-              borderRadius:10, border:"1px solid #2a2a2a",
-              background:"transparent", color:"#555", fontSize:13,
-              cursor:"pointer",
-            }}>Cancel</button>
-          </div>
-        </>
-      )}
-
+      boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
       <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>
         {maxChords===6 ? "PICK YOUR CHORDS" : "BUILD YOUR CHORD SET"}
       </div>
@@ -888,10 +774,15 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
         {ALL_CHORDS.map(chord=>{
           const isSel=customChords.includes(chord);
           const isDis=!isSel&&customChords.length>=maxChords;
-          const hasVariations = CHORD_VARIATIONS[chord] && CHORD_VARIATIONS[chord].length > 0;
           return (
             <button key={chord} disabled={isDis}
-              onClick={()=>handleChordTap(chord, isSel, isDis)} style={{
+              onClick={()=>{
+                if(isPlaying){stopMetronome();setIsPlaying(false);}
+                setCustomChords(p=>isSel?p.filter(c=>c!==chord):[...p,chord]);
+                setChordIndex(0); setBeatCount(0);
+                if(beatRef) beatRef.current=0;
+                if(chordRef) chordRef.current=0;
+              }} style={{
               borderRadius:10, border:"none", padding:"0 0 5px",
               background:"#000",
               border: isSel ? `2px solid ${accentColor}` : "2px solid #2a2210",
@@ -899,7 +790,6 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
               display:"flex", flexDirection:"column", alignItems:"center",
               transition:"all 0.15s", overflow:"hidden",
               boxShadow:isSel?`0 0 10px rgba(${hexToRgb(accentColor)},0.3)`:"none",
-              position:"relative",
             }}>
               {CHORD_IMAGES[chord]
                 ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
@@ -911,14 +801,6 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                     color:isSel?accentColor:"#333" }}>{chord}</div>
               }
               <div style={{ fontSize:10, fontWeight:800, color:isSel?accentColor:"#555", marginTop:3 }}>{chord}</div>
-              {/* Variation indicator dot */}
-              {hasVariations && !isSel && (
-                <div style={{
-                  position:"absolute", top:4, right:4,
-                  width:6, height:6, borderRadius:"50%",
-                  background:"#FFBE0B",
-                }} />
-              )}
             </button>
           );
         })}
