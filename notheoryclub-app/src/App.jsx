@@ -499,6 +499,26 @@ function ChordsTab({ audio }) {
 
 // ─── BUILD A SONG TAB ────────────────────────────────────────────────────────
 function BuildSongTab({ audio }) {
+  const [buildMode, setBuildMode] = useState("simple"); // "simple" | "advanced"
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
+      padding:"24px 16px 48px", maxWidth:560, margin:"0 auto" }}>
+
+      <SectionHeader title="🎵 Build a Song"
+        sub="Build chords and strumming patterns together." />
+
+      <ModeTabs options={[["simple","🎸 Simple"],["advanced","⚡ Advanced"]]}
+        value={buildMode} onChange={setBuildMode} />
+
+      {buildMode === "simple" && <SimpleBuildSong audio={audio} />}
+      {buildMode === "advanced" && <AdvancedBuildSong audio={audio} />}
+    </div>
+  );
+}
+
+// ─── SIMPLE BUILD A SONG ─────────────────────────────────────────────────────
+function SimpleBuildSong({ audio }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [songChords, setSongChords] = useState([]);
   const [strumActive, setStrumActive] = useState(defaultBuild(8));
@@ -528,18 +548,13 @@ function BuildSongTab({ audio }) {
   useEffect(()=>{ strumRef.current=strumActive; },[strumActive]);
   useEffect(()=>{ totalStrumRef.current=hasSecondRow?16:8; },[hasSecondRow]);
 
-  // Combined tick: 16th note grid for strum, chord switches on beat 1 of chord cycle
   const tick = useCallback(()=>{
     const chords=chordsRef.current;
     const bpc=bpcRef.current;
     const totalS=totalStrumRef.current;
-
-    // Advance strum beat
     const nextStrum=(strumBeatRef.current+1)%totalS;
     strumBeatRef.current=nextStrum;
     setCurrentStrum(nextStrum);
-
-    // Chord switching: advance FIRST so the strum plays with the new chord
     if(nextStrum===0 && !firstTickRef.current){
       const nextChordBeat=(chordBeatRef.current+1)%bpc;
       chordBeatRef.current=nextChordBeat;
@@ -551,14 +566,10 @@ function BuildSongTab({ audio }) {
       }
     }
     firstTickRef.current=false;
-
-    // Click on quarter notes (every 4 strum beats)
     if(nextStrum%4===0) playChordClick(nextStrum===0);
-
-    // Strum sound — chord index already updated above so this uses the correct chord
     const isDown=nextStrum%2===0;
     if(strumRef.current[nextStrum]) {
-      const currentChord = chordsRef.current[chordIdxRef.current];
+      const currentChord=chordsRef.current[chordIdxRef.current];
       playChordStrum(currentChord, isDown);
     }
   },[playChordClick,playChordStrum]);
@@ -592,35 +603,19 @@ function BuildSongTab({ audio }) {
     else if(canPlay){await init();startMetronome();setIsPlaying(true);}
   };
 
-  const loadPreset = (num)=>{
-    if(isPlaying){stopMetronome();setIsPlaying(false);}
-    setStrumActive(STRUM_PATTERNS[num].active);
-    setHasSecondRow(false);
-    setStrumPatternBtn(num);
-  };
-
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-      padding:"24px 16px 48px", maxWidth:560, margin:"0 auto" }}>
-
-      <SectionHeader title="🎵 Build a Song"
-        sub="Pick up to 6 chords and build a strumming pattern — then play it all together." />
-
-      {/* Chord Picker */}
+    <>
       <ChordPickerPanel customChords={songChords} setCustomChords={setSongChords}
         maxChords={6} accentColor="#FFBE0B" isPlaying={isPlaying}
         stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
         setChordIndex={setChordIndex} setBeatCount={setBeatCount}
         beatRef={chordIdxRef} chordRef={chordIdxRef} />
 
-      {/* Chord Display */}
       {songChords.length>=2 && (
         <>
           <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
             isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
             bpm={bpm} beatsPerChord={beatsPerChord} />
-
-          {/* Beats per chord */}
           <div style={{ width:"100%", marginBottom:20 }}>
             <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>BEATS PER CHORD</div>
             <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:12 }}>
@@ -637,7 +632,7 @@ function BuildSongTab({ audio }) {
             <div style={{ display:"flex", justifyContent:"center", gap:8 }}>
               {Array(beatsPerChord).fill(null).map((_,i)=>(
                 <div key={i} style={{ width:14, height:14, borderRadius:"50%",
-                  background:isPlaying&&beatCount===i?"#FFBE0B":i===0?"#2a1f00":"#111009",
+                  background:isPlaying&&beatCount===i?"#FFBE0B":i===0?"#2a1f00":"#111",
                   border:`1px solid ${i===0?"#f5a62344":"#2a1f00"}`,
                   boxShadow:isPlaying&&beatCount===i?"0 0 8px rgba(255,190,11,0.7)":"none",
                   transition:"background 0.05s" }} />
@@ -647,25 +642,21 @@ function BuildSongTab({ audio }) {
         </>
       )}
 
-      {/* Strumming Pattern */}
-      <div style={{ width:"100%", background:"#0a0a0a",
-        border:"1px solid #2a2a2a", borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
-        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
-          STRUMMING PATTERN
-        </div>
-
-        {/* Preset pattern buttons */}
+      <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+        borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
         <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:16 }}>
           {[1,2,3].map(n=>(
-            <PatternBtn key={n} label={`Pattern ${n}`} active={strumPatternBtn===n} onClick={()=>loadPreset(n)} />
+            <PatternBtn key={n} label={`Pattern ${n}`} active={strumPatternBtn===n}
+              onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                const pat=STRUM_PATTERNS[n].active;
+                setStrumActive(prev=>{ const next=[...prev]; for(let i=0;i<8;i++) next[i]=pat[i]; return next; });
+                setHasSecondRow(false); setStrumPatternBtn(n); }} />
           ))}
           <PatternBtn label="🎲 Random" active={strumPatternBtn==="random"} accent
-            onClick={()=>{ loadPreset && null; if(isPlaying){stopMetronome();setIsPlaying(false);}
-              setStrumActive(generateRandomPattern().active); setStrumPatternBtn("random");
-              setHasSecondRow(false); }} />
+            onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+              setStrumActive(generateRandomPattern().active); setStrumPatternBtn("random"); setHasSecondRow(false); }} />
         </div>
-
-        {/* Row 1 */}
         <div style={{ fontSize:11, color:"#555", textAlign:"center", marginBottom:6, letterSpacing:1 }}>ROW 1</div>
         <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap", marginBottom:4 }}>
           {strumActive.slice(0,8).map((a,i)=>(
@@ -674,7 +665,6 @@ function BuildSongTab({ audio }) {
                 setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v)); setStrumPatternBtn(null); }} />
           ))}
         </div>
-
         {hasSecondRow && (
           <>
             <div style={{ fontSize:11, color:"#555", textAlign:"center", margin:"10px 0 6px", letterSpacing:1 }}>ROW 2</div>
@@ -687,17 +677,13 @@ function BuildSongTab({ audio }) {
             </div>
           </>
         )}
-
-        <div style={{ display:"flex", justifyContent:"center", gap:10, marginTop:14 }}>
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12 }}>
           {!hasSecondRow
-            ? <button onClick={()=>{ setHasSecondRow(true);
-                setStrumActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
+            ? <button onClick={()=>{ setHasSecondRow(true); setStrumActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
                 if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
                 padding:"8px 18px", borderRadius:10, border:"1px dashed #FFBE0B",
-                background:"rgba(247,127,0,0.08)", color:"#F77F00",
-                fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row 2</button>
-            : <button onClick={()=>{ setHasSecondRow(false);
-                setStrumActive(p=>p.slice(0,8));
+                background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row 2</button>
+            : <button onClick={()=>{ setHasSecondRow(false); setStrumActive(p=>p.slice(0,8));
                 if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
                 padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
                 background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row 2</button>
@@ -712,7 +698,283 @@ function BuildSongTab({ audio }) {
         totalBlocks={totalBlocks} currentBeat={currentStrum}
         accentColor="#FFBE0B" onToggle={handleTogglePlay}
         canPlay={canPlay} disabledLabel="Select 2+ chords to start" />
-    </div>
+    </>
+  );
+}
+
+// ─── ADVANCED BUILD A SONG ───────────────────────────────────────────────────
+function AdvancedBuildSong({ audio }) {
+  const { init, playChordClick, playChordStrum } = audio;
+  const [numRows, setNumRows] = useState(1);
+  const [strumActive, setStrumActive] = useState(()=>{
+    const arr = defaultBuild(8);
+    while(arr.length < 80) arr.push(false);
+    return arr;
+  });
+  const [blockChords, setBlockChords] = useState(Array(80).fill(null));
+  const [assignMode, setAssignMode] = useState(false);
+  const [assignChord, setAssignChord] = useState("G");
+  const [chordPickerOpen, setChordPickerOpen] = useState(false);
+  const [strumPatternBtn, setStrumPatternBtn] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [bpm, setBpm] = useState(60);
+  const [currentStrum, setCurrentStrum] = useState(-1);
+  const [currentChordLabel, setCurrentChordLabel] = useState(null);
+  const [muteMetronome, setMuteMetronome] = useState(false);
+
+  const intervalRef = useRef(null);
+  const bpmRef = useRef(bpm);
+  const strumRef = useRef(strumActive);
+  const blockChordsRef = useRef(blockChords);
+  const strumBeatRef = useRef(-1);
+  const totalBlocksRef = useRef(8);
+  const currentChordRef = useRef(null);
+  const muteRef = useRef(muteMetronome);
+
+  useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
+  useEffect(()=>{ strumRef.current=strumActive; },[strumActive]);
+  useEffect(()=>{ blockChordsRef.current=blockChords; },[blockChords]);
+  useEffect(()=>{ totalBlocksRef.current=numRows*8; },[numRows]);
+  useEffect(()=>{ muteRef.current=muteMetronome; },[muteMetronome]);
+
+  const tick = useCallback(()=>{
+    const total=totalBlocksRef.current;
+    const next=(strumBeatRef.current+1)%total;
+    strumBeatRef.current=next;
+    setCurrentStrum(next);
+    const assignedChord=blockChordsRef.current[next];
+    if(assignedChord){ currentChordRef.current=assignedChord; setCurrentChordLabel(assignedChord); }
+    if(!muteRef.current && next%4===0) playChordClick(next===0);
+    const isDown=next%2===0;
+    if(strumRef.current[next] && currentChordRef.current) playChordStrum(currentChordRef.current, isDown);
+  },[playChordClick,playChordStrum]);
+
+  const startMetronome = useCallback(()=>{
+    if(intervalRef.current) clearInterval(intervalRef.current);
+    strumBeatRef.current=-1; currentChordRef.current=null;
+    setCurrentStrum(-1); setCurrentChordLabel(null);
+    const ms=(60/bpmRef.current/4)*1000;
+    intervalRef.current=setInterval(tick,ms);
+    tick();
+  },[tick]);
+
+  const stopMetronome = useCallback(()=>{
+    clearInterval(intervalRef.current); intervalRef.current=null;
+    setCurrentStrum(-1); strumBeatRef.current=-1;
+    setCurrentChordLabel(null); currentChordRef.current=null;
+  },[]);
+
+  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,numRows]);
+  useEffect(()=>()=>clearInterval(intervalRef.current),[]);
+
+  const handleTogglePlay = async()=>{
+    if(isPlaying){stopMetronome();setIsPlaying(false);}
+    else{await init();startMetronome();setIsPlaying(true);}
+  };
+
+  const handleBlockClick = (i)=>{
+    if(isPlaying){stopMetronome();setIsPlaying(false);}
+    if(assignMode){
+      setBlockChords(p=>p.map((v,idx)=>idx===i?(v===assignChord?null:assignChord):v));
+    } else {
+      setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v));
+    }
+  };
+
+  // Find next chord after current position
+  const totalBlocks = numRows*8;
+  const assignedChords = [...new Set(blockChords.filter(Boolean))];
+  const nextChordLabel = (() => {
+    if(!isPlaying || currentStrum < 0) return null;
+    for(let i=1; i<=totalBlocks; i++){
+      const idx=(currentStrum+i)%totalBlocks;
+      if(blockChords[idx] && blockChords[idx]!==currentChordLabel) return blockChords[idx];
+    }
+    return null;
+  })();
+  const prevChordLabel = (() => {
+    if(!isPlaying || currentStrum < 0) return null;
+    for(let i=1; i<=totalBlocks; i++){
+      const idx=(currentStrum-i+totalBlocks)%totalBlocks;
+      if(blockChords[idx]) return blockChords[idx];
+    }
+    return null;
+  })();
+
+  return (
+    <>
+      {/* Chord carousel display */}
+      <div style={{ width:"100%", marginBottom:16 }}>
+        {/* Position dots for assigned chords */}
+        {assignedChords.length > 0 && (
+          <div style={{ display:"flex", justifyContent:"center", gap:5, marginBottom:10 }}>
+            {assignedChords.map((c,i)=>(
+              <div key={i} style={{
+                width: c===currentChordLabel ? 18 : 6, height:6, borderRadius:3,
+                background: c===currentChordLabel ? "#FFBE0B" : "#2a2a2a",
+                transition:"all 0.25s ease",
+              }} />
+            ))}
+          </div>
+        )}
+
+        <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+          {/* Prev */}
+          <div style={{ flex:"0 0 22%", display:"flex", flexDirection:"column", alignItems:"center", opacity:0.22 }}>
+            {prevChordLabel && (
+              <>
+                <div style={{ width:"100%", borderRadius:10, overflow:"hidden", background:"#000", border:"1px solid #111" }}>
+                  {CHORD_IMAGES[prevChordLabel]
+                    ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
+                        <img src={CHORD_IMAGES[prevChordLabel]} alt={prevChordLabel}
+                          style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
+                      </div>
+                    : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
+                        justifyContent:"center", fontSize:20, fontWeight:900, color:"#333" }}>{prevChordLabel}</div>
+                  }
+                </div>
+                <div style={{ marginTop:4, fontSize:12, fontWeight:900, color:"#444" }}>{prevChordLabel}</div>
+              </>
+            )}
+          </div>
+
+          {/* Current — center */}
+          <div style={{ flex:"0 0 56%", display:"flex", flexDirection:"column", alignItems:"center" }}>
+            <div style={{ width:"100%", borderRadius:14, overflow:"hidden", background:"#000",
+              border: currentChordLabel ? `2px solid #FFBE0B` : "1px solid #2a2a2a",
+              boxShadow: currentChordLabel ? "0 0 24px rgba(255,190,11,0.45)" : "none" }}>
+              {currentChordLabel && CHORD_IMAGES[currentChordLabel]
+                ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
+                    <img src={CHORD_IMAGES[currentChordLabel]} alt={currentChordLabel}
+                      style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
+                  </div>
+                : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
+                    justifyContent:"center", fontSize:36, fontWeight:900,
+                    color: currentChordLabel ? "#FFBE0B" : "#2a2a2a" }}>
+                    {currentChordLabel || "?"}
+                  </div>
+              }
+            </div>
+            <div style={{ marginTop:6, fontSize:19, fontWeight:900,
+              color: currentChordLabel ? "#FFBE0B" : "#333" }}>
+              {currentChordLabel || "Assign chords to blocks"}
+            </div>
+          </div>
+
+          {/* Next */}
+          <div style={{ flex:"0 0 22%", display:"flex", flexDirection:"column", alignItems:"center", opacity:0.22 }}>
+            {nextChordLabel && (
+              <>
+                <div style={{ width:"100%", borderRadius:10, overflow:"hidden", background:"#000", border:"1px solid #111" }}>
+                  {CHORD_IMAGES[nextChordLabel]
+                    ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
+                        <img src={CHORD_IMAGES[nextChordLabel]} alt={nextChordLabel}
+                          style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
+                      </div>
+                    : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
+                        justifyContent:"center", fontSize:20, fontWeight:900, color:"#333" }}>{nextChordLabel}</div>
+                  }
+                </div>
+                <div style={{ marginTop:4, fontSize:12, fontWeight:900, color:"#444" }}>{nextChordLabel}</div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+        borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+
+        <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:14, flexWrap:"wrap" }}>
+          <button onClick={()=>setAssignMode(m=>!m)} style={{
+            padding:"8px 16px", borderRadius:10,
+            border: assignMode ? "2px solid #FFBE0B" : "1px solid #2a2a2a",
+            background: assignMode ? "rgba(255,190,11,0.12)" : "#111",
+            color: assignMode ? "#FFBE0B" : "#666",
+            fontSize:12, fontWeight:700, cursor:"pointer",
+          }}>{assignMode ? "🎸 Strumming" : "✏️ Assign Chords"}</button>
+
+          {assignMode && (
+            <button onClick={()=>setChordPickerOpen(p=>!p)} style={{
+              padding:"8px 16px", borderRadius:10, border:"1px solid #2a2a2a",
+              background:"#111", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer",
+            }}>Chord: <strong>{assignChord}</strong> ▾</button>
+          )}
+
+          <button onClick={()=>setMuteMetronome(m=>!m)} style={{
+            padding:"8px 16px", borderRadius:10,
+            border: muteMetronome ? "2px solid #e74c3c" : "1px solid #2a2a2a",
+            background: muteMetronome ? "rgba(231,76,60,0.1)" : "#111",
+            color: muteMetronome ? "#e74c3c" : "#666",
+            fontSize:12, fontWeight:700, cursor:"pointer",
+          }}>{muteMetronome ? "🔇 Muted" : "🔔 Click"}</button>
+        </div>
+
+        {assignMode && chordPickerOpen && (
+          <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
+            padding:"12px", marginBottom:12,
+            display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
+            {ALL_CHORDS.map(c=>(
+              <button key={c} onClick={()=>{ setAssignChord(c); setChordPickerOpen(false); }} style={{
+                padding:"6px 4px", borderRadius:8, border:"none",
+                background: assignChord===c ? "linear-gradient(135deg,#FFBE0B,#F77F00)" : "#1c1c1c",
+                color: assignChord===c ? "#111" : "#888",
+                fontSize:11, fontWeight:800, cursor:"pointer",
+              }}>{c}</button>
+            ))}
+          </div>
+        )}
+
+        {assignMode && (
+          <div style={{ textAlign:"center", fontSize:11, color:"#555", marginBottom:10 }}>
+            Tap a block to assign <span style={{ color:"#FFBE0B" }}>{assignChord}</span> · tap again to remove · press <strong style={{color:"#888"}}>Strumming</strong> when done
+          </div>
+        )}
+
+        {Array(numRows).fill(null).map((_,rowIdx)=>(
+          <div key={rowIdx} style={{ marginBottom:10 }}>
+            <div style={{ fontSize:10, color:"#444", textAlign:"center", marginBottom:5, letterSpacing:1 }}>ROW {rowIdx+1}</div>
+            <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+              {Array(8).fill(null).map((_,colIdx)=>{
+                const i=rowIdx*8+colIdx;
+                const assignedChord=blockChords[i];
+                return (
+                  <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                    <BuildBlock dir={DIRS16[colIdx]} active={strumActive[i]} beat={currentStrum===i&&isPlaying}
+                      assigned={!!assignedChord} onClick={()=>handleBlockClick(i)} />
+                    <div style={{ fontSize:8, fontWeight:800, height:10,
+                      color: assignedChord ? "#FFBE0B" : "transparent" }}>{assignedChord||"·"}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, flexWrap:"wrap" }}>
+          {numRows<10 && <button onClick={()=>{ setNumRows(n=>n+1); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+            padding:"8px 16px", borderRadius:10, border:"1px dashed #FFBE0B",
+            background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>}
+          {numRows>1 && <button onClick={()=>{ setNumRows(n=>n-1); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+            padding:"8px 16px", borderRadius:10, border:"1px solid #2a2a2a",
+            background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>}
+          <button onClick={()=>{ 
+            const arr = defaultBuild(8);
+            while(arr.length < 80) arr.push(false);
+            setStrumActive(arr);
+            setBlockChords(Array(80).fill(null));
+            setStrumPatternBtn(null); setNumRows(1); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+            padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
+            background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset All</button>
+        </div>
+      </div>
+
+      <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
+        totalBlocks={8} currentBeat={currentStrum}
+        accentColor="#FFBE0B" onToggle={handleTogglePlay}
+        canPlay={true} />
+    </>
   );
 }
 
@@ -783,7 +1045,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                 if(beatRef) beatRef.current=0;
                 if(chordRef) chordRef.current=0;
               }} style={{
-              borderRadius:10, border:"none", padding:"0 0 5px",
+              borderRadius:10, padding:"0 0 5px",
               background:"#000",
               border: isSel ? `2px solid ${accentColor}` : "2px solid #2a2210",
               cursor:isDis?"not-allowed":"pointer", opacity:isDis?0.25:1,
@@ -1022,7 +1284,7 @@ function Arrow({ dir, active, dim, beat }) {
   );
 }
 
-function BuildBlock({ dir, active, beat, onClick }) {
+function BuildBlock({ dir, active, beat, onClick, assigned }) {
   return (
     <div onClick={onClick} style={{ width:40, height:40, borderRadius:10,
       display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer",
@@ -1030,13 +1292,14 @@ function BuildBlock({ dir, active, beat, onClick }) {
         : active ? "#1c1c1c"
         : "#111",
       border: beat ? "2px solid #FFBE0B"
+        : assigned ? "2px solid rgba(255,190,11,0.5)"
         : active ? "1px solid #555"
         : "1px dashed #2a2a2a",
       opacity: active ? 1 : 0.35,
       transform: beat ? "scale(1.12)" : "scale(1)",
       transition:"all 0.08s",
-      boxShadow: beat
-        ? "0 0 14px rgba(255,190,11,0.8)"
+      boxShadow: beat ? "0 0 14px rgba(255,190,11,0.8)"
+        : assigned ? "0 0 8px rgba(255,190,11,0.2)"
         : active ? "0 0 6px rgba(255,255,255,0.07), inset 0 1px 0 rgba(255,255,255,0.06)"
         : "none" }}>
       <span style={{ color: beat ? "#111" : active ? "#ccc" : "#444", fontWeight:700 }}>{dir}</span>
