@@ -17,7 +17,7 @@ const STRUM_PATTERNS = {
 };
 
 const DIRS16 = Array(16).fill(null).map((_,i) => i%2===0 ? "↓" : "↑");
-const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7","B7","Am/G","C/B","C/G","C7","Cadd9","D7","Dsus4","G/B","Em7","A7"];
+const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
 const BEATS_OPTIONS = [1, 2, 4];
 
 function hexToRgb(hex) {
