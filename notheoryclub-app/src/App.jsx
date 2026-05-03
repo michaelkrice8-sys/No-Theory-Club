@@ -57,11 +57,13 @@ function useAudio() {
     return ctx;
   }, []);
 
-  const playBuf = useCallback((buf, gain=1.0) => {
+  const playBuf = useCallback((buf, gain=1.0, semitones=0) => {
     const ctx=ctxRef.current; if(!ctx||!buf) return;
     const src=ctx.createBufferSource(), g=ctx.createGain();
     src.buffer=buf; src.connect(g); g.connect(ctx.destination);
-    g.gain.value=gain; src.start(ctx.currentTime);
+    g.gain.value=gain;
+    if(semitones !== 0) src.playbackRate.value = Math.pow(2, semitones/12);
+    src.start(ctx.currentTime);
   }, []);
 
   const playClick = useCallback((accent) => {
@@ -78,10 +80,10 @@ function useAudio() {
     playBuf(isDown?downRef.current:upRef.current, isDown?1.0:0.75);
   }, [playBuf]);
 
-  const playChordStrum = useCallback((chord, isDown) => {
+  const playChordStrum = useCallback((chord, isDown, semitones=0) => {
     const key=chord+"_"+(isDown?"down":"up");
     const buf=chordBufsRef.current[key];
-    playBuf(buf||(isDown?downRef.current:upRef.current), isDown?1.0:0.75);
+    playBuf(buf||(isDown?downRef.current:upRef.current), isDown?1.0:0.75, semitones);
   }, [playBuf]);
 
   const playChordClick = useCallback((accent) => {
@@ -720,6 +722,7 @@ function AdvancedBuildSong({ audio }) {
   const [currentStrum, setCurrentStrum] = useState(-1);
   const [currentChordLabel, setCurrentChordLabel] = useState(null);
   const [muteMetronome, setMuteMetronome] = useState(false);
+  const [capo, setCapo] = useState(0);
 
   const intervalRef = useRef(null);
   const bpmRef = useRef(bpm);
@@ -730,6 +733,7 @@ function AdvancedBuildSong({ audio }) {
   const rowSizesRef = useRef(rowSizes);
   const currentChordRef = useRef(null);
   const muteRef = useRef(muteMetronome);
+  const capoRef = useRef(capo);
 
   // Compute flat block offsets from rowSizes
   const getRowOffsets = (sizes) => {
@@ -745,6 +749,7 @@ function AdvancedBuildSong({ audio }) {
   useEffect(()=>{ blockChordsRef.current=blockChords; },[blockChords]);
   useEffect(()=>{ rowSizesRef.current=rowSizes; totalBlocksRef.current=rowSizes.reduce((a,b)=>a+b,0); },[rowSizes]);
   useEffect(()=>{ muteRef.current=muteMetronome; },[muteMetronome]);
+  useEffect(()=>{ capoRef.current=capo; },[capo]);
 
   const tick = useCallback(()=>{
     const total=totalBlocksRef.current;
@@ -755,7 +760,7 @@ function AdvancedBuildSong({ audio }) {
     if(assignedChord){ currentChordRef.current=assignedChord; setCurrentChordLabel(assignedChord); }
     if(!muteRef.current && next%4===0) playChordClick(next===0);
     const isDown=next%2===0;
-    if(strumRef.current[next] && currentChordRef.current) playChordStrum(currentChordRef.current, isDown);
+    if(strumRef.current[next] && currentChordRef.current) playChordStrum(currentChordRef.current, isDown, capoRef.current);
   },[playChordClick,playChordStrum]);
 
   const startMetronome = useCallback(()=>{
@@ -917,6 +922,23 @@ function AdvancedBuildSong({ audio }) {
             color: muteMetronome ? "#e74c3c" : "#666",
             fontSize:12, fontWeight:700, cursor:"pointer",
           }}>{muteMetronome ? "🔇 Muted" : "🔔 Click"}</button>
+
+          {/* Capo */}
+          <div style={{ display:"flex", alignItems:"center", gap:6,
+            background:"#111", border:"1px solid #2a2a2a", borderRadius:10, padding:"6px 10px" }}>
+            <span style={{ fontSize:11, color:"#555", fontWeight:700 }}>CAPO</span>
+            <button onClick={()=>setCapo(c=>Math.max(0,c-1))} style={{
+              width:22, height:22, borderRadius:6, border:"1px solid #333",
+              background:"#1a1a1a", color:"#aaa", fontSize:14, cursor:"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center",
+            }}>−</button>
+            <span style={{ fontSize:14, fontWeight:900, color: capo>0?"#FFBE0B":"#444", minWidth:14, textAlign:"center" }}>{capo}</span>
+            <button onClick={()=>setCapo(c=>Math.min(7,c+1))} style={{
+              width:22, height:22, borderRadius:6, border:"1px solid #333",
+              background:"#1a1a1a", color:"#aaa", fontSize:14, cursor:"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center",
+            }}>+</button>
+          </div>
         </div>
 
         {assignMode && chordPickerOpen && (
