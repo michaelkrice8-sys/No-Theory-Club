@@ -707,7 +707,8 @@ function SimpleBuildSong({ audio }) {
 // ─── ADVANCED BUILD A SONG ───────────────────────────────────────────────────
 function AdvancedBuildSong({ audio }) {
   const { init, playChordClick, playChordStrum } = audio;
-  const [rowSizes, setRowSizes] = useState([8]); // each entry = 4, 6, or 8
+  const [rowSizes, setRowSizes] = useState([8]);
+  const [rowRepeats, setRowRepeats] = useState([1]); // repeat count per row
   const [strumActive, setStrumActive] = useState(()=>{
     const arr = defaultBuild(8);
     while(arr.length < 80) arr.push(false);
@@ -720,9 +721,16 @@ function AdvancedBuildSong({ audio }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(60);
   const [currentStrum, setCurrentStrum] = useState(-1);
+  const [currentFlatIdx, setCurrentFlatIdx] = useState(-1);
   const [currentChordLabel, setCurrentChordLabel] = useState(null);
   const [muteMetronome, setMuteMetronome] = useState(false);
   const [capo, setCapo] = useState(0);
+  const [savedPatterns, setSavedPatterns] = useState(()=>{
+    try { return JSON.parse(localStorage.getItem("ntc_patterns")||"[]"); } catch{ return []; }
+  });
+  const [showSaved, setShowSaved] = useState(false);
+  const [savePrompt, setSavePrompt] = useState(false);
+  const [saveName, setSaveName] = useState("");
 
   const intervalRef = useRef(null);
   const bpmRef = useRef(bpm);
@@ -731,6 +739,7 @@ function AdvancedBuildSong({ audio }) {
   const strumBeatRef = useRef(-1);
   const totalBlocksRef = useRef(8);
   const rowSizesRef = useRef(rowSizes);
+  const rowRepeatsRef = useRef(rowRepeats);
   const currentChordRef = useRef(null);
   const muteRef = useRef(muteMetronome);
   const capoRef = useRef(capo);
@@ -742,12 +751,13 @@ function AdvancedBuildSong({ audio }) {
     for(const s of sizes){ offsets.push(offset); offset+=s; }
     return offsets;
   };
-  const totalBlocks = rowSizes.reduce((a,b)=>a+b, 0);
+  const totalBlocks = rowSizes.reduce((a,b,i)=>a+b*(rowRepeats[i]||1),0);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ strumRef.current=strumActive; },[strumActive]);
   useEffect(()=>{ blockChordsRef.current=blockChords; },[blockChords]);
-  useEffect(()=>{ rowSizesRef.current=rowSizes; totalBlocksRef.current=rowSizes.reduce((a,b)=>a+b,0); },[rowSizes]);
+  useEffect(()=>{ rowSizesRef.current=rowSizes; rowRepeatsRef.current=rowRepeats;
+    totalBlocksRef.current=rowSizes.reduce((a,b,i)=>a+b*(rowRepeats[i]||1),0); },[rowSizes,rowRepeats]);
   useEffect(()=>{ muteRef.current=muteMetronome; },[muteMetronome]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
 
@@ -756,11 +766,31 @@ function AdvancedBuildSong({ audio }) {
     const next=(strumBeatRef.current+1)%total;
     strumBeatRef.current=next;
     setCurrentStrum(next);
-    const assignedChord=blockChordsRef.current[next];
+
+    // Build flat sequence respecting repeats to find actual block index
+    const sizes=rowSizesRef.current;
+    const repeats=rowRepeatsRef.current;
+    let flatIdx=0, blockIdx=next;
+    for(let r=0;r<sizes.length;r++){
+      const rowTotal=sizes[r]*(repeats[r]||1);
+      if(blockIdx<rowTotal){
+        // blockIdx within this row's repeated sequence
+        const posInRow=blockIdx%sizes[r];
+        // offset in strumActive/blockChords array
+        let offset=0;
+        for(let j=0;j<r;j++) offset+=sizes[j];
+        flatIdx=offset+posInRow;
+        break;
+      }
+      blockIdx-=rowTotal;
+    }
+
+    const assignedChord=blockChordsRef.current[flatIdx];
     if(assignedChord){ currentChordRef.current=assignedChord; setCurrentChordLabel(assignedChord); }
+    setCurrentFlatIdx(flatIdx);
     if(!muteRef.current && next%4===0) playChordClick(next===0);
     const isDown=next%2===0;
-    if(strumRef.current[next] && currentChordRef.current) playChordStrum(currentChordRef.current, isDown, capoRef.current);
+    if(strumRef.current[flatIdx] && currentChordRef.current) playChordStrum(currentChordRef.current, isDown, capoRef.current);
   },[playChordClick,playChordStrum]);
 
   const startMetronome = useCallback(()=>{
@@ -775,18 +805,48 @@ function AdvancedBuildSong({ audio }) {
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current); intervalRef.current=null;
     setCurrentStrum(-1); strumBeatRef.current=-1;
+    setCurrentFlatIdx(-1);
     setCurrentChordLabel(null); currentChordRef.current=null;
   },[]);
 
-  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,rowSizes]);
+  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,rowSizes,rowRepeats]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
-  const handleTogglePlay = async()=>{
-    if(isPlaying){stopMetronome();setIsPlaying(false);}
-    else{await init();startMetronome();setIsPlaying(true);}
+  const handleSave = () => {
+    if(!saveName.trim()) return;
+    if(savedPatterns.length >= 20) { alert("You've reached the 20 pattern limit — delete one first!"); return; }
+    const pattern = {
+      id: Date.now(),
+      name: saveName.trim(),
+      rowSizes, rowRepeats, strumActive, blockChords, bpm, capo,
+      savedAt: new Date().toLocaleDateString(),
+    };
+    const updated = [...savedPatterns, pattern];
+    setSavedPatterns(updated);
+    localStorage.setItem("ntc_patterns", JSON.stringify(updated));
+    setSavePrompt(false);
+    setSaveName("");
+    setShowSaved(true);
   };
 
-  const handleBlockClick = (i)=>{
+  const handleLoad = (p) => {
+    if(isPlaying){stopMetronome();setIsPlaying(false);}
+    setRowSizes(p.rowSizes);
+    setRowRepeats(p.rowRepeats||p.rowSizes.map(()=>1));
+    setStrumActive(p.strumActive);
+    setBlockChords(p.blockChords);
+    setBpm(p.bpm);
+    setCapo(p.capo||0);
+    setShowSaved(false);
+  };
+
+  const handleDelete = (id) => {
+    const updated = savedPatterns.filter(p=>p.id!==id);
+    setSavedPatterns(updated);
+    localStorage.setItem("ntc_patterns", JSON.stringify(updated));
+  };
+
+  const handleTogglePlay = async()=>{
     if(isPlaying){stopMetronome();setIsPlaying(false);}
     if(assignMode){
       setBlockChords(p=>p.map((v,idx)=>idx===i?(v===assignChord?null:assignChord):v));
@@ -923,6 +983,7 @@ function AdvancedBuildSong({ audio }) {
             fontSize:12, fontWeight:700, cursor:"pointer",
           }}>{muteMetronome ? "🔇 Muted" : "🔔 Click"}</button>
 
+
           {/* Capo */}
           <div style={{ display:"flex", alignItems:"center", gap:6,
             background:"#111", border:"1px solid #2a2a2a", borderRadius:10, padding:"6px 10px" }}>
@@ -980,6 +1041,15 @@ function AdvancedBuildSong({ audio }) {
                     background:"#1a1a1a", color:"#FFBE0B", fontSize:9,
                     fontWeight:700, cursor:"pointer",
                   }}>{sizeLabel} ↻</button>
+                  <button onClick={()=>{
+                    if(isPlaying){stopMetronome();setIsPlaying(false);}
+                    setRowRepeats(p=>p.map((r,i)=>i===rowIdx?(r>=4?1:r+1):r));
+                  }} style={{
+                    padding:"2px 8px", borderRadius:6, border:"1px solid #333",
+                    background: (rowRepeats[rowIdx]||1)>1 ? "rgba(255,190,11,0.15)" : "#1a1a1a",
+                    color: (rowRepeats[rowIdx]||1)>1 ? "#FFBE0B" : "#555",
+                    fontSize:9, fontWeight:700, cursor:"pointer",
+                  }}>{rowRepeats[rowIdx]||1}× 🔁</button>
                 </div>
                 <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
                   {Array(rowSize).fill(null).map((_,colIdx)=>{
@@ -987,7 +1057,7 @@ function AdvancedBuildSong({ audio }) {
                     const assignedChord=blockChords[i];
                     return (
                       <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                        <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying}
+                        <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]} beat={currentFlatIdx===i&&isPlaying}
                           assigned={!!assignedChord} onClick={()=>handleBlockClick(i)} />
                         <div style={{ fontSize:8, fontWeight:800, height:10,
                           color: assignedChord ? "#FFBE0B" : "transparent" }}>{assignedChord||"·"}</div>
@@ -1001,10 +1071,10 @@ function AdvancedBuildSong({ audio }) {
         })()}
 
         <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, flexWrap:"wrap" }}>
-          {rowSizes.length<10 && <button onClick={()=>{ setRowSizes(p=>[...p,8]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+          {rowSizes.length<10 && <button onClick={()=>{ setRowSizes(p=>[...p,8]); setRowRepeats(p=>[...p,1]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
             padding:"8px 16px", borderRadius:10, border:"1px dashed #FFBE0B",
             background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>}
-          {rowSizes.length>1 && <button onClick={()=>{ setRowSizes(p=>p.slice(0,-1)); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+          {rowSizes.length>1 && <button onClick={()=>{ setRowSizes(p=>p.slice(0,-1)); setRowRepeats(p=>p.slice(0,-1)); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
             padding:"8px 16px", borderRadius:10, border:"1px solid #2a2a2a",
             background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>}
           <button onClick={()=>{ 
@@ -1012,10 +1082,89 @@ function AdvancedBuildSong({ audio }) {
             while(arr.length < 80) arr.push(false);
             setStrumActive(arr);
             setBlockChords(Array(80).fill(null));
-            setRowSizes([8]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+            setRowSizes([8]); setRowRepeats([1]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
             padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
             background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset All</button>
+          <button onClick={()=>setSavePrompt(p=>!p)} style={{
+            padding:"8px 14px", borderRadius:10, border:"1px solid #FFBE0B44",
+            background:"rgba(255,190,11,0.07)", color:"#FFBE0B",
+            fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
         </div>
+
+        {/* Save prompt */}
+        {savePrompt && (
+          <div style={{ marginTop:14, background:"#111", border:"1px solid #FFBE0B33",
+            borderRadius:14, padding:"16px" }}>
+            <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name your pattern</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&handleSave()}
+                placeholder="e.g. Verse riff, Intro loop..."
+                style={{ flex:1, padding:"9px 12px", borderRadius:10,
+                  border:"1px solid #333", background:"#0a0a0a",
+                  color:"#fff", fontSize:13, outline:"none" }} />
+              <button onClick={handleSave} style={{
+                padding:"9px 16px", borderRadius:10, border:"none",
+                background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+              <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
+                padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ fontSize:10, color:"#444", textAlign:"center", marginTop:8 }}>
+              {savedPatterns.length}/20 slots used
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Saved Patterns */}
+      <div style={{ width:"100%", marginBottom:20 }}>
+        <button onClick={()=>setShowSaved(s=>!s)} style={{
+          width:"100%", padding:"12px 16px", borderRadius:14,
+          border:"1px solid #2a2a2a", background:"#111",
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          cursor:"pointer" }}>
+          <span style={{ fontSize:13, fontWeight:700, color:"#888" }}>
+            📂 My Patterns <span style={{ color:"#555", fontWeight:400 }}>({savedPatterns.length}/20)</span>
+          </span>
+          <span style={{ color:"#555", fontSize:12 }}>{showSaved ? "▲" : "▼"}</span>
+        </button>
+
+        {showSaved && (
+          <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:8 }}>
+            {savedPatterns.length===0 && (
+              <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"20px 0" }}>
+                No saved patterns yet — build something and hit 💾
+              </div>
+            )}
+            {savedPatterns.map((p,idx)=>(
+              <div key={p.id} style={{
+                background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
+                padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between",
+              }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:800, color:"#fff",
+                    whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                  <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
+                    {p.rowSizes?.length} row{p.rowSizes?.length!==1?"s":""} · {p.bpm} BPM
+                    {p.capo>0 && <span style={{ color:"#FFBE0B88" }}> · Capo {p.capo}</span>}
+                    <span style={{ marginLeft:6 }}>· {p.savedAt}</span>
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:6, marginLeft:12 }}>
+                  <button onClick={()=>handleLoad(p)} style={{
+                    padding:"7px 14px", borderRadius:9, border:"none",
+                    background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                    color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                  <button onClick={()=>handleDelete(p.id)} style={{
+                    padding:"7px 10px", borderRadius:9, border:"1px solid #333",
+                    background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
