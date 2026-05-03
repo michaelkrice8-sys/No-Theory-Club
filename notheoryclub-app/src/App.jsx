@@ -101,7 +101,11 @@ function useAudio() {
 
 // ─── MAIN APP ───────────────────────────────────────────────────────────────
 export default function App() {
-  const [tab, setTab] = useState("strum");
+  const hasSharedPattern = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("pattern");
+
+  const [tab, setTab] = useState(hasSharedPattern ? "song" : "strum");
+  const [buildMode, setBuildMode] = useState(hasSharedPattern ? "advanced" : "simple");
   const audio = useAudio();
 
   const tabs = [
@@ -160,7 +164,7 @@ export default function App() {
         <ChordsTab audio={audio} />
       </div>
       <div style={{ display: tab==="song" ? "block" : "none" }}>
-        <BuildSongTab audio={audio} />
+        <BuildSongTab audio={audio} initialBuildMode={buildMode} />
       </div>
     </div>
   );
@@ -500,8 +504,8 @@ function ChordsTab({ audio }) {
 }
 
 // ─── BUILD A SONG TAB ────────────────────────────────────────────────────────
-function BuildSongTab({ audio }) {
-  const [buildMode, setBuildMode] = useState("simple"); // "simple" | "advanced"
+function BuildSongTab({ audio, initialBuildMode="simple" }) {
+  const [buildMode, setBuildMode] = useState(initialBuildMode);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
@@ -798,7 +802,7 @@ function AdvancedBuildSong({ audio }) {
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
     strumBeatRef.current=-1; currentChordRef.current=null;
-    setCurrentStrum(-1); setCurrentChordLabel(null);
+    // Don't reset currentChordLabel here to avoid layout jump
     const ms=(60/bpmRef.current/4)*1000;
     intervalRef.current=setInterval(tick,ms);
     tick();
@@ -897,14 +901,15 @@ function AdvancedBuildSong({ audio }) {
       setCountInBeat(-1);
     } else {
       await init();
-      // 4 beat count-in
       const ms = (60/bpm)*1000;
       let beat = 4;
+      let beatIdx = 0;
       setCountIn(beat);
-      setCountInBeat(0);
+      setCountInBeat(beatIdx);
       playChordClick(true);
       const countInterval = setInterval(()=>{
         beat--;
+        beatIdx += 2;
         if(beat <= 0){
           clearInterval(countInterval);
           setCountIn(0);
@@ -913,8 +918,8 @@ function AdvancedBuildSong({ audio }) {
           setIsPlaying(true);
         } else {
           setCountIn(beat);
-          setCountInBeat(b=>(b+2)%8); // animate every 2 sixteenths = 1 quarter
-          playChordClick(beat===4);
+          setCountInBeat(beatIdx % 8);
+          playChordClick(false);
         }
       }, ms);
     }
@@ -950,24 +955,23 @@ function AdvancedBuildSong({ audio }) {
 
   return (
     <>
-      {/* Chord carousel display */}
-      <div style={{ width:"100%", marginBottom:16 }}>
+      {/* Chord carousel display — fixed height to prevent layout jump */}
+      <div style={{ width:"100%", marginBottom:16, minHeight:220 }}>
         {/* Position dots for assigned chords */}
-        {assignedChords.length > 0 && (
-          <div style={{ display:"flex", justifyContent:"center", gap:5, marginBottom:10 }}>
-            {assignedChords.map((c,i)=>(
-              <div key={i} style={{
-                width: c===currentChordLabel ? 18 : 6, height:6, borderRadius:3,
-                background: c===currentChordLabel ? "#FFBE0B" : "#2a2a2a",
-                transition:"all 0.25s ease",
-              }} />
-            ))}
-          </div>
-        )}
+        <div style={{ display:"flex", justifyContent:"center", gap:5, marginBottom:10, minHeight:16 }}>
+          {assignedChords.map((c,i)=>(
+            <div key={i} style={{
+              width: c===currentChordLabel ? 18 : 6, height:6, borderRadius:3,
+              background: c===currentChordLabel ? "#FFBE0B" : "#2a2a2a",
+              transition:"all 0.25s ease",
+            }} />
+          ))}
+        </div>
 
         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
           {/* Prev */}
-          <div style={{ flex:"0 0 22%", display:"flex", flexDirection:"column", alignItems:"center", opacity:0.22 }}>
+          <div style={{ flex:"0 0 22%", display:"flex", flexDirection:"column", alignItems:"center",
+            opacity:0.22, minHeight:160 }}>
             {prevChordLabel && (
               <>
                 <div style={{ width:"100%", borderRadius:10, overflow:"hidden", background:"#000", border:"1px solid #111" }}>
@@ -985,31 +989,34 @@ function AdvancedBuildSong({ audio }) {
             )}
           </div>
 
-          {/* Current — center */}
+          {/* Current — center — always takes up full space */}
           <div style={{ flex:"0 0 56%", display:"flex", flexDirection:"column", alignItems:"center" }}>
             <div style={{ width:"100%", borderRadius:14, overflow:"hidden", background:"#000",
               border: currentChordLabel ? `2px solid #FFBE0B` : "1px solid #2a2a2a",
-              boxShadow: currentChordLabel ? "0 0 24px rgba(255,190,11,0.45)" : "none" }}>
+              boxShadow: currentChordLabel ? "0 0 24px rgba(255,190,11,0.45)" : "none",
+              transition:"border 0.2s, box-shadow 0.2s",
+              aspectRatio:"3/4" }}>
               {currentChordLabel && CHORD_IMAGES[currentChordLabel]
-                ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
+                ? <div style={{ width:"100%", height:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
                     <img src={CHORD_IMAGES[currentChordLabel]} alt={currentChordLabel}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
                   </div>
-                : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
+                : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center",
                     justifyContent:"center", fontSize:36, fontWeight:900,
                     color: currentChordLabel ? "#FFBE0B" : "#2a2a2a" }}>
                     {currentChordLabel || "?"}
                   </div>
               }
             </div>
-            <div style={{ marginTop:6, fontSize:19, fontWeight:900,
+            <div style={{ marginTop:6, fontSize:19, fontWeight:900, minHeight:28,
               color: currentChordLabel ? "#FFBE0B" : "#333" }}>
-              {currentChordLabel || "Assign chords to blocks"}
+              {currentChordLabel || "Assign chords to play"}
             </div>
           </div>
 
           {/* Next */}
-          <div style={{ flex:"0 0 22%", display:"flex", flexDirection:"column", alignItems:"center", opacity:0.22 }}>
+          <div style={{ flex:"0 0 22%", display:"flex", flexDirection:"column", alignItems:"center",
+            opacity:0.22, minHeight:160 }}>
             {nextChordLabel && (
               <>
                 <div style={{ width:"100%", borderRadius:10, overflow:"hidden", background:"#000", border:"1px solid #111" }}>
@@ -1032,6 +1039,40 @@ function AdvancedBuildSong({ audio }) {
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
         <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+
+        {/* Compact metronome — BPM slider + presets + start */}
+        <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
+          padding:"12px 14px", marginBottom:14 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
+            <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+          </div>
+          <input type="range" min={40} max={160} value={bpm}
+            onChange={e=>setBpm(Number(e.target.value))}
+            style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+          <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
+            {[60,80,100,120].map(b=>(
+              <button key={b} onClick={()=>setBpm(b)} style={{
+                flex:1, padding:"5px 0", borderRadius:8,
+                border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
+                background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
+                color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+            ))}
+          </div>
+          <button onClick={handleTogglePlay} style={{
+            width:"100%", padding:"11px", borderRadius:12, border:"none",
+            background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
+              : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
+              : "linear-gradient(135deg,#1a6b3c,#27ae60)",
+            color:"#fff", fontSize: countIn>0 ? 22 : 15, fontWeight:800,
+            cursor:"pointer", transition:"all 0.15s",
+            boxShadow: countIn>0 ? "0 4px 16px rgba(255,190,11,0.3)"
+              : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
+              : "0 4px 16px rgba(39,174,96,0.4)",
+          }}>
+            {countIn>0 ? countIn : isPlaying ? "⏹ Stop" : "▶ Start"}
+          </button>
+        </div>
 
         <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:14, flexWrap:"wrap" }}>
           <button onClick={()=>setAssignMode(m=>!m)} style={{
@@ -1132,9 +1173,17 @@ function AdvancedBuildSong({ audio }) {
                     const isCountInGlow = countIn>0 && rowIdx===0 && colIdx===countInBeat;
                     return (
                       <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                        <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
-                          beat={currentFlatIdx===i&&isPlaying || isCountInGlow}
-                          assigned={!!assignedChord} onClick={()=>handleBlockClick(i)} />
+                        {isCountInGlow
+                          ? <div style={{ width:40, height:40, borderRadius:10,
+                              display:"flex", alignItems:"center", justifyContent:"center",
+                              background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                              boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                              <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
+                            </div>
+                          : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                              beat={currentFlatIdx===i&&isPlaying}
+                              assigned={!!assignedChord} onClick={()=>handleBlockClick(i)} />
+                        }
                         <div style={{ fontSize:20, fontWeight:900, height:22,
                           color: assignedChord ? "#FFBE0B" : "transparent",
                           textShadow: assignedChord ? "0 0 8px rgba(255,190,11,0.6)" : "none",
@@ -1276,10 +1325,6 @@ function AdvancedBuildSong({ audio }) {
         )}
       </div>
 
-      <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying||countIn>0}
-        totalBlocks={8} currentBeat={currentStrum}
-        accentColor="#FFBE0B" onToggle={handleTogglePlay}
-        canPlay={true} countIn={countIn} />
     </>
   );
 }
