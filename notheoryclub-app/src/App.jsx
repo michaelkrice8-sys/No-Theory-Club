@@ -659,7 +659,7 @@ function SimpleBuildSong({ audio }) {
         </>
       )}
 
-      <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+      <div data-song-panel style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
         <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>SONG BUILDER</div>
 
@@ -769,31 +769,8 @@ function AdvancedBuildSong({ audio }) {
   const [currentChordLabel, setCurrentChordLabel] = useState(null);
   const [muteMetronome, setMuteMetronome] = useState(false);
   const [capo, setCapo] = useState(0);
-  const [autoScroll, setAutoScroll] = useState(false);
-  const scrollRef = useRef(null);
-  const scrollIntervalRef = useRef(null);
-  const userScrolledRef = useRef(false);
-
-  useEffect(()=>{
-    if(!autoScroll || !isPlaying) {
-      clearInterval(scrollIntervalRef.current);
-      return;
-    }
-    // Slow auto-scroll — 1px every 40ms = ~25px/sec
-    scrollIntervalRef.current = setInterval(()=>{
-      if(userScrolledRef.current) { clearInterval(scrollIntervalRef.current); return; }
-      window.scrollBy({ top:1, behavior:"instant" });
-    }, 40);
-    // Stop if user manually scrolls
-    const onScroll = () => { userScrolledRef.current = true; clearInterval(scrollIntervalRef.current); };
-    window.addEventListener("touchmove", onScroll, { passive:true });
-    window.addEventListener("wheel", onScroll, { passive:true });
-    return ()=>{
-      clearInterval(scrollIntervalRef.current);
-      window.removeEventListener("touchmove", onScroll);
-      window.removeEventListener("wheel", onScroll);
-    };
-  }, [autoScroll, isPlaying]);
+  const rowRefsRef = useRef([]);
+  const currentPlayingRowRef = useRef(-1);
   const [savedPatterns, setSavedPatterns] = useState(()=>{
     try { return JSON.parse(localStorage.getItem("ntc_patterns")||"[]"); } catch{ return []; }
   });
@@ -857,6 +834,39 @@ function AdvancedBuildSong({ audio }) {
     const assignedChord=blockChordsRef.current[flatIdx];
     if(assignedChord){ currentChordRef.current=assignedChord; setCurrentChordLabel(assignedChord); }
     setCurrentFlatIdx(flatIdx);
+
+    // Auto-scroll: track which row is playing, scroll one row at a time
+    if(rowSizesRef.current.length > 4) {
+      const sizes = rowSizesRef.current;
+      let offset = 0;
+      let playingRow = 0;
+      for(let r = 0; r < sizes.length; r++) {
+        if(flatIdx >= offset && flatIdx < offset + sizes[r]) { playingRow = r; break; }
+        offset += sizes[r];
+      }
+
+      if(playingRow !== currentPlayingRowRef.current) {
+        const prevRow = currentPlayingRowRef.current;
+        currentPlayingRowRef.current = playingRow;
+
+        if(playingRow === 0 && prevRow > 0) {
+          // Loop back — scroll to show top of song builder panel
+          const panelEl = rowRefsRef.current[0]?.closest?.('[data-song-panel]') || rowRefsRef.current[0]?.parentElement?.parentElement;
+          if(panelEl) {
+            const panelTop = panelEl.getBoundingClientRect().top + window.scrollY - 80;
+            window.scrollTo({ top: panelTop, behavior: "smooth" });
+          }
+        } else if(playingRow > 0) {
+          // Scroll down by one row height
+          const prevEl = rowRefsRef.current[prevRow >= 0 ? prevRow : 0];
+          const nextEl = rowRefsRef.current[playingRow];
+          if(prevEl && nextEl) {
+            const rowHeight = nextEl.getBoundingClientRect().top - prevEl.getBoundingClientRect().top;
+            window.scrollBy({ top: rowHeight, behavior: "smooth" });
+          }
+        }
+      }
+    }
     if(!muteRef.current && next%4===0) playChordClick(next===0);
     const isDown=next%2===0;
     if(strumRef.current[flatIdx] && currentChordRef.current) playChordStrum(currentChordRef.current, isDown, capoRef.current);
@@ -876,6 +886,7 @@ function AdvancedBuildSong({ audio }) {
     setCurrentStrum(-1); strumBeatRef.current=-1;
     setCurrentFlatIdx(-1);
     setCurrentChordLabel(null); currentChordRef.current=null;
+    currentPlayingRowRef.current=-1;
   },[]);
 
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,rowSizes,rowRepeats]);
@@ -1028,7 +1039,7 @@ function AdvancedBuildSong({ audio }) {
 
   return (
     <>
-      <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+      <div data-song-panel style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
         <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>SONG BUILDER</div>
 
@@ -1099,17 +1110,6 @@ function AdvancedBuildSong({ audio }) {
               display:"flex", alignItems:"center", justifyContent:"center",
             }}>+</button>
           </div>
-
-          {/* Auto-scroll */}
-          {rowSizes.length > 4 && (
-            <button onClick={()=>{ userScrolledRef.current=false; setAutoScroll(s=>!s); }} style={{
-              padding:"8px 12px", borderRadius:10,
-              border: autoScroll ? "2px solid #FFBE0B" : "1px solid #2a2a2a",
-              background: autoScroll ? "rgba(255,190,11,0.12)" : "#111",
-              color: autoScroll ? "#FFBE0B" : "#666",
-              fontSize:16, cursor:"pointer",
-            }} title="Auto-scroll">{autoScroll ? "⇅" : "⇅"}</button>
-          )}
         </div>
 
         {/* Chord picker — shows automatically when in assign mode */}
@@ -1142,7 +1142,8 @@ function AdvancedBuildSong({ audio }) {
             const cycleSize = rowSize===8 ? 4 : rowSize===4 ? 6 : 8;
             const sizeLabel = rowSize===6 ? "Triplet" : rowSize===4 ? "4" : "8";
             return (
-              <div key={rowIdx} style={{ marginBottom:10 }}>
+              <div key={rowIdx} style={{ marginBottom:10 }}
+                ref={el => { rowRefsRef.current[rowIdx] = el; }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
                   <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW {rowIdx+1}</div>
                   <button onClick={()=>{
