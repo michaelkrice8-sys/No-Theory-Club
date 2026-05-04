@@ -848,22 +848,20 @@ function AdvancedBuildSong({ audio }) {
 
   const handleShare = (p) => {
     try {
-      const data = {
+      const sparse = {
         n: p.name,
         rs: p.rowSizes,
         rr: p.rowRepeats||p.rowSizes.map(()=>1),
-        sa: p.strumActive,
-        bc: p.blockChords,
+        sa: p.strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; }, []),
+        bc: Object.fromEntries(p.blockChords.map((v,i)=>[i,v]).filter(([,v])=>v)),
         b: p.bpm,
         c: p.capo||0,
       };
-      const encoded = btoa(JSON.stringify(data));
+      const encoded = btoa(JSON.stringify(sparse));
       const url = `${window.location.origin}${window.location.pathname}?pattern=${encoded}`;
       navigator.clipboard.writeText(url).then(()=>{
         alert(`✅ Link copied!\n\nShare it with anyone — they can open it and load "${p.name}" directly.`);
-      }).catch(()=>{
-        prompt("Copy this link:", url);
-      });
+      }).catch(()=>{ prompt("Copy this link:", url); });
     } catch(e) { alert("Couldn't generate share link."); }
   };
 
@@ -873,17 +871,29 @@ function AdvancedBuildSong({ audio }) {
       const params = new URLSearchParams(window.location.search);
       const encoded = params.get("pattern");
       if(!encoded) return;
-      const data = JSON.parse(atob(encoded));
-      setRowSizes(data.rs||[8]);
-      setRowRepeats(data.rr||data.rs?.map(()=>1)||[1]);
-      setStrumActive(data.sa||defaultBuild(80));
-      setBlockChords(data.bc||Array(80).fill(null));
-      setBpm(data.b||60);
-      setCapo(data.c||0);
-      // Clean URL without reloading
+      const d = JSON.parse(atob(encoded));
+      setRowSizes(d.rs||[8]);
+      setRowRepeats(d.rr||d.rs?.map(()=>1)||[1]);
+      // Support both sparse (array of indices) and legacy (full array)
+      if(Array.isArray(d.sa) && (d.sa.length===0 || typeof d.sa[0]==="number")) {
+        const sa = Array(80).fill(false);
+        d.sa.forEach(i=>{ sa[i]=true; });
+        setStrumActive(sa);
+      } else {
+        setStrumActive(d.sa||Array(80).fill(false));
+      }
+      // Support both sparse (object) and legacy (array)
+      if(d.bc && !Array.isArray(d.bc)) {
+        const bc = Array(80).fill(null);
+        Object.entries(d.bc).forEach(([i,v])=>{ bc[Number(i)]=v; });
+        setBlockChords(bc);
+      } else {
+        setBlockChords(d.bc||Array(80).fill(null));
+      }
+      setBpm(d.b||60);
+      setCapo(d.c||0);
       window.history.replaceState({}, "", window.location.pathname);
-      // Show save prompt so they can save it
-      setTimeout(()=>{ setSaveName(data.n||"Shared Pattern"); setSavePrompt(true); }, 500);
+      setTimeout(()=>{ setSaveName(d.n||"Shared Pattern"); setSavePrompt(true); }, 500);
     } catch(e) {}
   }, []);
 
