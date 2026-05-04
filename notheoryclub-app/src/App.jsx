@@ -769,6 +769,31 @@ function AdvancedBuildSong({ audio }) {
   const [currentChordLabel, setCurrentChordLabel] = useState(null);
   const [muteMetronome, setMuteMetronome] = useState(false);
   const [capo, setCapo] = useState(0);
+  const [autoScroll, setAutoScroll] = useState(false);
+  const scrollRef = useRef(null);
+  const scrollIntervalRef = useRef(null);
+  const userScrolledRef = useRef(false);
+
+  useEffect(()=>{
+    if(!autoScroll || !isPlaying) {
+      clearInterval(scrollIntervalRef.current);
+      return;
+    }
+    // Slow auto-scroll — 1px every 40ms = ~25px/sec
+    scrollIntervalRef.current = setInterval(()=>{
+      if(userScrolledRef.current) { clearInterval(scrollIntervalRef.current); return; }
+      window.scrollBy({ top:1, behavior:"instant" });
+    }, 40);
+    // Stop if user manually scrolls
+    const onScroll = () => { userScrolledRef.current = true; clearInterval(scrollIntervalRef.current); };
+    window.addEventListener("touchmove", onScroll, { passive:true });
+    window.addEventListener("wheel", onScroll, { passive:true });
+    return ()=>{
+      clearInterval(scrollIntervalRef.current);
+      window.removeEventListener("touchmove", onScroll);
+      window.removeEventListener("wheel", onScroll);
+    };
+  }, [autoScroll, isPlaying]);
   const [savedPatterns, setSavedPatterns] = useState(()=>{
     try { return JSON.parse(localStorage.getItem("ntc_patterns")||"[]"); } catch{ return []; }
   });
@@ -1050,13 +1075,6 @@ function AdvancedBuildSong({ audio }) {
             fontSize:12, fontWeight:700, cursor:"pointer",
           }}>{assignMode ? "🎸 Strumming" : "✏️ Assign Chords"}</button>
 
-          {assignMode && (
-            <button onClick={()=>setChordPickerOpen(p=>!p)} style={{
-              padding:"8px 16px", borderRadius:10, border:"1px solid #2a2a2a",
-              background:"#111", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer",
-            }}>Chord: <strong>{assignChord}</strong> ▾</button>
-          )}
-
           <button onClick={()=>setMuteMetronome(m=>!m)} style={{
             padding:"8px 16px", borderRadius:10,
             border: muteMetronome ? "2px solid #e74c3c" : "1px solid #2a2a2a",
@@ -1064,7 +1082,6 @@ function AdvancedBuildSong({ audio }) {
             color: muteMetronome ? "#e74c3c" : "#666",
             fontSize:12, fontWeight:700, cursor:"pointer",
           }}>{muteMetronome ? "🔇 Muted" : "🔔 Click"}</button>
-
 
           {/* Capo */}
           <div style={{ display:"flex", alignItems:"center", gap:6,
@@ -1082,27 +1099,40 @@ function AdvancedBuildSong({ audio }) {
               display:"flex", alignItems:"center", justifyContent:"center",
             }}>+</button>
           </div>
+
+          {/* Auto-scroll */}
+          {rowSizes.length > 4 && (
+            <button onClick={()=>{ userScrolledRef.current=false; setAutoScroll(s=>!s); }} style={{
+              padding:"8px 12px", borderRadius:10,
+              border: autoScroll ? "2px solid #FFBE0B" : "1px solid #2a2a2a",
+              background: autoScroll ? "rgba(255,190,11,0.12)" : "#111",
+              color: autoScroll ? "#FFBE0B" : "#666",
+              fontSize:16, cursor:"pointer",
+            }} title="Auto-scroll">{autoScroll ? "⇅" : "⇅"}</button>
+          )}
         </div>
 
-        {assignMode && chordPickerOpen && (
-          <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
-            padding:"12px", marginBottom:12,
-            display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
-            {ALL_CHORDS.map(c=>(
-              <button key={c} onClick={()=>{ setAssignChord(c); setChordPickerOpen(false); }} style={{
-                padding:"6px 4px", borderRadius:8, border:"none",
-                background: assignChord===c ? "linear-gradient(135deg,#FFBE0B,#F77F00)" : "#1c1c1c",
-                color: assignChord===c ? "#111" : "#888",
-                fontSize:11, fontWeight:800, cursor:"pointer",
-              }}>{c}</button>
-            ))}
-          </div>
-        )}
-
+        {/* Chord picker — shows automatically when in assign mode */}
         {assignMode && (
-          <div style={{ textAlign:"center", fontSize:11, color:"#555", marginBottom:10 }}>
-            Tap a block to assign <span style={{ color:"#FFBE0B" }}>{assignChord}</span> · tap again to remove · press <strong style={{color:"#888"}}>Strumming</strong> when done
-          </div>
+          <>
+            <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
+              padding:"12px", marginBottom:8,
+              display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
+              {ALL_CHORDS.map(c=>(
+                <button key={c} onClick={()=>setAssignChord(c)} style={{
+                  padding:"8px 4px", borderRadius:8, border:"none",
+                  background: assignChord===c ? "linear-gradient(135deg,#FFBE0B,#F77F00)" : "#1c1c1c",
+                  color: assignChord===c ? "#111" : "#888",
+                  fontSize:12, fontWeight:800, cursor:"pointer",
+                  boxShadow: assignChord===c ? "0 0 8px rgba(255,190,11,0.4)" : "none",
+                  transition:"all 0.1s",
+                }}>{c}</button>
+              ))}
+            </div>
+            <div style={{ textAlign:"center", fontSize:11, color:"#555", marginBottom:10 }}>
+              Tap a block to assign <span style={{ color:"#FFBE0B" }}>{assignChord}</span> · tap again to remove
+            </div>
+          </>
         )}
 
         {(() => {
