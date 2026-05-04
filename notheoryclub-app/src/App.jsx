@@ -96,7 +96,7 @@ function useAudio() {
     o.start(ctx.currentTime); o.stop(ctx.currentTime+0.09);
   }, []);
 
-  return { init, playClick, playStrum, playChordStrum, playChordClick, ready };
+  return { init, playClick, playStrum, playChordStrum, playChordClick, ready, getContext: ()=>ctxRef.current };
 }
 
 // ─── MAIN APP ───────────────────────────────────────────────────────────────
@@ -107,6 +107,17 @@ export default function App() {
   const [tab, setTab] = useState(hasSharedPattern ? "song" : "strum");
   const [buildMode, setBuildMode] = useState(hasSharedPattern ? "advanced" : "simple");
   const audio = useAudio();
+
+  const handleTabChange = (newTab) => {
+    // Suspend audio context to immediately silence everything
+    try {
+      const ctx = audio.getContext?.();
+      if(ctx && ctx.state === "running") {
+        ctx.suspend().then(()=>{ setTimeout(()=>ctx.resume(), 50); });
+      }
+    } catch(e){}
+    setTab(newTab);
+  };
 
   const tabs = [
     { id:"strum",  label:"🎸 Strumming" },
@@ -136,7 +147,7 @@ export default function App() {
         <div style={{ display:"flex", gap:4, maxWidth:560, margin:"0 auto",
           background:"#161208", borderRadius:14, padding:4, border:"1px solid #2a2a2a" }}>
           {tabs.map(t => (
-            <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            <button key={t.id} onClick={()=>handleTabChange(t.id)} style={{
               flex:1, padding:"10px 8px", borderRadius:10, border:"none",
               background: tab===t.id
                 ? t.id==="strum"
@@ -599,7 +610,7 @@ function SimpleBuildSong({ audio }) {
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord,hasSecondRow]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
-  const canPlay = songChords.length>=2;
+  const canPlay = songChords.length>=1;
   const nextChordIndex = songChords.length>0?(chordIndex+1)%songChords.length:0;
   const isLastBeat = isPlaying&&beatsPerChord>1&&beatCount===beatsPerChord-1;
   const totalBlocks = hasSecondRow?16:8;
@@ -617,7 +628,7 @@ function SimpleBuildSong({ audio }) {
         setChordIndex={setChordIndex} setBeatCount={setBeatCount}
         beatRef={chordIdxRef} chordRef={chordIdxRef} />
 
-      {songChords.length>=2 && (
+      {songChords.length>=1 && (
         <>
           <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
             isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
@@ -650,7 +661,8 @@ function SimpleBuildSong({ audio }) {
 
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
-        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>SONG BUILDER</div>
+
         <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:16 }}>
           {[1,2,3].map(n=>(
             <PatternBtn key={n} label={`Pattern ${n}`} active={strumPatternBtn===n}
@@ -683,7 +695,7 @@ function SimpleBuildSong({ audio }) {
             </div>
           </>
         )}
-        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12 }}>
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, marginBottom:16 }}>
           {!hasSecondRow
             ? <button onClick={()=>{ setHasSecondRow(true); setStrumActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
                 if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
@@ -698,12 +710,38 @@ function SimpleBuildSong({ audio }) {
             padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
             background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
         </div>
-      </div>
 
-      <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
-        totalBlocks={totalBlocks} currentBeat={currentStrum}
-        accentColor="#FFBE0B" onToggle={handleTogglePlay}
-        canPlay={canPlay} disabledLabel="Select 2+ chords to start" />
+        {/* Compact metronome at bottom */}
+        <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14, padding:"12px 14px" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
+            <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+          </div>
+          <input type="range" min={40} max={160} value={bpm}
+            onChange={e=>setBpm(Number(e.target.value))}
+            style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+          <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
+            {[60,80,100,120].map(b=>(
+              <button key={b} onClick={()=>setBpm(b)} style={{
+                flex:1, padding:"5px 0", borderRadius:8,
+                border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
+                background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
+                color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+            ))}
+          </div>
+          <button onClick={handleTogglePlay} disabled={!canPlay} style={{
+            width:"100%", padding:"11px", borderRadius:12, border:"none",
+            background: !canPlay ? "#111"
+              : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
+              : "linear-gradient(135deg,#1a6b3c,#27ae60)",
+            color: !canPlay ? "#333" : "#fff", fontSize:15, fontWeight:800,
+            cursor: canPlay ? "pointer" : "not-allowed", transition:"all 0.15s",
+            boxShadow: !canPlay ? "none"
+              : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
+              : "0 4px 16px rgba(39,174,96,0.4)",
+          }}>{!canPlay ? "Select a chord to start" : isPlaying ? "⏹ Stop" : "▶ Start"}</button>
+        </div>
+      </div>
     </>
   );
 }
@@ -1349,7 +1387,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
       </div>
       {customChords.length<2 && (
         <div style={{ textAlign:"center", fontSize:11, color:"#555", marginTop:12 }}>
-          Select at least 2 chords to start
+          Select at least 1 chord to start
         </div>
       )}
     </div>
