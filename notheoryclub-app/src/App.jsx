@@ -1,54 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-
-// ════════════════════════════════════════════════════════════════════════════
-// NO THEORY CLUB — GUITAR PRACTICE APP
-// Live: practice.notheoryclub.com
-// GitHub: github.com/michaelkrice8-sys/No-Theory-Club
-// Folder: notheoryclub-app/src/
-// ════════════════════════════════════════════════════════════════════════════
-
-// ─── CHORD IMAGES ────────────────────────────────────────────────────────────
-// File: notheoryclub-app/src/chordImages.js
-//
-// ALL chords that need images (build this file from scratch with all of these):
-//   BASE:       G, C, Em, D, Am, A, E, Dm, Bm, Fmaj7
-//   VARIATIONS: G/B, Cadd9, C/G, C7, C/B, Dsus4, D7, D/F#,
-//               Em7, Am7, Am/G, A7, E7, B7, F7, G7, Csus4
-//
-// FILE FORMAT — chordImages.js must look exactly like this:
-//   export const CHORD_IMAGES = {
-//     "G":    "data:image/png;base64,XXXXX",
-//     "C":    "data:image/png;base64,XXXXX",
-//     "G/B":  "data:image/png;base64,XXXXX",
-//     // ... one line per chord
-//   };
-// ─────────────────────────────────────────────────────────────────────────────
 import { CHORD_IMAGES } from "./chordImages";
-
-// ─── CHORD AUDIO ─────────────────────────────────────────────────────────────
-// File: notheoryclub-app/src/chordAudio.js
-//
-// ALL chords that need audio (build this file from scratch with all of these):
-//   BASE:       G, C, Em, D, Am, A, E, Dm, Bm, Fmaj7
-//   VARIATIONS: G/B, Cadd9, C/G, C7, C/B, Dsus4, D7, D/F#,
-//               Em7, Am7, Am/G, A7, E7, B7, F7, G7, Csus4
-//
-// FILE FORMAT — chordAudio.js must look exactly like this:
-//   export const DOWN_WAV = "data:audio/wav;base64,XXXXX";  ← generic down strum
-//   export const UP_WAV   = "data:audio/wav;base64,XXXXX";  ← generic up strum
-//
-//   export const CHORD_AUDIO = {
-//     "G_down":   "data:audio/wav;base64,XXXXX",
-//     "G_up":     "data:audio/wav;base64,XXXXX",
-//     "G/B_down": "data:audio/wav;base64,XXXXX",
-//     "G/B_up":   "data:audio/wav;base64,XXXXX",
-//     // ... one _down and one _up per chord
-//   };
-//
-// KEY NAMING RULE: "CHORDNAME_down" and "CHORDNAME_up"
-//   Chord name must EXACTLY match the image key above
-//   e.g. "G/B_down", "Cadd9_up", "D/F#_down"
-// ─────────────────────────────────────────────────────────────────────────────
 import { CHORD_AUDIO, DOWN_WAV, UP_WAV } from "./chordAudio";
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
@@ -319,7 +270,7 @@ function StrummingTab({ audio }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-      padding:"24px 16px 48px", maxWidth:560, margin:"0 auto" }}>
+      padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
       <SectionHeader title="Foundations of Strumming"
         sub="Every pattern uses the same motion — ghost strokes keep the rhythm, they just miss the strings." />
@@ -408,6 +359,10 @@ function StrummingTab({ audio }) {
         totalBlocks={totalBlocks} currentBeat={currentBeat}
         accentColor="#FFBE0B" onToggle={handleTogglePlay}
         canPlay={true} />
+      {/* Copyright */}
+      <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
+        © {new Date().getFullYear()} No Theory Club · All rights reserved.
+      </div>
     </div>
   );
 }
@@ -488,7 +443,7 @@ function ChordsTab({ audio }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-      padding:"24px 16px 48px", maxWidth:560, margin:"0 auto" }}>
+      padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
       <SectionHeader title="Chord Switching"
         sub={<>The goal is a clean chord <em style={{color:"#666"}}>before</em> the beat hits.</>} />
@@ -577,6 +532,11 @@ function ChordsTab({ audio }) {
         totalBlocks={4} currentBeat={-1} accentColor={accentColor}
         onToggle={handleTogglePlay} canPlay={canPlay}
         disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"} />
+
+      {/* Copyright */}
+      <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
+        © {new Date().getFullYear()} No Theory Club · All rights reserved.
+      </div>
     </div>
   );
 }
@@ -587,7 +547,7 @@ function BuildSongTab({ audio, initialBuildMode="simple" }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-      padding:"24px 16px 48px", maxWidth:560, margin:"0 auto" }}>
+      padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
       <SectionHeader title="🎵 Build a Song"
         sub="Build chords and strumming patterns together." />
@@ -809,6 +769,11 @@ function SimpleBuildSong({ audio }) {
           }}>{!canPlay ? "Select a chord to start" : isPlaying ? "⏹ Stop" : "▶ Start"}</button>
         </div>
       </div>
+
+    {/* Copyright */}
+    <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
+      © {new Date().getFullYear()} No Theory Club · All rights reserved.
+    </div>
     </>
   );
 }
@@ -1413,6 +1378,10 @@ function AdvancedBuildSong({ audio }) {
         )}
       </div>
 
+    {/* Copyright */}
+    <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
+      © {new Date().getFullYear()} No Theory Club · All rights reserved.
+    </div>
     </>
   );
 }
