@@ -11,9 +11,10 @@ const ALL_CHORD_AUDIO  = { ...CHORD_AUDIO,  ...CHORD_AUDIO_ANCHORS  };
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
 const CHORD_PACKS = {
-  1: { name: "Pack #1 — The Big 4", label: "Beginner Essential", chords: ["G","C","Em","D"], color: "#FFBE0B" },
-  2: { name: "Pack #2 — Folk & Pop", label: "Minor Flavour", chords: ["Am","G","C","Fmaj7"], color: "#FFBE0B" },
-  3: { name: "Pack #3 — Rock & Country", label: "Power Moves", chords: ["G","D","A","Bm"], color: "#FFD166" },
+  1: { name: "Pack #1 — The Anchored 4", label: "Anchor Fingering", chords: ["G","C","Em","D"], color: "#FFBE0B", useAnchors: true },
+  2: { name: "Pack #2 — The Big 4",      label: "Beginner Essential", chords: ["G","C","Em","D"], color: "#FFBE0B" },
+  3: { name: "Pack #3 — Folk & Pop",     label: "Minor Flavour", chords: ["Am","G","C","Fmaj7"], color: "#FFBE0B" },
+  4: { name: "Pack #4 — Rock & Country", label: "Power Moves", chords: ["G","D","A","Bm"], color: "#FFD166" },
 };
 
 const STRUM_PATTERNS = {
@@ -405,6 +406,9 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
   const [chordIndex, setChordIndex] = useState(0);
   const [beatCount, setBeatCount] = useState(0);
 
+  const [randomOrder, setRandomOrder] = useState(false);
+  const [nextRandomIndex, setNextRandomIndex] = useState(1);
+
   const intervalRef = useRef(null);
   const beatRef = useRef(0);
   const chordRef = useRef(0);
@@ -414,12 +418,15 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
   const customRef = useRef(customChords);
   const vmRef = useRef(viewMode);
   const firstTickRef = useRef(true);
+  const randomOrderRef = useRef(false);
+  const nextRandomRef = useRef(1);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
   useEffect(()=>{ packRef.current=selectedPack; },[selectedPack]);
   useEffect(()=>{ customRef.current=customChords; },[customChords]);
   useEffect(()=>{ vmRef.current=viewMode; },[viewMode]);
+  useEffect(()=>{ randomOrderRef.current=randomOrder; },[randomOrder]);
 
   const tick = useCallback(()=>{
     const chords = vmRef.current==="build" ? customRef.current
@@ -433,7 +440,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     firstTickRef.current=false;
     playChordClick(isFirst);
     // Play chord-specific strum on beat 1 (the accent beat)
-    if(isFirst) playChordStrum(getAudioKey(chords[chordRef.current], chordVariants), true);
+    if(isFirst) { const pk=packRef.current?CHORD_PACKS[packRef.current]:null; const eff=pk?.useAnchors?{...chordVariants,...Object.fromEntries(["G","C","Em","D"].map(c=>[c,"anchor"]))}:chordVariants; playChordStrum(getAudioKey(chords[chordRef.current], eff), true); }
     setBeatCount(cur);
     beatRef.current=(cur+1)%bpc;
   },[playChordClick, playChordStrum]);
@@ -442,6 +449,11 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     if(intervalRef.current) clearInterval(intervalRef.current);
     beatRef.current=0; chordRef.current=0; firstTickRef.current=true;
     setChordIndex(0); setBeatCount(0);
+    // Pre-pick first random next when starting
+    if(randomOrderRef.current) {
+      const pre = Math.floor(Math.random() * (vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1)));
+      nextRandomRef.current = pre; setNextRandomIndex(pre);
+    }
     const ms=(60/bpmRef.current)*1000;
     intervalRef.current=setInterval(tick,ms);
     tick();
@@ -457,10 +469,14 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 
   const pack = selectedPack ? CHORD_PACKS[selectedPack] : null;
   const chords = viewMode==="build" ? customChords : (pack ? pack.chords : []);
-  const nextChordIndex = chords.length>0 ? (chordIndex+1)%chords.length : 0;
+  const nextChordIndex = chords.length>0 ? (randomOrder ? nextRandomIndex : (chordIndex+1)%chords.length) : 0;
   const accentColor = pack ? pack.color : "#FFBE0B";
+  // eslint-disable-next-line
   const isLastBeat = isPlaying && beatsPerChord>1 && beatCount===beatsPerChord-1;
   const canPlay = viewMode==="build" ? customChords.length>=2 : !!selectedPack;
+  const effectiveVariants = (selectedPack && CHORD_PACKS[selectedPack]?.useAnchors)
+    ? {...chordVariants, G:"anchor", C:"anchor", Em:"anchor", D:"anchor"}
+    : chordVariants;
 
   const handleTogglePlay = async ()=>{
     if(isPlaying){stopMetronome();setIsPlaying(false);}
@@ -482,7 +498,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         <div style={{ width:"100%", marginBottom:20 }}>
           <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>CHOOSE A PACK</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-            {[1,2,3].map(num=>{
+            {[1,2,3,4].map(num=>{
               const p=CHORD_PACKS[num], isActive=selectedPack===num;
               return (
                 <button key={num} onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
@@ -526,13 +542,13 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         <ChordGrid chords={chords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
           isPlaying={isPlaying} accentColor={accentColor} isLastBeat={isLastBeat}
           bpm={bpm} beatsPerChord={beatsPerChord}
-          chordVariants={chordVariants} updateVariant={updateVariant} />
+          chordVariants={effectiveVariants} updateVariant={updateVariant} />
       )}
 
       {chords.length>=2 && (
         <div style={{ width:"100%", marginBottom:20 }}>
           <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>BEATS PER CHORD</div>
-          <div style={{ display:"flex", gap:8, justifyContent:"center" }}>
+          <div style={{ display:"flex", gap:8, justifyContent:"center", alignItems:"center", flexWrap:"wrap" }}>
             {BEATS_OPTIONS.map(b=>(
               <button key={b} onClick={()=>{ setBeatsPerChord(b); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
                 padding:"9px 26px", borderRadius:10,
@@ -542,6 +558,24 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
                 fontSize:15, fontWeight:800, cursor:"pointer",
               }}>{b}</button>
             ))}
+            <button onClick={()=>{
+              const next = !randomOrder;
+              setRandomOrder(next);
+              randomOrderRef.current = next;
+              if(isPlaying){stopMetronome();setIsPlaying(false);}
+              if(next && chords.length>0){
+                const pre = Math.floor(Math.random()*chords.length);
+                nextRandomRef.current=pre; setNextRandomIndex(pre);
+              }
+            }} style={{
+              padding:"9px 14px", borderRadius:10,
+              border: randomOrder ? `2px solid ${accentColor}` : "2px solid #2a2210",
+              background: randomOrder ? `rgba(${hexToRgb(accentColor)},0.12)` : "#111",
+              color: randomOrder ? accentColor : "#555",
+              fontSize:15, fontWeight:800, cursor:"pointer",
+              display:"flex", alignItems:"center", gap:5,
+              boxShadow: randomOrder ? `0 0 10px rgba(${hexToRgb(accentColor)},0.3)` : "none",
+            }}>🔀</button>
           </div>
           {/* Beat dots */}
           <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:14 }}>
