@@ -379,10 +379,10 @@ function StrummingTab({ audio }) {
             const isActive = strumChord === chord;
             return (
               <button key={chord} onClick={()=>setStrumChord(chord)} style={{
-                flex:1, padding:"8px 4px", borderRadius:10, border:"none",
+                flex:1, padding:"8px 4px", borderRadius:10,
                 background: isActive ? "linear-gradient(135deg, #FFBE0B, #F77F00)" : "#1c1c1c",
-                border: isActive ? "none" : "1px solid #2a2a2a",
-                cursor:"pointer", transition:"all 0.15s",
+                border: isActive ? "2px solid #FFBE0B" : "2px solid transparent",
+                cursor:"pointer", transition:"background 0.15s, border-color 0.15s, box-shadow 0.15s",
                 display:"flex", flexDirection:"column", alignItems:"center", gap:4,
                 boxShadow: isActive ? "0 0 12px rgba(255,190,11,0.4)" : "none",
               }}>
@@ -390,7 +390,7 @@ function StrummingTab({ audio }) {
                   <div style={{ width:"100%", borderRadius:6, opacity: isActive ? 1 : 0.5, overflow:"hidden" }}>
                     <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
                     <img src={ALL_CHORD_IMAGES[STRUM_ANCHOR_CHORDS.has(chord)?chord+"_anchor":chord]} alt={chord}
-                      style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
+                      style={{ width:"100%", height:"auto", display:"block" }} />
                   </div>
                   </div>
                 )}
