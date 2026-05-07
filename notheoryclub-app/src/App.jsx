@@ -39,7 +39,7 @@ const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
 //                              "CHORDNAME_up":   "data:audio/wav;base64,XXX"
 const CHORD_CATEGORIES = {
   "7":   ["A7","Am7","B7","C7","D7","E7","G7"],
-  "sus": ["Dsus4","Csus4"],
+  "sus": ["Dsus4"],
   "add": ["Cadd9"],
   "/":   ["C/G","G/B","C/B","Am/G"],
 };
@@ -73,6 +73,7 @@ function makeRandSeq(len, total) {
 // Slash chord display names → audio/image key
 const CHORD_NAME_TO_KEY = {
   "C/G":"CG", "G/B":"GB", "C/B":"CB", "Am/G":"AmG",
+  "Dsus4":"D_anchor", "Cadd9":"C_anchor",
 };
 function normalizeKey(chord) { return CHORD_NAME_TO_KEY[chord] || chord; }
 
