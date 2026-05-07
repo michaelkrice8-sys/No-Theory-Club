@@ -45,6 +45,25 @@ const ALL_CHORDS_EXTENDED = [
 ];
 const BEATS_OPTIONS = [1, 2, 4];
 
+// ─── RANDOM CHORD SEQUENCE ──────────────────────────────────────────────────
+// Generates a shuffled sequence long enough for a full session.
+// Adjacent chords are always different so transitions are never the same chord.
+function makeRandSeq(len, total) {
+  if(total <= 1) return Array(len).fill(0);
+  const seq = [];
+  while(seq.length < len) {
+    // shuffle indices
+    const arr = Array.from({length:total},(_,i)=>i).sort(()=>Math.random()-0.5);
+    // ensure first element != last of previous run
+    if(seq.length>0 && arr[0]===seq[seq.length-1]) {
+      const swap = arr.findIndex((v,i)=>i>0&&v!==seq[seq.length-1]);
+      if(swap>0) [arr[0],arr[swap]]=[arr[swap],arr[0]];
+    }
+    seq.push(...arr);
+  }
+  return seq;
+}
+
 // ─── ANCHOR VARIANT HELPERS ──────────────────────────────────────────────────
 const HAS_ANCHOR = new Set(["G","C","Em","D"]);
 // Resolve chord key based on selected variant
@@ -407,7 +426,8 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
   const [beatCount, setBeatCount] = useState(0);
 
   const [randomOrder, setRandomOrder] = useState(false);
-  const [nextRandomIndex, setNextRandomIndex] = useState(1);
+  const [randPos, setRandPos] = useState(0);
+  const [randSeq, setRandSeq] = useState([]);
 
   const intervalRef = useRef(null);
   const beatRef = useRef(0);
@@ -419,7 +439,8 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
   const vmRef = useRef(viewMode);
   const firstTickRef = useRef(true);
   const randomOrderRef = useRef(false);
-  const nextRandomRef = useRef(1);
+  const randSeqRef = useRef([]);
+  const randPosRef = useRef(0);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -434,8 +455,24 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     if(!chords.length) return;
     const bpc=bpcRef.current, cur=beatRef.current, isFirst=cur===0;
     if(isFirst && !firstTickRef.current){
-      const next=(chordRef.current+1)%chords.length;
-      chordRef.current=next; setChordIndex(next);
+      if(randomOrderRef.current && chords.length>1){
+        // Advance position — current becomes seq[pos], next will be seq[pos+1]
+        const newPos = randPosRef.current + 1;
+        // Regenerate if running low
+        if(newPos >= randSeqRef.current.length - 2){
+          const fresh = makeRandSeq(40, chords.length);
+          randSeqRef.current = fresh;
+          setRandSeq(fresh);
+        }
+        randPosRef.current = newPos;
+        setRandPos(newPos);
+        const idx = randSeqRef.current[newPos] ?? 0;
+        chordRef.current = idx;
+        setChordIndex(idx);
+      } else {
+        const next=(chordRef.current+1)%chords.length;
+        chordRef.current=next; setChordIndex(next);
+      }
     }
     firstTickRef.current=false;
     playChordClick(isFirst);
@@ -449,10 +486,17 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     if(intervalRef.current) clearInterval(intervalRef.current);
     beatRef.current=0; chordRef.current=0; firstTickRef.current=true;
     setChordIndex(0); setBeatCount(0);
-    // Pre-pick first random next when starting
+    // Build random sequence upfront — pos 0 = first chord, pos 1 = pre-shown next
     if(randomOrderRef.current) {
-      const pre = Math.floor(Math.random() * (vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1)));
-      nextRandomRef.current = pre; setNextRandomIndex(pre);
+      const total = vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1);
+      const seq = makeRandSeq(40, total);
+      randSeqRef.current = seq;
+      randPosRef.current = 0;
+      setRandSeq(seq);
+      setRandPos(0);
+      // Start on seq[0], pre-show seq[1] as next
+      chordRef.current = seq[0];
+      setChordIndex(seq[0]);
     }
     const ms=(60/bpmRef.current)*1000;
     intervalRef.current=setInterval(tick,ms);
@@ -469,7 +513,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 
   const pack = selectedPack ? CHORD_PACKS[selectedPack] : null;
   const chords = viewMode==="build" ? customChords : (pack ? pack.chords : []);
-  const nextChordIndex = chords.length>0 ? (randomOrder ? nextRandomIndex : (chordIndex+1)%chords.length) : 0;
+  const nextChordIndex = chords.length>0 ? (randomOrder && randSeq.length>1 ? (randSeq[randPos+1]??0) : (chordIndex+1)%chords.length) : 0;
   const accentColor = pack ? pack.color : "#FFBE0B";
   // eslint-disable-next-line
   const isLastBeat = isPlaying && beatsPerChord>1 && beatCount===beatsPerChord-1;
@@ -564,8 +608,9 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
               randomOrderRef.current = next;
               if(isPlaying){stopMetronome();setIsPlaying(false);}
               if(next && chords.length>0){
-                const pre = Math.floor(Math.random()*chords.length);
-                nextRandomRef.current=pre; setNextRandomIndex(pre);
+                const seq = makeRandSeq(40, chords.length);
+                randSeqRef.current=seq; randPosRef.current=0;
+                setRandSeq(seq); setRandPos(0);
               }
             }} style={{
               padding:"9px 14px", borderRadius:10,
