@@ -92,6 +92,25 @@ const CHORD_VARIATION_MAP = {
   "Fmaj7": [{key:"Fmaj7",label:"Fmaj7"},{key:"F",label:"F (Easy)"}],
 };
 const HAS_VARIATIONS = new Set(Object.keys(CHORD_VARIATION_MAP).filter(c => CHORD_VARIATION_MAP[c].length > 1));
+
+// ─── KEY DETECTION ───────────────────────────────────────────────────────────
+// Diatonic chords per key (limited to chords in our app)
+const KEY_SETS = [
+  { label: "G maj / E min",  chords: new Set(["G","Am","Bm","C","D","Em"]) },
+  { label: "C maj / A min",  chords: new Set(["Am","C","Dm","Em","Fmaj7","G"]) },
+  { label: "D maj / B min",  chords: new Set(["A","Bm","D","Em","G"]) },
+  { label: "A maj / F# min", chords: new Set(["A","Bm","D","E"]) },
+  { label: "F maj / D min",  chords: new Set(["Am","C","Dm","Fmaj7","G"]) },
+];
+function getPossibleKeys(selectedChords) {
+  if(!selectedChords.length) return KEY_SETS;
+  return KEY_SETS.filter(k => selectedChords.every(c => k.chords.has(c)));
+}
+function getAllowedChords(selectedChords) {
+  const possible = getPossibleKeys(selectedChords);
+  if(!selectedChords.length || !possible.length) return null; // null = no restriction
+  return new Set(possible.flatMap(k => [...k.chords]));
+}
 // Strumming tab always uses anchor for these 4
 const STRUM_ANCHOR_CHORDS = new Set(["G","C","Em","D"]);
 
@@ -1563,6 +1582,11 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   isPlaying, stopMetronome, setIsPlaying, setChordIndex, setBeatCount, beatRef, chordRef,
   chordVariants, updateVariant }) {
   const [variantPickerChord, setVariantPickerChord] = useState(null);
+  const [outsideKeyChord, setOutsideKeyChord] = useState(null);
+
+  const possibleKeys = getPossibleKeys(customChords);
+  const allowedChords = getAllowedChords(customChords);
+  const noKeyFits = customChords.length > 0 && possibleKeys.length === 0;
   return (
     <div style={{ width:"100%", background:"#0a0a0a",
       border:"1px solid #2a2a2a", borderRadius:20, padding:"16px 14px", marginBottom:20,
@@ -1581,17 +1605,30 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           return (
             <button key={chord} disabled={isDis}
               onClick={()=>{
+                if(isSel){
+                  if(isPlaying){stopMetronome();setIsPlaying(false);}
+                  setCustomChords(p=>p.filter(c=>c!==chord));
+                  setChordIndex(0); setBeatCount(0);
+                  if(beatRef) beatRef.current=0;
+                  if(chordRef) chordRef.current=0;
+                  return;
+                }
+                // Check if chord fits current key
+                const isOutside = allowedChords && !allowedChords.has(chord);
+                if(isOutside){ setOutsideKeyChord(chord); return; }
                 if(isPlaying){stopMetronome();setIsPlaying(false);}
-                setCustomChords(p=>isSel?p.filter(c=>c!==chord):[...p,chord]);
+                setCustomChords(p=>[...p,chord]);
                 setChordIndex(0); setBeatCount(0);
                 if(beatRef) beatRef.current=0;
                 if(chordRef) chordRef.current=0;
               }} style={{
               borderRadius:10, padding:"0 0 5px", background:"#000",
               border: isSel ? `2px solid ${accentColor}` : "2px solid #2a2210",
-              cursor:isDis?"not-allowed":"pointer", opacity:isDis?0.25:1,
+              cursor:isDis?"not-allowed":"pointer",
+              opacity: isDis ? 0.25 : (allowedChords && !isSel && !allowedChords.has(chord)) ? 0.35 : 1,
               display:"flex", flexDirection:"column", alignItems:"center",
               transition:"all 0.15s", overflow:"hidden",
+              filter: (allowedChords && !isSel && !allowedChords.has(chord)) ? "grayscale(60%)" : "none",
               boxShadow:isSel?`0 0 10px rgba(${hexToRgb(accentColor)},0.3)`:"none",
             }}>
               {getChordImg(chord, chordVariants)
@@ -1617,10 +1654,46 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           );
         })}
       </div>
-      {customChords.length<1 && (
+      {/* Key indicator */}
+      {customChords.length > 0 && (
+        <div style={{ marginTop:10, textAlign:"center" }}>
+          {noKeyFits ? (
+            <div style={{ fontSize:11, color:"#888", letterSpacing:0.5 }}>
+              🎨 Mixed key — no single key contains all chords
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexWrap:"wrap", gap:5, justifyContent:"center" }}>
+              <span style={{ fontSize:10, color:"#555", alignSelf:"center", letterSpacing:1 }}>KEY:</span>
+              {possibleKeys.map(k => (
+                <span key={k.label} style={{
+                  fontSize:11, fontWeight:700, color:"#FFD60A",
+                  background:"rgba(255,214,10,0.08)", border:"1px solid rgba(255,214,10,0.2)",
+                  borderRadius:6, padding:"2px 8px",
+                }}>{k.label}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {customChords.length < 1 && (
         <div style={{ textAlign:"center", fontSize:11, color:"#555", marginTop:12 }}>
           Select at least 1 chord to start
         </div>
+      )}
+      {outsideKeyChord && (
+        <OutsideKeyModal
+          chord={outsideKeyChord}
+          possibleKeys={possibleKeys}
+          onAdd={()=>{
+            if(isPlaying){stopMetronome();setIsPlaying(false);}
+            setCustomChords(p=>[...p,outsideKeyChord]);
+            setChordIndex(0); setBeatCount(0);
+            if(beatRef) beatRef.current=0;
+            if(chordRef) chordRef.current=0;
+            setOutsideKeyChord(null);
+          }}
+          onCancel={()=>setOutsideKeyChord(null)}
+        />
       )}
       {variantPickerChord && (
         <VariantPickerModal
@@ -1891,6 +1964,59 @@ function BuildBlock({ dir, active, beat, onClick, assigned }) {
   );
 }
 
+
+// ─── OUTSIDE KEY MODAL ───────────────────────────────────────────────────────
+function OutsideKeyModal({ chord, possibleKeys, onAdd, onCancel }) {
+  return (
+    <div onClick={onCancel} style={{
+      position:"fixed", inset:0, zIndex:1000,
+      background:"rgba(0,0,0,0.85)", backdropFilter:"blur(4px)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:"20px",
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:"#111", border:"1px solid #2a2a2a", borderRadius:20,
+        padding:"22px 18px", width:"100%", maxWidth:340,
+        boxShadow:"0 20px 60px rgba(0,0,0,0.9)",
+      }}>
+        <div style={{ textAlign:"center", marginBottom:14 }}>
+          <div style={{ fontSize:28, marginBottom:8 }}>🎸</div>
+          <div style={{ fontSize:16, fontWeight:900, color:"#fff", marginBottom:6 }}>
+            Outside the Key
+          </div>
+          <div style={{ fontSize:13, fontWeight:700, color:"#FFD60A", marginBottom:12 }}>
+            {chord}
+          </div>
+          <div style={{ fontSize:13, color:"#888", lineHeight:1.6, marginBottom:10 }}>
+            {possibleKeys.length > 0
+              ? <>This chord doesn't naturally fit in{" "}
+                  <span style={{color:"#FFD60A"}}>
+                    {possibleKeys.map(k=>k.label).join(" or ")}
+                  </span>.
+                </>
+              : <>Your chords already span multiple keys.</>
+            }
+          </div>
+          <div style={{ fontSize:12, color:"#666", lineHeight:1.6 }}>
+            That said — borrowed chords sound great and tons of hit songs use them. Add it if it feels right!
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={onCancel} style={{
+            flex:1, padding:"11px", borderRadius:12,
+            border:"1px solid #2a2a2a", background:"transparent",
+            color:"#666", fontSize:13, fontWeight:700, cursor:"pointer",
+          }}>Cancel</button>
+          <button onClick={onAdd} style={{
+            flex:1, padding:"11px", borderRadius:12, border:"none",
+            background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+            color:"#111", fontSize:13, fontWeight:700, cursor:"pointer",
+          }}>Add Anyway</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── VARIANT PICKER MODAL ────────────────────────────────────────────────────
 function VariantPickerModal({ chord, currentVariant, onSelect, onClose }) {
