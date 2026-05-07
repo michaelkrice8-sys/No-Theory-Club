@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { CHORD_IMAGES } from "./chordImages";
 import { CHORD_AUDIO, DOWN_WAV, UP_WAV } from "./chordAudio";
+import { CHORD_IMAGES_ANCHORS } from "./chordImages_anchors";
+import { CHORD_AUDIO_ANCHORS, ANCHOR_CHORD_NAMES } from "./chordAudio_anchors";
+
+// Anchor versions override originals for G, C, Em, D
+const ALL_CHORD_IMAGES = { ...CHORD_IMAGES, ...CHORD_IMAGES_ANCHORS };
+const ALL_CHORD_AUDIO  = { ...CHORD_AUDIO,  ...CHORD_AUDIO_ANCHORS  };
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
@@ -64,10 +70,10 @@ function useAudio() {
     if (ctxRef.current) return ctxRef.current;
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     ctxRef.current = ctx;
-    const chordKeys = Object.keys(CHORD_AUDIO);
+    const chordKeys = Object.keys(ALL_CHORD_AUDIO);
     const [generic, chordBufs] = await Promise.all([
       Promise.all([loadBuffer(ctx,DOWN_WAV), loadBuffer(ctx,UP_WAV)]),
-      Promise.all(chordKeys.map(k => loadBuffer(ctx, CHORD_AUDIO[k])))
+      Promise.all(chordKeys.map(k => loadBuffer(ctx, ALL_CHORD_AUDIO[k])))
     ]);
     downRef.current=generic[0]; upRef.current=generic[1];
     chordKeys.forEach((k,i) => { chordBufsRef.current[k]=chordBufs[i]; });
@@ -101,7 +107,8 @@ function useAudio() {
   const playChordStrum = useCallback((chord, isDown, semitones=0) => {
     const key=chord+"_"+(isDown?"down":"up");
     const buf=chordBufsRef.current[key];
-    playBuf(buf||(isDown?downRef.current:upRef.current), isDown?1.0:0.75, semitones);
+    const gainMult = ANCHOR_CHORD_NAMES.has(chord) ? 0.85 : 1.0;
+    playBuf(buf||(isDown?downRef.current:upRef.current), (isDown?1.0:0.75)*gainMult, semitones);
   }, [playBuf]);
 
   const playChordClick = useCallback((accent) => {
@@ -296,10 +303,10 @@ function StrummingTab({ audio }) {
                 display:"flex", flexDirection:"column", alignItems:"center", gap:4,
                 boxShadow: isActive ? "0 0 12px rgba(255,190,11,0.4)" : "none",
               }}>
-                {CHORD_IMAGES[chord] && (
+                {ALL_CHORD_IMAGES[chord] && (
                   <div style={{ width:"100%", borderRadius:6, opacity: isActive ? 1 : 0.5, overflow:"hidden" }}>
                     <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                    <img src={CHORD_IMAGES[chord]} alt={chord}
+                    <img src={ALL_CHORD_IMAGES[chord]} alt={chord}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
                   </div>
                   </div>
@@ -1460,9 +1467,9 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
               transition:"all 0.15s", overflow:"hidden",
               boxShadow:isSel?`0 0 10px rgba(${hexToRgb(accentColor)},0.3)`:"none",
             }}>
-              {CHORD_IMAGES[chord]
+              {ALL_CHORD_IMAGES[chord]
                 ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                    <img src={CHORD_IMAGES[chord]} alt={chord}
+                    <img src={ALL_CHORD_IMAGES[chord]} alt={chord}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
                   </div>
                 : <div style={{ width:"100%", aspectRatio:"3/4", display:"flex", alignItems:"center",
@@ -1533,9 +1540,9 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
                     : "none",
                 transition:"border 0.2s ease, box-shadow 0.2s ease",
               }}>
-                {CHORD_IMAGES[chord]
+                {ALL_CHORD_IMAGES[chord]
                   ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                    <img src={CHORD_IMAGES[chord]} alt={chord}
+                    <img src={ALL_CHORD_IMAGES[chord]} alt={chord}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
                   </div>
                   : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
@@ -1559,9 +1566,9 @@ function ChordCard({ chord, isActive, accentColor }) {
     <div style={{ width:"100%", borderRadius:10, overflow:"hidden", background:"#000",
       border: isActive ? `2px solid ${accentColor}` : "1px solid #111",
       boxShadow: isActive ? `0 0 20px rgba(${hexToRgb(accentColor)},0.4)` : "none" }}>
-      {CHORD_IMAGES[chord]
+      {ALL_CHORD_IMAGES[chord]
         ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-            <img src={CHORD_IMAGES[chord]} alt={chord}
+            <img src={ALL_CHORD_IMAGES[chord]} alt={chord}
               style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
           </div>
         : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
