@@ -6,9 +6,12 @@ import { CHORD_AUDIO_ANCHORS } from "./chordAudio_anchors";
 import { CHORD_IMAGES_VARIATIONS } from "./chordImages_variations";
 import { CHORD_AUDIO_VARIATIONS } from "./chordAudio_variations";
 
-// Merge all sets — variations override originals (new E replaces old E etc.)
+// Merge all sets — variations last so they override originals
 const ALL_CHORD_IMAGES = { ...CHORD_IMAGES, ...CHORD_IMAGES_ANCHORS, ...CHORD_IMAGES_VARIATIONS };
 const ALL_CHORD_AUDIO  = { ...CHORD_AUDIO,  ...CHORD_AUDIO_ANCHORS,  ...CHORD_AUDIO_VARIATIONS  };
+// Explicit E override — forces normalized version, bypasses original loud recording
+ALL_CHORD_AUDIO["E_down"] = CHORD_AUDIO_VARIATIONS["E_down"];
+ALL_CHORD_AUDIO["E_up"]   = CHORD_AUDIO_VARIATIONS["E_up"];
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
