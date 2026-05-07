@@ -3,10 +3,12 @@ import { CHORD_IMAGES } from "./chordImages";
 import { CHORD_AUDIO, DOWN_WAV, UP_WAV } from "./chordAudio";
 import { CHORD_IMAGES_ANCHORS } from "./chordImages_anchors";
 import { CHORD_AUDIO_ANCHORS } from "./chordAudio_anchors";
+import { CHORD_IMAGES_VARIATIONS } from "./chordImages_variations";
+import { CHORD_AUDIO_VARIATIONS } from "./chordAudio_variations";
 
-// Both sets of keys coexist — no overwriting
-const ALL_CHORD_IMAGES = { ...CHORD_IMAGES, ...CHORD_IMAGES_ANCHORS };
-const ALL_CHORD_AUDIO  = { ...CHORD_AUDIO,  ...CHORD_AUDIO_ANCHORS  };
+// Merge all sets — variations override originals (new E replaces old E etc.)
+const ALL_CHORD_IMAGES = { ...CHORD_IMAGES, ...CHORD_IMAGES_ANCHORS, ...CHORD_IMAGES_VARIATIONS };
+const ALL_CHORD_AUDIO  = { ...CHORD_AUDIO,  ...CHORD_AUDIO_ANCHORS,  ...CHORD_AUDIO_VARIATIONS  };
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
@@ -33,10 +35,10 @@ const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
 // Format for chordAudio.js:   "CHORDNAME_down": "data:audio/wav;base64,XXX"
 //                              "CHORDNAME_up":   "data:audio/wav;base64,XXX"
 const CHORD_CATEGORIES = {
-  "7":   ["A7","B7","C7","D7","E7","F7","G7"],
+  "7":   ["A7","Am7","B7","C7","D7","E7","G7"],
   "sus": ["Dsus4","Csus4"],
   "add": ["Cadd9"],
-  "/":   ["C/G","G/B","C/B","Am/G","D/F#"],
+  "/":   ["C/G","G/B","C/B","Am/G"],
 };
 // All chords available in the advanced assign mode picker
 const ALL_CHORDS_EXTENDED = [
@@ -64,22 +66,41 @@ function makeRandSeq(len, total) {
   return seq;
 }
 
-// ─── ANCHOR VARIANT HELPERS ──────────────────────────────────────────────────
-const HAS_ANCHOR = new Set(["G","C","Em","D"]);
-// Resolve chord key based on selected variant
+// ─── CHORD VARIATION SYSTEM ──────────────────────────────────────────────────
+// Slash chord display names → audio/image key
+const CHORD_NAME_TO_KEY = {
+  "C/G":"CG", "G/B":"GB", "C/B":"CB", "Am/G":"AmG",
+};
+function normalizeKey(chord) { return CHORD_NAME_TO_KEY[chord] || chord; }
+
+// All available variations per base chord
+// key = value stored in chordVariants, label = display in picker
+const CHORD_VARIATION_MAP = {
+  "G":     [{key:"G",label:"G"},{key:"G_anchor",label:"Anchored"},{key:"G7",label:"G7"}],
+  "C":     [{key:"C",label:"C"},{key:"C_anchor",label:"Cadd9"},{key:"C7",label:"C7"},{key:"C/G",label:"C/G"},{key:"C/B",label:"C/B"}],
+  "Em":    [{key:"Em",label:"Em"},{key:"Em_anchor",label:"Em7"}],
+  "D":     [{key:"D",label:"D"},{key:"D_anchor",label:"Dsus4"},{key:"D7",label:"D7"}],
+  "Am":    [{key:"Am",label:"Am"},{key:"Am7",label:"Am7"},{key:"Am/G",label:"Am/G"}],
+  "A":     [{key:"A",label:"A"},{key:"A7",label:"A7"}],
+  "E":     [{key:"E",label:"E"},{key:"E7",label:"E7"}],
+  "Dm":    [{key:"Dm",label:"Dm"}],
+  "Bm":    [{key:"Bm",label:"Bm"},{key:"B7",label:"B7"}],
+  "Fmaj7": [{key:"Fmaj7",label:"Fmaj7"},{key:"F",label:"F (Easy)"}],
+};
+const HAS_VARIATIONS = new Set(Object.keys(CHORD_VARIATION_MAP).filter(c => CHORD_VARIATION_MAP[c].length > 1));
+// Strumming tab always uses anchor for these 4
+const STRUM_ANCHOR_CHORDS = new Set(["G","C","Em","D"]);
+
+// Resolve chord to image/audio key based on selected variant
 function resolveKey(chord, variants) {
-  if (!HAS_ANCHOR.has(chord) || !variants || variants[chord] !== "anchor") return chord;
-  return chord + "_anchor";
+  const selected = variants?.[chord];
+  return normalizeKey(selected || chord);
 }
-// Get image for a chord respecting variant selection
 function getChordImg(chord, variants) {
   const key = resolveKey(chord, variants);
-  return ALL_CHORD_IMAGES[key] || ALL_CHORD_IMAGES[chord] || null;
+  return ALL_CHORD_IMAGES[key] || ALL_CHORD_IMAGES[normalizeKey(chord)] || null;
 }
-// Get audio key for a chord respecting variant selection
-function getAudioKey(chord, variants) {
-  return resolveKey(chord, variants);
-}
+function getAudioKey(chord, variants) { return resolveKey(chord, variants); }
 
 function hexToRgb(hex) {
   const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -169,7 +190,7 @@ export default function App() {
   const [tab, setTab] = useState(hasSharedPattern ? "song" : "strum");
   const [buildMode, setBuildMode] = useState(hasSharedPattern ? "advanced" : "simple");
   const audio = useAudio();
-  const [chordVariants, setChordVariants] = useState({G:"standard",C:"standard",Em:"standard",D:"standard"});
+  const [chordVariants, setChordVariants] = useState({G:"G",C:"C",Em:"Em",D:"D",Am:"Am",A:"A",E:"E",Dm:"Dm",Bm:"Bm","Fmaj7":"Fmaj7"});
   const updateVariant = (chord, variant) => setChordVariants(p=>({...p,[chord]:variant}));
 
   const handleTabChange = (newTab) => {
@@ -286,7 +307,7 @@ function StrummingTab({ audio }) {
     const cm=modeRef.current;
     let shouldStrum = cm==="build" ? buildActiveRef.current[next]===true
       : patternRef.current ? patternRef.current.active[next]===true : true;
-    if(shouldStrum) playChordStrum(HAS_ANCHOR.has(strumChordRef.current)?strumChordRef.current+"_anchor":strumChordRef.current, isDown);
+    if(shouldStrum) playChordStrum(STRUM_ANCHOR_CHORDS.has(strumChordRef.current)?strumChordRef.current+"_anchor":strumChordRef.current, isDown);
   },[playClick, playChordStrum]);
 
   const startMetronome = useCallback(()=>{
@@ -342,10 +363,10 @@ function StrummingTab({ audio }) {
                 display:"flex", flexDirection:"column", alignItems:"center", gap:4,
                 boxShadow: isActive ? "0 0 12px rgba(255,190,11,0.4)" : "none",
               }}>
-                {ALL_CHORD_IMAGES[HAS_ANCHOR.has(chord)?chord+"_anchor":chord] && (
+                {ALL_CHORD_IMAGES[STRUM_ANCHOR_CHORDS.has(chord)?chord+"_anchor":chord] && (
                   <div style={{ width:"100%", borderRadius:6, opacity: isActive ? 1 : 0.5, overflow:"hidden" }}>
                     <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                    <img src={ALL_CHORD_IMAGES[HAS_ANCHOR.has(chord)?chord+"_anchor":chord]} alt={chord}
+                    <img src={ALL_CHORD_IMAGES[STRUM_ANCHOR_CHORDS.has(chord)?chord+"_anchor":chord]} alt={chord}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
                   </div>
                   </div>
@@ -426,8 +447,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
   const [beatCount, setBeatCount] = useState(0);
 
   const [randomOrder, setRandomOrder] = useState(false);
-  const [randPos, setRandPos] = useState(0);
-  const [randSeq, setRandSeq] = useState([]);
+  const [randomNextDisplay, setRandomNextDisplay] = useState(0);
 
   const intervalRef = useRef(null);
   const beatRef = useRef(0);
@@ -439,8 +459,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
   const vmRef = useRef(viewMode);
   const firstTickRef = useRef(true);
   const randomOrderRef = useRef(false);
-  const randSeqRef = useRef([]);
-  const randPosRef = useRef(0);
+  const randomNextRef = useRef(0);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -456,19 +475,15 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     const bpc=bpcRef.current, cur=beatRef.current, isFirst=cur===0;
     if(isFirst && !firstTickRef.current){
       if(randomOrderRef.current && chords.length>1){
-        // Advance position — current becomes seq[pos], next will be seq[pos+1]
-        const newPos = randPosRef.current + 1;
-        // Regenerate if running low
-        if(newPos >= randSeqRef.current.length - 2){
-          const fresh = makeRandSeq(40, chords.length);
-          randSeqRef.current = fresh;
-          setRandSeq(fresh);
-        }
-        randPosRef.current = newPos;
-        setRandPos(newPos);
-        const idx = randSeqRef.current[newPos] ?? 0;
-        chordRef.current = idx;
-        setChordIndex(idx);
+        // The pre-decided "next" chord becomes "current"
+        const incoming = randomNextRef.current;
+        chordRef.current = incoming;
+        setChordIndex(incoming);
+        // Now pre-decide the NEW next — must differ from incoming
+        let upcoming = Math.floor(Math.random() * chords.length);
+        while(upcoming === incoming) upcoming = Math.floor(Math.random() * chords.length);
+        randomNextRef.current = upcoming;
+        setRandomNextDisplay(upcoming);
       } else {
         const next=(chordRef.current+1)%chords.length;
         chordRef.current=next; setChordIndex(next);
@@ -486,17 +501,18 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     if(intervalRef.current) clearInterval(intervalRef.current);
     beatRef.current=0; chordRef.current=0; firstTickRef.current=true;
     setChordIndex(0); setBeatCount(0);
-    // Build random sequence upfront — pos 0 = first chord, pos 1 = pre-shown next
+    // Random mode: pick a random starting chord + pre-decide the next
     if(randomOrderRef.current) {
       const total = vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1);
-      const seq = makeRandSeq(40, total);
-      randSeqRef.current = seq;
-      randPosRef.current = 0;
-      setRandSeq(seq);
-      setRandPos(0);
-      // Start on seq[0], pre-show seq[1] as next
-      chordRef.current = seq[0];
-      setChordIndex(seq[0]);
+      if(total > 1) {
+        const curr = Math.floor(Math.random() * total);
+        let nxt = Math.floor(Math.random() * total);
+        while(nxt === curr) nxt = Math.floor(Math.random() * total);
+        chordRef.current = curr;
+        setChordIndex(curr);
+        randomNextRef.current = nxt;
+        setRandomNextDisplay(nxt);
+      }
     }
     const ms=(60/bpmRef.current)*1000;
     intervalRef.current=setInterval(tick,ms);
@@ -513,13 +529,13 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 
   const pack = selectedPack ? CHORD_PACKS[selectedPack] : null;
   const chords = viewMode==="build" ? customChords : (pack ? pack.chords : []);
-  const nextChordIndex = chords.length>0 ? (randomOrder && randSeq.length>1 ? (randSeq[randPos+1]??0) : (chordIndex+1)%chords.length) : 0;
+  const nextChordIndex = chords.length>0 ? (randomOrder ? randomNextDisplay : (chordIndex+1)%chords.length) : 0;
   const accentColor = pack ? pack.color : "#FFBE0B";
   // eslint-disable-next-line
   const isLastBeat = isPlaying && beatsPerChord>1 && beatCount===beatsPerChord-1;
   const canPlay = viewMode==="build" ? customChords.length>=2 : !!selectedPack;
   const effectiveVariants = (selectedPack && CHORD_PACKS[selectedPack]?.useAnchors)
-    ? {...chordVariants, G:"anchor", C:"anchor", Em:"anchor", D:"anchor"}
+    ? {...chordVariants, G:"G_anchor", C:"C_anchor", Em:"Em_anchor", D:"D_anchor"}
     : chordVariants;
 
   const handleTogglePlay = async ()=>{
@@ -608,9 +624,12 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
               randomOrderRef.current = next;
               if(isPlaying){stopMetronome();setIsPlaying(false);}
               if(next && chords.length>0){
-                const seq = makeRandSeq(40, chords.length);
-                randSeqRef.current=seq; randPosRef.current=0;
-                setRandSeq(seq); setRandPos(0);
+                // Pre-decide next chord so carousel shows it right away
+                const curr = chordIndex % chords.length;
+                let nxt = Math.floor(Math.random() * chords.length);
+                while(nxt === curr) nxt = Math.floor(Math.random() * chords.length);
+                randomNextRef.current = nxt;
+                setRandomNextDisplay(nxt);
               }
             }} style={{
               padding:"9px 14px", borderRadius:10,
@@ -1575,7 +1594,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                 ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center", position:"relative" }}>
                     <img src={getChordImg(chord, chordVariants)} alt={chord}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                    {HAS_ANCHOR.has(chord) && (
+                    {HAS_VARIATIONS.has(chord) && (
                       <div onClick={e=>{e.stopPropagation();setVariantPickerChord(chord);}}
                         style={{ position:"absolute", top:3, right:3, width:18, height:18,
                           borderRadius:"50%", background:"rgba(0,0,0,0.75)",
@@ -1666,15 +1685,15 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
                   ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center", position:"relative" }}>
                     <img src={getChordImg(chord, chordVariants)} alt={chord}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                    {isActive && HAS_ANCHOR.has(chord) && (
+                    {isActive && HAS_VARIATIONS.has(chord) && (
                       <div onClick={e=>{e.stopPropagation();setVariantPickerChord(chord);}}
                         style={{ position:"absolute", top:4, right:4, padding:"2px 7px",
                           borderRadius:8, background:"rgba(0,0,0,0.8)",
                           border:"1px solid rgba(255,190,11,0.5)",
                           fontSize:10, fontWeight:700,
-                          color: chordVariants?.[chord]==="anchor"?"#FFBE0B":"#888",
+                          color: (chordVariants?.[chord]&&chordVariants[chord]!==chord)?"#FFBE0B":"#888",
                           cursor:"pointer", zIndex:2, whiteSpace:"nowrap" }}>
-                        {chordVariants?.[chord]==="anchor"?"anchor":"standard"} ⚙
+                        {(chordVariants?.[chord]&&chordVariants[chord]!==chord) ? (CHORD_VARIATION_MAP[chord]?.find(v=>v.key===chordVariants[chord])?.label||chordVariants[chord]) : "standard"} ⚙
                       </div>
                     )}
                   </div>
@@ -1871,56 +1890,54 @@ function BuildBlock({ dir, active, beat, onClick, assigned }) {
 
 // ─── VARIANT PICKER MODAL ────────────────────────────────────────────────────
 function VariantPickerModal({ chord, currentVariant, onSelect, onClose }) {
-  const stdImg  = ALL_CHORD_IMAGES[chord];
-  const ancImg  = ALL_CHORD_IMAGES[chord + "_anchor"];
-  const options = [
-    { key:"standard", label:"Standard",    img: stdImg },
-    { key:"anchor",   label:"Anchor",      img: ancImg },
-  ];
+  const options = CHORD_VARIATION_MAP[chord] || [{key:chord, label:chord}];
+  const cols = options.length <= 2 ? options.length : options.length <= 4 ? 2 : 3;
   return (
     <div onClick={onClose} style={{
       position:"fixed", inset:0, zIndex:1000,
-      background:"rgba(0,0,0,0.82)", backdropFilter:"blur(4px)",
+      background:"rgba(0,0,0,0.85)", backdropFilter:"blur(4px)",
       display:"flex", alignItems:"center", justifyContent:"center",
-      padding:"24px",
+      padding:"20px",
     }}>
       <div onClick={e=>e.stopPropagation()} style={{
         background:"#111", border:"1px solid #2a2a2a", borderRadius:20,
-        padding:"20px 16px", width:"100%", maxWidth:340,
-        boxShadow:"0 20px 60px rgba(0,0,0,0.8)",
+        padding:"18px 14px", width:"100%", maxWidth:380,
+        boxShadow:"0 20px 60px rgba(0,0,0,0.9)",
       }}>
-        <div style={{ textAlign:"center", marginBottom:16 }}>
+        <div style={{ textAlign:"center", marginBottom:14 }}>
           <div style={{ fontSize:10, color:"#555", letterSpacing:2, marginBottom:4 }}>CHOOSE VOICING</div>
           <div style={{ fontSize:20, fontWeight:900, color:"#fff" }}>{chord}</div>
         </div>
-        <div style={{ display:"flex", gap:10 }}>
+        <div style={{ display:"grid", gridTemplateColumns:`repeat(${cols},1fr)`, gap:8 }}>
           {options.map(opt => {
-            const isSelected = currentVariant === opt.key;
+            const imgKey = normalizeKey(opt.key);
+            const img = ALL_CHORD_IMAGES[imgKey] || ALL_CHORD_IMAGES[chord];
+            const isSelected = (currentVariant===opt.key) || (!currentVariant && opt.key===chord);
             return (
               <div key={opt.key} onClick={()=>onSelect(opt.key)} style={{
-                flex:1, borderRadius:14, overflow:"hidden", cursor:"pointer",
+                borderRadius:12, overflow:"hidden", cursor:"pointer",
                 border: isSelected ? "2px solid #FFBE0B" : "2px solid #2a2a2a",
                 background: isSelected ? "rgba(255,190,11,0.08)" : "#0a0a0a",
-                boxShadow: isSelected ? "0 0 16px rgba(255,190,11,0.35)" : "none",
+                boxShadow: isSelected ? "0 0 14px rgba(255,190,11,0.35)" : "none",
                 transition:"all 0.15s",
               }}>
                 <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center", background:"#000" }}>
-                  {opt.img
-                    ? <img src={opt.img} alt={opt.label} style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
+                  {img
+                    ? <img src={img} alt={opt.label} style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
                     : <div style={{ aspectRatio:"3/4", width:"100%", display:"flex", alignItems:"center",
-                        justifyContent:"center", fontSize:28, fontWeight:900, color:"#444" }}>{chord}</div>
+                        justifyContent:"center", fontSize:22, fontWeight:900, color:"#444" }}>{opt.label}</div>
                   }
                 </div>
-                <div style={{ padding:"8px 4px", textAlign:"center" }}>
-                  <div style={{ fontSize:12, fontWeight:900, color: isSelected ? "#FFBE0B" : "#555" }}>{opt.label}</div>
-                  {isSelected && <div style={{ fontSize:9, color:"#FFBE0B", marginTop:2, letterSpacing:1 }}>✓ SELECTED</div>}
+                <div style={{ padding:"6px 4px", textAlign:"center" }}>
+                  <div style={{ fontSize:11, fontWeight:900, color: isSelected ? "#FFBE0B" : "#555" }}>{opt.label}</div>
+                  {isSelected && <div style={{ fontSize:9, color:"#FFBE0B", marginTop:1, letterSpacing:1 }}>✓ SELECTED</div>}
                 </div>
               </div>
             );
           })}
         </div>
         <button onClick={onClose} style={{
-          marginTop:14, width:"100%", padding:"10px", borderRadius:12, border:"1px solid #2a2a2a",
+          marginTop:12, width:"100%", padding:"10px", borderRadius:12, border:"1px solid #2a2a2a",
           background:"transparent", color:"#555", fontSize:13, cursor:"pointer",
         }}>Cancel</button>
       </div>
