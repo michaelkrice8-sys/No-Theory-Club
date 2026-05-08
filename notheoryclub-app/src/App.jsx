@@ -515,7 +515,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     firstTickRef.current=false;
     playChordClick(isFirst);
     // Play chord-specific strum on beat 1 (the accent beat)
-    if(isFirst) { const pk=packRef.current?CHORD_PACKS[packRef.current]:null; const eff=pk?.useAnchors?{...chordVariants,...Object.fromEntries(["G","C","Em","D"].map(c=>[c,"anchor"]))}:chordVariants; playChordStrum(getAudioKey(chords[chordRef.current], eff), true); }
+    if(isFirst) { const pk=packRef.current?CHORD_PACKS[packRef.current]:null; const eff=pk?.useAnchors?{...chordVariants,...Object.fromEntries(["G","C","Em","D"].map(c=>[c,c+"_anchor"]))}:chordVariants; playChordStrum(getAudioKey(chords[chordRef.current], eff), true); }
     setBeatCount(cur);
     beatRef.current=(cur+1)%bpc;
   },[playChordClick, playChordStrum]);
