@@ -374,8 +374,7 @@ function StrummingTab({ audio }) {
     setCurrentBeat(cm==="build" ? displayIdx : next);
     if(next%4===0) playClick(next===0);
     const isDown=(cm==="build" ? displayIdx : next)%2===0;
-    // Map next (0..total-1) to strumActive array index
-    const r1 = row1SizeRef.current||8;
+    // Map next (0..total-1) to strumActive array index (r1 already defined above)
     const mappedIdx = cm==="build" && next >= r1 ? 8+(next-r1) : next;
     let shouldStrum = cm==="build" ? buildActiveRef.current[mappedIdx]===true
       : patternRef.current ? patternRef.current.active[next]===true : true;
