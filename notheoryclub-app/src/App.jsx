@@ -104,6 +104,22 @@ function decodeChordDrill(str) {
   } catch { return null; }
 }
 
+// ─── STRUM PATTERN URL ENCODING ─────────────────────────────────────────────
+function encodeStrumDrill(name, strumActive, hasSecondRow, row1Size, row2Size, songChords, bpm, beatsPerChord) {
+  const sa = strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; },[]);
+  return btoa(JSON.stringify({ n:name, sa, r2:hasSecondRow?1:0, s1:row1Size, s2:row2Size, c:songChords, b:bpm, p:beatsPerChord }));
+}
+function decodeStrumDrill(str) {
+  try {
+    const obj = JSON.parse(atob(str));
+    const strumActive = Array(16).fill(false);
+    (obj.sa||[]).forEach(i=>{ if(i<16) strumActive[i]=true; });
+    return { name:obj.n||"Shared Pattern", strumActive, hasSecondRow:!!obj.r2,
+      row1Size:Number(obj.s1)||8, row2Size:Number(obj.s2)||8,
+      songChords:Array.isArray(obj.c)?obj.c:[], bpm:Number(obj.b)||60, beatsPerChord:Number(obj.p)||2 };
+  } catch { return null; }
+}
+
 // ─── KEY DETECTION ───────────────────────────────────────────────────────────
 // Diatonic chords per key (limited to chords in our app)
 const KEY_SETS = [
@@ -222,8 +238,10 @@ export default function App() {
     new URLSearchParams(window.location.search).has("pattern");
   const hasSharedDrill = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("drill");
+  const hasSharedStrum = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("strum");
 
-  const [tab, setTab] = useState(hasSharedDrill ? "chords" : hasSharedPattern ? "song" : "strum");
+  const [tab, setTab] = useState(hasSharedDrill ? "chords" : (hasSharedPattern||hasSharedStrum) ? "song" : "strum");
   const [buildMode, setBuildMode] = useState(hasSharedPattern ? "advanced" : "simple");
   const audio = useAudio();
   const [chordVariants, setChordVariants] = useState({G:"G",C:"C",Em:"Em",D:"D",Am:"Am",A:"A",E:"E",Dm:"Dm",Bm:"Bm","Fmaj7":"Fmaj7"});
@@ -890,8 +908,10 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
 function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [songChords, setSongChords] = useState([]);
-  const [strumActive, setStrumActive] = useState(defaultBuild(8));
+  const [strumActive, setStrumActive] = useState(defaultBuild(8).concat(Array(8).fill(false)));
   const [hasSecondRow, setHasSecondRow] = useState(false);
+  const [row1Size, setRow1Size] = useState(8);
+  const [row2Size, setRow2Size] = useState(8);
   const [strumPatternBtn, setStrumPatternBtn] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(60);
@@ -899,6 +919,13 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   const [chordIndex, setChordIndex] = useState(0);
   const [beatCount, setBeatCount] = useState(0);
   const [currentStrum, setCurrentStrum] = useState(-1);
+  const [loadedName, setLoadedName] = useState(null);
+  const [savedPatterns, setSavedPatterns] = useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("ntc_strum")||"[]"); } catch{ return []; }
+  });
+  const [showSaved, setShowSaved] = useState(false);
+  const [savePrompt, setSavePrompt] = useState(false);
+  const [saveName, setSaveName] = useState("");
 
   const intervalRef = useRef(null);
   const bpmRef = useRef(bpm);
@@ -910,38 +937,64 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   const strumBeatRef = useRef(-1);
   const firstTickRef = useRef(true);
   const totalStrumRef = useRef(8);
+  const row1SizeRef = useRef(8);
+  const row2SizeRef = useRef(8);
+  const hasSecondRowRef = useRef(false);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
   useEffect(()=>{ chordsRef.current=songChords; },[songChords]);
   useEffect(()=>{ strumRef.current=strumActive; },[strumActive]);
-  useEffect(()=>{ totalStrumRef.current=hasSecondRow?16:8; },[hasSecondRow]);
+  useEffect(()=>{
+    row1SizeRef.current=row1Size; row2SizeRef.current=row2Size;
+    hasSecondRowRef.current=hasSecondRow;
+    totalStrumRef.current=hasSecondRow?row1Size+row2Size:row1Size;
+  },[row1Size,row2Size,hasSecondRow]);
+
+  // Load from URL on mount
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search);
+    const encoded = params.get("strum");
+    if(encoded){
+      const d = decodeStrumDrill(encoded);
+      if(d){
+        setSongChords(d.songChords); setStrumActive(d.strumActive);
+        setHasSecondRow(d.hasSecondRow); setRow1Size(d.row1Size); setRow2Size(d.row2Size);
+        setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
+        setLoadedName(d.name); setSaveName(d.name);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  // eslint-disable-next-line
+  },[]);
 
   const tick = useCallback(()=>{
     const chords=chordsRef.current;
     const bpc=bpcRef.current;
-    const totalS=totalStrumRef.current;
-    const nextStrum=(strumBeatRef.current+1)%totalS;
-    strumBeatRef.current=nextStrum;
-    setCurrentStrum(nextStrum);
-    if(nextStrum===0 && !firstTickRef.current){
+    const r1=row1SizeRef.current, r2=row2SizeRef.current, has2=hasSecondRowRef.current;
+    const totalS=has2?r1+r2:r1;
+    const nextRaw=(strumBeatRef.current+1)%totalS;
+    strumBeatRef.current=nextRaw;
+    // Map nextRaw to strumActive index (row2 starts at index 8)
+    const strumIdx = nextRaw < r1 ? nextRaw : 8 + (nextRaw - r1);
+    setCurrentStrum(strumIdx);
+    if(nextRaw===0 && !firstTickRef.current){
       const nextChordBeat=(chordBeatRef.current+1)%bpc;
       chordBeatRef.current=nextChordBeat;
       setBeatCount(nextChordBeat);
       if(nextChordBeat===0 && chords.length>0){
         const nextChord=(chordIdxRef.current+1)%chords.length;
-        chordIdxRef.current=nextChord;
-        setChordIndex(nextChord);
+        chordIdxRef.current=nextChord; setChordIndex(nextChord);
       }
     }
     firstTickRef.current=false;
-    if(nextStrum%4===0) playChordClick(nextStrum===0);
-    const isDown=nextStrum%2===0;
-    if(strumRef.current[nextStrum]) {
+    if(nextRaw%4===0) playChordClick(nextRaw===0);
+    const isDown=strumIdx%2===0;
+    if(strumRef.current[strumIdx]){
       const currentChord=chordsRef.current[chordIdxRef.current];
-      playChordStrum(getAudioKey(currentChord, chordVariants), isDown);
+      if(currentChord) playChordStrum(getAudioKey(currentChord, chordVariants), isDown);
     }
-  },[playChordClick,playChordStrum]);
+  },[playChordClick,playChordStrum,chordVariants]);
 
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
@@ -949,8 +1002,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
     firstTickRef.current=true;
     setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
     const ms=(60/bpmRef.current/4)*1000;
-    intervalRef.current=setInterval(tick,ms);
-    tick();
+    intervalRef.current=setInterval(tick,ms); tick();
   },[tick]);
 
   const stopMetronome = useCallback(()=>{
@@ -959,18 +1011,43 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
     strumBeatRef.current=-1; chordIdxRef.current=0;
   },[]);
 
-  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord,hasSecondRow]);
+  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord,hasSecondRow,row1Size,row2Size]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
+
+  const doSave = () => {
+    if(!saveName.trim()) return;
+    const pattern = { id:Date.now(), name:saveName.trim(),
+      strumActive, hasSecondRow, row1Size, row2Size,
+      songChords, bpm, beatsPerChord, savedAt:new Date().toLocaleDateString() };
+    const updated = [...savedPatterns, pattern];
+    setSavedPatterns(updated);
+    localStorage.setItem("ntc_strum", JSON.stringify(updated));
+    setSavePrompt(false); setSaveName(""); setShowSaved(true);
+  };
+
+  const doShare = (p) => {
+    try {
+      const encoded = encodeStrumDrill(p.name, p.strumActive, p.hasSecondRow, p.row1Size||8, p.row2Size||8, p.songChords, p.bpm, p.beatsPerChord);
+      const url = `${window.location.origin}${window.location.pathname}?strum=${encoded}`;
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(url)
+          .then(()=>alert(`✅ Link copied!\n\nShare "${p.name}" with your members.`))
+          .catch(()=>prompt("Copy this link:", url));
+      } else { prompt("Copy this link:", url); }
+    } catch(e) { alert("Couldn't generate link."); }
+  };
 
   const canPlay = songChords.length>=1;
   const nextChordIndex = songChords.length>0?(chordIndex+1)%songChords.length:0;
   const isLastBeat = isPlaying&&beatsPerChord>1&&beatCount===beatsPerChord-1;
-  const totalBlocks = hasSecondRow?16:8;
 
   const handleTogglePlay = async()=>{
     if(isPlaying){stopMetronome();setIsPlaying(false);}
     else if(canPlay){await init();startMetronome();setIsPlaying(true);}
   };
+
+  const cycleSize = (cur) => cur===8?4:cur===4?6:8;
+  const sizeLabel = (n) => n===6?"Triplet":n===4?"4":"8";
 
   return (
     <>
@@ -1015,58 +1092,17 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
 
       <div data-song-panel style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
-        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>SONG BUILDER</div>
-
-        <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:16 }}>
-          {[1,2,3].map(n=>(
-            <PatternBtn key={n} label={`Pattern ${n}`} active={strumPatternBtn===n}
-              onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                const pat=STRUM_PATTERNS[n].active;
-                setStrumActive(prev=>{ const next=[...prev]; for(let i=0;i<8;i++) next[i]=pat[i]; return next; });
-                setHasSecondRow(false); setStrumPatternBtn(n); }} />
-          ))}
-          <PatternBtn label="🎲 Random" active={strumPatternBtn==="random"} accent
-            onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-              setStrumActive(generateRandomPattern().active); setStrumPatternBtn("random"); setHasSecondRow(false); }} />
-        </div>
-        <div style={{ fontSize:11, color:"#555", textAlign:"center", marginBottom:6, letterSpacing:1 }}>ROW 1</div>
-        <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap", marginBottom:4 }}>
-          {strumActive.slice(0,8).map((a,i)=>(
-            <BuildBlock key={i} dir={DIRS16[i]} active={a} beat={currentStrum===i&&isPlaying}
-              onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v)); setStrumPatternBtn(null); }} />
-          ))}
-        </div>
-        {hasSecondRow && (
-          <>
-            <div style={{ fontSize:11, color:"#555", textAlign:"center", margin:"10px 0 6px", letterSpacing:1 }}>ROW 2</div>
-            <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap", marginBottom:4 }}>
-              {strumActive.slice(8,16).map((a,i)=>(
-                <BuildBlock key={i+8} dir={DIRS16[i]} active={a} beat={currentStrum===i+8&&isPlaying}
-                  onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                    setStrumActive(p=>p.map((v,idx)=>idx===i+8?!v:v)); setStrumPatternBtn(null); }} />
-              ))}
-            </div>
-          </>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>STRUM BUILDER</div>
+        {loadedName && (
+          <div style={{ fontSize:18, fontWeight:900, color:"#fff", textAlign:"center",
+            marginBottom:12, letterSpacing:0.3, textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>
+            {loadedName}
+          </div>
         )}
-        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, marginBottom:16 }}>
-          {!hasSecondRow
-            ? <button onClick={()=>{ setHasSecondRow(true); setStrumActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
-                if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
-                padding:"8px 18px", borderRadius:10, border:"1px dashed #FFBE0B",
-                background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row 2</button>
-            : <button onClick={()=>{ setHasSecondRow(false); setStrumActive(p=>p.slice(0,8));
-                if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
-                padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
-                background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row 2</button>
-          }
-          <button onClick={()=>{ setStrumActive(defaultBuild(hasSecondRow?16:8)); setStrumPatternBtn(null); }} style={{
-            padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
-            background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
-        </div>
+        {!loadedName && <div style={{ marginBottom:12 }} />}
 
-        {/* Compact metronome at bottom */}
-        <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14, padding:"12px 14px" }}>
+        {/* BPM */}
+        <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
             <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
             <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
@@ -1085,16 +1121,167 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
           </div>
           <button onClick={handleTogglePlay} disabled={!canPlay} style={{
             width:"100%", padding:"11px", borderRadius:12, border:"none",
-            background: !canPlay ? "#111"
-              : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
-              : "linear-gradient(135deg,#1a6b3c,#27ae60)",
-            color: !canPlay ? "#333" : "#fff", fontSize:15, fontWeight:800,
-            cursor: canPlay ? "pointer" : "not-allowed", transition:"all 0.15s",
-            boxShadow: !canPlay ? "none"
-              : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
-              : "0 4px 16px rgba(39,174,96,0.4)",
-          }}>{!canPlay ? "Select a chord to start" : isPlaying ? "⏹ Stop" : "▶ Start"}</button>
+            background: !canPlay?"#111":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
+            color:!canPlay?"#333":"#fff", fontSize:15, fontWeight:800,
+            cursor:canPlay?"pointer":"not-allowed", transition:"all 0.15s",
+            boxShadow:!canPlay?"none":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
+          }}>{!canPlay?"Select a chord to start":isPlaying?"⏹ Stop":"▶ Start"}</button>
         </div>
+
+        {/* Pattern preset buttons */}
+        <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:16 }}>
+          {[1,2,3].map(n=>(
+            <PatternBtn key={n} label={`Pattern ${n}`} active={strumPatternBtn===n}
+              onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                const pat=STRUM_PATTERNS[n].active;
+                setStrumActive(prev=>{ const next=[...prev]; for(let i=0;i<8;i++) next[i]=pat[i]; return next; });
+                setHasSecondRow(false); setRow1Size(8); setStrumPatternBtn(n); }} />
+          ))}
+          <PatternBtn label="🎲 Random" active={strumPatternBtn==="random"} accent
+            onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+              setStrumActive(generateRandomPattern().active); setStrumPatternBtn("random"); setHasSecondRow(false); setRow1Size(8); }} />
+        </div>
+
+        {/* Row 1 */}
+        <div style={{ marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
+            <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 1</div>
+            <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+              const ns=cycleSize(row1Size); setRow1Size(ns);
+              setStrumActive(p=>{ const n=[...p]; for(let i=ns;i<8;i++) n[i]=false; return n; });
+              setStrumPatternBtn(null);
+            }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+              background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+              {sizeLabel(row1Size)} ↻
+            </button>
+          </div>
+          <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+            {Array(row1Size).fill(null).map((_,i)=>(
+              <BuildBlock key={i} dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying}
+                onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                  setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v)); setStrumPatternBtn(null); }} />
+            ))}
+          </div>
+        </div>
+
+        {/* Row 2 */}
+        {hasSecondRow && (
+          <div style={{ marginBottom:10 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
+              <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 2</div>
+              <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                const ns=cycleSize(row2Size); setRow2Size(ns);
+                setStrumActive(p=>{ const n=[...p]; for(let i=8+ns;i<16;i++) n[i]=false; return n; });
+                setStrumPatternBtn(null);
+              }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+                background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                {sizeLabel(row2Size)} ↻
+              </button>
+            </div>
+            <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+              {Array(row2Size).fill(null).map((_,i)=>(
+                <BuildBlock key={i+8} dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying}
+                  onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                    setStrumActive(p=>p.map((v,idx)=>idx===i+8?!v:v)); setStrumPatternBtn(null); }} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Row controls */}
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, marginBottom:16, flexWrap:"wrap" }}>
+          {!hasSecondRow
+            ? <button onClick={()=>{ setHasSecondRow(true);
+                setStrumActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
+                setRow2Size(8);
+                if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+                padding:"8px 18px", borderRadius:10, border:"1px solid #FFBE0B",
+                background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>
+            : <button onClick={()=>{ setHasSecondRow(false);
+                setStrumActive(p=>[...p.slice(0,8),...Array(8).fill(false)]);
+                if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+                padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
+                background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>
+          }
+          <button onClick={()=>{ setStrumActive([...defaultBuild(8),...Array(8).fill(false)]); setStrumPatternBtn(null); setLoadedName(null); }} style={{
+            padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
+            background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
+          <button onClick={()=>setSavePrompt(p=>!p)} style={{
+            padding:"8px 14px", borderRadius:10, border:"1px solid #FFBE0B44",
+            background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+          <button onClick={()=>setShowSaved(s=>!s)} style={{
+            padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
+            background:"#111", color:"#888", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+            📂 My Patterns ({savedPatterns.length})
+          </button>
+        </div>
+
+        {/* Save prompt */}
+        {savePrompt && (
+          <div style={{ marginBottom:14, background:"#111", border:"1px solid #FFBE0B33",
+            borderRadius:14, padding:"14px" }}>
+            <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this pattern</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&doSave()}
+                placeholder="e.g. Verse loop, Chorus..."
+                style={{ flex:1, padding:"9px 12px", borderRadius:10,
+                  border:"1px solid #333", background:"#0a0a0a",
+                  color:"#fff", fontSize:13, outline:"none" }} />
+              <button onClick={doSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+                background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+              <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
+                padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+            </div>
+          </div>
+        )}
+
+        {/* Saved patterns list */}
+        {showSaved && (
+          <div style={{ marginBottom:14, display:"flex", flexDirection:"column", gap:6 }}>
+            {savedPatterns.length===0 && (
+              <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"14px 0" }}>
+                No saved patterns yet — build something and hit 💾
+              </div>
+            )}
+            {savedPatterns.map(p=>(
+              <div key={p.id} style={{ background:"#111", border:"1px solid #2a2a2a",
+                borderRadius:12, padding:"10px 14px",
+                display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:"#fff",
+                    whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                  <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
+                    {p.bpm} BPM · {p.hasSecondRow?"2 rows":"1 row"} · {p.savedAt}
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:6, marginLeft:10 }}>
+                  <button onClick={()=>{
+                    if(isPlaying){stopMetronome();setIsPlaying(false);}
+                    setSongChords(p.songChords||[]); setStrumActive(p.strumActive);
+                    setHasSecondRow(p.hasSecondRow||false);
+                    setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
+                    setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
+                    setLoadedName(p.name); setShowSaved(false);
+                  }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
+                    background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                    color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                  <button onClick={()=>doShare(p)} style={{ padding:"6px 10px", borderRadius:8,
+                    border:"1px solid #333", background:"transparent",
+                    color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗 Share</button>
+                  <button onClick={()=>{
+                    const updated=savedPatterns.filter(x=>x.id!==p.id);
+                    setSavedPatterns(updated);
+                    localStorage.setItem("ntc_strum", JSON.stringify(updated));
+                  }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                    background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
     {/* Copyright */}
@@ -1104,6 +1291,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
     </>
   );
 }
+
 
 // ─── ADVANCED BUILD A SONG ───────────────────────────────────────────────────
 function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
