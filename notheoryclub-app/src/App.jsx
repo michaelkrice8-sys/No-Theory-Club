@@ -471,6 +471,24 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 
   const [randomOrder, setRandomOrder] = useState(false);
   const [randomNextDisplay, setRandomNextDisplay] = useState(0);
+  const [shareUrl, setShareUrl] = useState(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Load drill from URL on first mount
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search);
+    const drill = params.get("drill");
+    if(drill){
+      const decoded = decodeChordDrill(drill);
+      if(decoded && decoded.chords.length >= 2){
+        setViewMode("build");
+        setCustomChords(decoded.chords);
+        setBpm(decoded.bpm);
+        setBeatsPerChord(decoded.beatsPerChord);
+      }
+    }
+  // eslint-disable-next-line
+  },[]);
 
   const intervalRef = useRef(null);
   const beatRef = useRef(0);
@@ -614,11 +632,12 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 
       {viewMode==="build" && (
         <ChordPickerPanel customChords={customChords} setCustomChords={setCustomChords}
-          maxChords={4} accentColor="#FFBE0B" isPlaying={isPlaying}
+          maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
           stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
           setChordIndex={setChordIndex} setBeatCount={setBeatCount}
           beatRef={beatRef} chordRef={chordRef}
-          chordVariants={chordVariants} updateVariant={updateVariant} />
+          chordVariants={chordVariants} updateVariant={updateVariant}
+          allowDuplicates={true} />
       )}
 
       {chords.length>=2 && (
@@ -681,6 +700,35 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         totalBlocks={4} currentBeat={-1} accentColor={accentColor}
         onToggle={handleTogglePlay} canPlay={canPlay}
         disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"} />
+
+      {viewMode==="build" && customChords.length >= 2 && (
+        <div style={{ width:"100%", marginBottom:8 }}>
+          <button onClick={()=>{
+            const encoded = encodeChordDrill(customChords, bpm, beatsPerChord);
+            const url = `${window.location.origin}${window.location.pathname}?drill=${encoded}`;
+            setShareUrl(url);
+            navigator.clipboard?.writeText(url).then(()=>{
+              setShareCopied(true);
+              setTimeout(()=>setShareCopied(false), 2500);
+            });
+          }} style={{
+            width:"100%", padding:"13px", borderRadius:14, border:"none",
+            background:"linear-gradient(135deg,#1a3a2a,#1e4a32)",
+            color:"#4ade80", fontSize:14, fontWeight:800, cursor:"pointer",
+            border:"1px solid #2a5a3a",
+            boxShadow:"0 2px 12px rgba(0,0,0,0.3)",
+          }}>
+            {shareCopied ? "✓ Link Copied!" : "🔗 Share This Drill"}
+          </button>
+          {shareUrl && (
+            <div style={{ marginTop:8, padding:"10px 12px", background:"#0a0a0a",
+              border:"1px solid #2a2a2a", borderRadius:10, wordBreak:"break-all",
+              fontSize:10, color:"#555", lineHeight:1.5 }}>
+              {shareUrl}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Copyright */}
       <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
@@ -1580,31 +1628,65 @@ function ModeTabs({ options, value, onChange }) {
 
 function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColor,
   isPlaying, stopMetronome, setIsPlaying, setChordIndex, setBeatCount, beatRef, chordRef,
-  chordVariants, updateVariant }) {
+  chordVariants, updateVariant, allowDuplicates=false }) {
   const [variantPickerChord, setVariantPickerChord] = useState(null);
   const [outsideKeyChord, setOutsideKeyChord] = useState(null);
 
-  const possibleKeys = getPossibleKeys(customChords);
-  const allowedChords = getAllowedChords(customChords);
+  // For duplicate mode — unique set for key detection
+  const uniqueChords = allowDuplicates ? [...new Set(customChords)] : customChords;
+  const possibleKeys = getPossibleKeys(uniqueChords);
+  const allowedChords = getAllowedChords(uniqueChords);
   const noKeyFits = customChords.length > 0 && possibleKeys.length === 0;
   return (
     <div style={{ width:"100%", background:"#0a0a0a",
       border:"1px solid #2a2a2a", borderRadius:20, padding:"16px 14px", marginBottom:20,
       boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
-      <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>
-        {maxChords===6 ? "PICK YOUR CHORDS" : "BUILD YOUR CHORD SET"}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+        <div style={{ width:32 }} />
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2 }}>
+          {allowDuplicates ? "BUILD YOUR CHORD SET" : maxChords===6 ? "PICK YOUR CHORDS" : "BUILD YOUR CHORD SET"}
+        </div>
+        {customChords.length > 0
+          ? <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setCustomChords([]); setChordIndex(0); setBeatCount(0); if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0; }} style={{ width:32, height:32, borderRadius:8, border:"1px solid #3a1a1a", background:"#1a0808", color:"#e74c3c", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>↺</button>
+          : <div style={{ width:32 }} />
+        }
       </div>
       <div style={{ fontSize:12, color:"#555", textAlign:"center", marginBottom:14 }}>
-        {customChords.length}/{maxChords} selected
+        {customChords.length}/{maxChords} {allowDuplicates ? "slots used" : "selected"}
         {customChords.length>=1 && <span style={{ color:"#FFD166", marginLeft:8 }}>→ {customChords.join(" → ")}</span>}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
         {ALL_CHORDS.map(chord=>{
           const isSel=customChords.includes(chord);
-          const isDis=!isSel&&customChords.length>=maxChords;
+          const positions = allowDuplicates ? customChords.reduce((a,c,i)=>c===chord?[...a,i+1]:a,[]) : [];
+          const isDis = allowDuplicates ? customChords.length>=maxChords : !isSel&&customChords.length>=maxChords;
           return (
             <button key={chord} disabled={isDis}
               onClick={()=>{
+                if(allowDuplicates){
+                  // Ordered sequence mode — click adds, last occurrence removed on second tap
+                  const lastIdx = customChords.lastIndexOf(chord);
+                  if(lastIdx !== -1 && customChords.length > 0){
+                    // Remove last occurrence of this chord
+                    if(isPlaying){stopMetronome();setIsPlaying(false);}
+                    const next = [...customChords];
+                    next.splice(lastIdx, 1);
+                    setCustomChords(next);
+                    setChordIndex(0); setBeatCount(0);
+                    if(beatRef) beatRef.current=0;
+                    if(chordRef) chordRef.current=0;
+                    return;
+                  }
+                  // Add chord
+                  const isOutside = allowedChords && !allowedChords.has(chord);
+                  if(isOutside){ setOutsideKeyChord(chord); return; }
+                  if(isPlaying){stopMetronome();setIsPlaying(false);}
+                  setCustomChords(p=>[...p,chord]);
+                  setChordIndex(0); setBeatCount(0);
+                  if(beatRef) beatRef.current=0;
+                  if(chordRef) chordRef.current=0;
+                  return;
+                }
                 if(isSel){
                   if(isPlaying){stopMetronome();setIsPlaying(false);}
                   setCustomChords(p=>p.filter(c=>c!==chord));
@@ -1613,7 +1695,6 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                   if(chordRef) chordRef.current=0;
                   return;
                 }
-                // Check if chord fits current key
                 const isOutside = allowedChords && !allowedChords.has(chord);
                 if(isOutside){ setOutsideKeyChord(chord); return; }
                 if(isPlaying){stopMetronome();setIsPlaying(false);}
@@ -1625,10 +1706,10 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
               borderRadius:10, padding:"0 0 5px", background:"#000",
               border: isSel ? `2px solid ${accentColor}` : "2px solid #2a2210",
               cursor:isDis?"not-allowed":"pointer",
-              opacity: isDis ? 0.25 : (allowedChords && !isSel && !allowedChords.has(chord)) ? 0.35 : 1,
+              opacity: isDis ? 0.25 : (allowedChords && !allowedChords.has(chord) && positions.length===0) ? 0.35 : 1,
               display:"flex", flexDirection:"column", alignItems:"center",
               transition:"all 0.15s", overflow:"hidden",
-              filter: (allowedChords && !isSel && !allowedChords.has(chord)) ? "grayscale(60%)" : "none",
+              filter: (allowedChords && !allowedChords.has(chord) && positions.length===0) ? "grayscale(60%)" : "none",
               boxShadow:isSel?`0 0 10px rgba(${hexToRgb(accentColor)},0.3)`:"none",
             }}>
               {getChordImg(chord, chordVariants)
@@ -1649,7 +1730,14 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                     justifyContent:"center", fontSize:16, fontWeight:900,
                     color:isSel?accentColor:"#333" }}>{chord}</div>
               }
-              <div style={{ fontSize:10, fontWeight:800, color:isSel?accentColor:"#555", marginTop:3 }}>{chord}</div>
+              <div style={{ fontSize:10, fontWeight:800, color:isSel?accentColor:"#555", marginTop:3 }}>
+                {chord}
+                {allowDuplicates && positions.length > 0 && (
+                  <span style={{ marginLeft:3, color:accentColor, fontSize:9 }}>
+                    {positions.map(p=>`${p}`).join(" ")}
+                  </span>
+                )}
+              </div>
             </button>
           );
         })}
