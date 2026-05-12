@@ -471,8 +471,12 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 
   const [randomOrder, setRandomOrder] = useState(false);
   const [randomNextDisplay, setRandomNextDisplay] = useState(0);
-  const [shareUrl, setShareUrl] = useState(null);
-  const [shareCopied, setShareCopied] = useState(false);
+  const [savedDrills, setSavedDrills] = useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("ntc_drills")||"[]"); } catch{ return []; }
+  });
+  const [showSavedDrills, setShowSavedDrills] = useState(false);
+  const [drillSavePrompt, setDrillSavePrompt] = useState(false);
+  const [drillSaveName, setDrillSaveName] = useState("");
 
   // Load drill from URL on first mount
   useEffect(()=>{
@@ -703,28 +707,106 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 
       {viewMode==="build" && customChords.length >= 2 && (
         <div style={{ width:"100%", marginBottom:8 }}>
-          <button onClick={()=>{
-            const encoded = encodeChordDrill(customChords, bpm, beatsPerChord);
-            const url = `${window.location.origin}${window.location.pathname}?drill=${encoded}`;
-            setShareUrl(url);
-            navigator.clipboard?.writeText(url).then(()=>{
-              setShareCopied(true);
-              setTimeout(()=>setShareCopied(false), 2500);
-            });
-          }} style={{
-            width:"100%", padding:"13px", borderRadius:14, border:"none",
-            background:"linear-gradient(135deg,#1a3a2a,#1e4a32)",
-            color:"#4ade80", fontSize:14, fontWeight:800, cursor:"pointer",
-            border:"1px solid #2a5a3a",
-            boxShadow:"0 2px 12px rgba(0,0,0,0.3)",
-          }}>
-            {shareCopied ? "✓ Link Copied!" : "🔗 Share This Drill"}
-          </button>
-          {shareUrl && (
-            <div style={{ marginTop:8, padding:"10px 12px", background:"#0a0a0a",
-              border:"1px solid #2a2a2a", borderRadius:10, wordBreak:"break-all",
-              fontSize:10, color:"#555", lineHeight:1.5 }}>
-              {shareUrl}
+          {/* Save / Load row */}
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            <button onClick={()=>setDrillSavePrompt(p=>!p)} style={{
+              flex:1, padding:"10px", borderRadius:12,
+              border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
+              color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+            <button onClick={()=>setShowSavedDrills(s=>!s)} style={{
+              flex:1, padding:"10px", borderRadius:12,
+              border:"1px solid #2a2a2a", background:"#111",
+              color:"#888", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+              📂 My Drills <span style={{color:"#555",fontWeight:400}}>({savedDrills.length})</span>
+            </button>
+          </div>
+
+          {/* Save prompt */}
+          {drillSavePrompt && (
+            <div style={{ marginBottom:8, background:"#111", border:"1px solid #FFBE0B33",
+              borderRadius:14, padding:"14px" }}>
+              <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this drill</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input autoFocus value={drillSaveName} onChange={e=>setDrillSaveName(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter"){
+                    if(!drillSaveName.trim()) return;
+                    const drill = { id:Date.now(), name:drillSaveName.trim(),
+                      chords:customChords, bpm, beatsPerChord,
+                      savedAt:new Date().toLocaleDateString() };
+                    const updated=[...savedDrills, drill];
+                    setSavedDrills(updated);
+                    localStorage.setItem("ntc_drills", JSON.stringify(updated));
+                    setDrillSavePrompt(false); setDrillSaveName(""); setShowSavedDrills(true);
+                  }}}
+                  placeholder="e.g. G C G D practice..."
+                  style={{ flex:1, padding:"9px 12px", borderRadius:10,
+                    border:"1px solid #333", background:"#0a0a0a",
+                    color:"#fff", fontSize:13, outline:"none" }} />
+                <button onClick={()=>{
+                  if(!drillSaveName.trim()) return;
+                  const drill = { id:Date.now(), name:drillSaveName.trim(),
+                    chords:customChords, bpm, beatsPerChord,
+                    savedAt:new Date().toLocaleDateString() };
+                  const updated=[...savedDrills, drill];
+                  setSavedDrills(updated);
+                  localStorage.setItem("ntc_drills", JSON.stringify(updated));
+                  setDrillSavePrompt(false); setDrillSaveName(""); setShowSavedDrills(true);
+                }} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+                  background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                  color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+                <button onClick={()=>{setDrillSavePrompt(false);setDrillSaveName("");}} style={{
+                  padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                  background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+              </div>
+            </div>
+          )}
+
+          {/* Saved drills list */}
+          {showSavedDrills && (
+            <div style={{ marginBottom:8, display:"flex", flexDirection:"column", gap:6 }}>
+              {savedDrills.length===0 && (
+                <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"14px 0" }}>
+                  No saved drills yet — build something and hit 💾
+                </div>
+              )}
+              {savedDrills.map((d)=>(
+                <div key={d.id} style={{ background:"#111", border:"1px solid #2a2a2a",
+                  borderRadius:12, padding:"10px 14px",
+                  display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:800, color:"#fff",
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.name}</div>
+                    <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
+                      {d.chords.join(" → ")} · {d.bpm} BPM · {d.beatsPerChord} beat{d.beatsPerChord!==1?"s":""}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:6, marginLeft:10 }}>
+                    <button onClick={()=>{
+                      if(isPlaying){stopMetronome();setIsPlaying(false);}
+                      setCustomChords(d.chords); setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
+                      setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0;
+                      setShowSavedDrills(false);
+                    }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
+                      background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                      color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                    <button onClick={()=>{
+                      const encoded = encodeChordDrill(d.chords, d.bpm, d.beatsPerChord);
+                      const url = `${window.location.origin}${window.location.pathname}?drill=${encoded}`;
+                      navigator.clipboard?.writeText(url)
+                        .then(()=>alert(`✅ Link copied!\n\nShare "${d.name}" with your members.`))
+                        .catch(()=>prompt("Copy this link:", url));
+                    }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                      background:"transparent", color:"#6b9fff", fontSize:12,
+                      fontWeight:700, cursor:"pointer" }}>🔗 Share</button>
+                    <button onClick={()=>{
+                      const updated = savedDrills.filter(x=>x.id!==d.id);
+                      setSavedDrills(updated);
+                      localStorage.setItem("ntc_drills", JSON.stringify(updated));
+                    }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                      background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1647,7 +1729,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           {allowDuplicates ? "BUILD YOUR CHORD SET" : maxChords===6 ? "PICK YOUR CHORDS" : "BUILD YOUR CHORD SET"}
         </div>
         {customChords.length > 0
-          ? <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setCustomChords([]); setChordIndex(0); setBeatCount(0); if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0; }} style={{ width:32, height:32, borderRadius:8, border:"1px solid #3a1a1a", background:"#1a0808", color:"#e74c3c", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>↺</button>
+          ? <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setCustomChords([]); setChordIndex(0); setBeatCount(0); if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0; }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.5 }}>Reset</button>
           : <div style={{ width:32 }} />
         }
       </div>
@@ -1664,20 +1746,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
             <button key={chord} disabled={isDis}
               onClick={()=>{
                 if(allowDuplicates){
-                  // Ordered sequence mode — click adds, last occurrence removed on second tap
-                  const lastIdx = customChords.lastIndexOf(chord);
-                  if(lastIdx !== -1 && customChords.length > 0){
-                    // Remove last occurrence of this chord
-                    if(isPlaying){stopMetronome();setIsPlaying(false);}
-                    const next = [...customChords];
-                    next.splice(lastIdx, 1);
-                    setCustomChords(next);
-                    setChordIndex(0); setBeatCount(0);
-                    if(beatRef) beatRef.current=0;
-                    if(chordRef) chordRef.current=0;
-                    return;
-                  }
-                  // Add chord
+                  // Ordered sequence mode — always ADD on tap (use reset or chips to remove)
                   const isOutside = allowedChords && !allowedChords.has(chord);
                   if(isOutside){ setOutsideKeyChord(chord); return; }
                   if(isPlaying){stopMetronome();setIsPlaying(false);}
@@ -1742,6 +1811,30 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           );
         })}
       </div>
+      {/* Sequence chips — tap × to remove individual slot */}
+      {allowDuplicates && customChords.length > 0 && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:10, marginTop:2 }}>
+          {customChords.map((c,i)=>(
+            <div key={i} style={{
+              display:"flex", alignItems:"center", gap:4, padding:"4px 8px 4px 10px",
+              borderRadius:20, background:"rgba(255,190,11,0.1)",
+              border:"1px solid rgba(255,190,11,0.3)", fontSize:12, fontWeight:800,
+              color:"#FFBE0B",
+            }}>
+              <span style={{ fontSize:9, color:"#888", marginRight:1 }}>{i+1}</span>
+              {c}
+              <button onClick={()=>{
+                if(isPlaying){stopMetronome();setIsPlaying(false);}
+                const next=[...customChords]; next.splice(i,1);
+                setCustomChords(next); setChordIndex(0); setBeatCount(0);
+                if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0;
+              }} style={{ background:"none", border:"none", color:"#666",
+                fontSize:12, cursor:"pointer", padding:"0 0 0 2px", lineHeight:1 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Key indicator */}
       {customChords.length > 0 && (
         <div style={{ marginTop:10, textAlign:"center" }}>
