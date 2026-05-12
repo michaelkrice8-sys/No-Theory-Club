@@ -506,7 +506,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         setBeatsPerChord(decoded.beatsPerChord);
         const drillName = decoded.name || "Shared Drill";
         setLoadedDrillName(drillName);
-        setTimeout(()=>{ setDrillSaveName(drillName); setDrillSavePrompt(true); }, 600);
+        setDrillSaveName(drillName);
         setPickerOpen(false);
         window.history.replaceState({}, "", window.location.pathname);
       }
@@ -747,14 +747,17 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         onToggle={handleTogglePlay} canPlay={canPlay}
         disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"} />
 
-      {viewMode==="build" && customChords.length >= 2 && (
+      {viewMode==="build" && (
         <div style={{ width:"100%", marginBottom:8 }}>
           {/* Save / Load row */}
           <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-            <button onClick={()=>setDrillSavePrompt(p=>!p)} style={{
+            <button onClick={()=>{ if(customChords.length>=2) setDrillSavePrompt(p=>!p); }} style={{
               flex:1, padding:"10px", borderRadius:12,
-              border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
-              color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+              border: customChords.length>=2 ? "1px solid #FFBE0B44" : "1px solid #2a2a2a",
+              background: customChords.length>=2 ? "rgba(255,190,11,0.07)" : "#0d0d0d",
+              color: customChords.length>=2 ? "#FFBE0B" : "#333",
+              fontSize:13, fontWeight:700,
+              cursor: customChords.length>=2 ? "pointer" : "not-allowed" }}>💾 Save</button>
             <button onClick={()=>setShowSavedDrills(s=>!s)} style={{
               flex:1, padding:"10px", borderRadius:12,
               border:"1px solid #2a2a2a", background:"#111",
@@ -833,7 +836,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
                       background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
                       color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
                     <button onClick={()=>{
-                      const encoded = encodeChordDrill(d.chords, d.bpm, d.beatsPerChord);
+                      const encoded = encodeChordDrill(d.chords, d.bpm, d.beatsPerChord, d.name);
                       const url = `${window.location.origin}${window.location.pathname}?drill=${encoded}`;
                       navigator.clipboard?.writeText(url)
                         .then(()=>alert(`✅ Link copied!\n\nShare "${d.name}" with your members.`))
