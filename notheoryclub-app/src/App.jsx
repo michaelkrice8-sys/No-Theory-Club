@@ -105,9 +105,9 @@ function decodeChordDrill(str) {
 }
 
 // ─── STRUM PATTERN URL ENCODING ─────────────────────────────────────────────
-function encodeStrumDrill(name, strumActive, hasSecondRow, row1Size, row2Size, songChords, bpm, beatsPerChord) {
+function encodeStrumDrill(name, strumActive, hasSecondRow, row1Size, row2Size, songChords, bpm, beatsPerChord, chordVariants) {
   const sa = strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; },[]);
-  return btoa(JSON.stringify({ n:name, sa, r2:hasSecondRow?1:0, s1:row1Size, s2:row2Size, c:songChords, b:bpm, p:beatsPerChord }));
+  return btoa(JSON.stringify({ n:name, sa, r2:hasSecondRow?1:0, s1:row1Size, s2:row2Size, c:songChords, b:bpm, p:beatsPerChord, v:chordVariants||{} }));
 }
 function decodeStrumDrill(str) {
   try {
@@ -116,7 +116,8 @@ function decodeStrumDrill(str) {
     (obj.sa||[]).forEach(i=>{ if(i<16) strumActive[i]=true; });
     return { name:obj.n||"Shared Pattern", strumActive, hasSecondRow:!!obj.r2,
       row1Size:Number(obj.s1)||8, row2Size:Number(obj.s2)||8,
-      songChords:Array.isArray(obj.c)?obj.c:[], bpm:Number(obj.b)||60, beatsPerChord:Number(obj.p)||2 };
+      songChords:Array.isArray(obj.c)?obj.c:[], bpm:Number(obj.b)||60, beatsPerChord:Number(obj.p)||2,
+      chordVariants:obj.v||{} };
   } catch { return null; }
 }
 
@@ -987,6 +988,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
         setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
         setLoadedName(d.name); setSaveName(d.name);
         setPickerOpen(false);
+        if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
         window.history.replaceState({}, "", window.location.pathname);
       }
     }
@@ -1043,7 +1045,9 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
     if(!saveName.trim()) return;
     const pattern = { id:Date.now(), name:saveName.trim(),
       strumActive, hasSecondRow, row1Size, row2Size,
-      songChords, bpm, beatsPerChord, savedAt:new Date().toLocaleDateString() };
+      songChords, bpm, beatsPerChord,
+      chordVariants: {...chordVariants},
+      savedAt:new Date().toLocaleDateString() };
     const updated = [...savedPatterns, pattern];
     setSavedPatterns(updated);
     localStorage.setItem("ntc_strum", JSON.stringify(updated));
@@ -1052,7 +1056,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
 
   const doShare = (p) => {
     try {
-      const encoded = encodeStrumDrill(p.name, p.strumActive, p.hasSecondRow, p.row1Size||8, p.row2Size||8, p.songChords, p.bpm, p.beatsPerChord);
+      const encoded = encodeStrumDrill(p.name, p.strumActive, p.hasSecondRow, p.row1Size||8, p.row2Size||8, p.songChords, p.bpm, p.beatsPerChord, p.chordVariants||{});
       const url = `${window.location.origin}${window.location.pathname}?strum=${encoded}`;
       if(navigator.clipboard && navigator.clipboard.writeText){
         navigator.clipboard.writeText(url)
@@ -1465,6 +1469,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
                         setHasSecondRow(p.hasSecondRow||false);
                         setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
                         setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
+                        if(p.chordVariants) Object.entries(p.chordVariants).forEach(([c,v])=>updateVariant(c,v));
                         setLoadedName(p.name); setPickerOpen(false); setShowSaved(false);
                       }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
                         background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
