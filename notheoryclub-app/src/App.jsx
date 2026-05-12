@@ -329,9 +329,17 @@ function StrummingTab({ audio }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(60);
   const [currentBeat, setCurrentBeat] = useState(-1);
-  const [buildActive, setBuildActive] = useState(defaultBuild(8));
+  const [buildActive, setBuildActive] = useState([...defaultBuild(8),...Array(8).fill(false)]);
   const [hasSecondRow, setHasSecondRow] = useState(false);
-  const [strumChord, setStrumChord] = useState("G"); // default G
+  const [row1Size, setRow1Size] = useState(8);
+  const [row2Size, setRow2Size] = useState(8);
+  const [strumChord, setStrumChord] = useState("G");
+  const [savedStrums, setSavedStrums] = useState(()=>{
+    try{ return JSON.parse(localStorage.getItem("ntc_strum_tab")||"[]"); } catch{ return []; }
+  });
+  const [showSavedStrums, setShowSavedStrums] = useState(false);
+  const [strumSavePrompt, setStrumSavePrompt] = useState(false);
+  const [strumSaveName, setStrumSaveName] = useState("");
 
   const STRUM_CHORDS = ["G", "C", "Em", "D"];
 
@@ -343,23 +351,32 @@ function StrummingTab({ audio }) {
   const patternRef = useRef(pattern);
   const buildActiveRef = useRef(buildActive);
   const strumChordRef = useRef(strumChord);
+  const row1SizeRef = useRef(8);
+  const hasSecondRowRef2 = useRef(false);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ modeRef.current=mode; },[mode]);
   useEffect(()=>{ patternRef.current=pattern; },[pattern]);
   useEffect(()=>{ buildActiveRef.current=buildActive; },[buildActive]);
   useEffect(()=>{ strumChordRef.current=strumChord; },[strumChord]);
-  useEffect(()=>{ totalBeatsRef.current = mode==="build"&&hasSecondRow ? 16 : 8; },[mode,hasSecondRow]);
+  useEffect(()=>{ row1SizeRef.current=row1Size; },[row1Size]);
+  useEffect(()=>{ hasSecondRowRef2.current=hasSecondRow; },[hasSecondRow]);
+  useEffect(()=>{ totalBeatsRef.current = mode==="build" ? (hasSecondRow ? row1Size+row2Size : row1Size) : 8; },[mode,hasSecondRow,row1Size,row2Size]);
 
   const tick = useCallback(()=>{
     const total=totalBeatsRef.current;
     const next=(beatRef.current+1)%total;
     beatRef.current=next;
-    setCurrentBeat(next);
-    if(next%4===0) playClick(next===0);
-    const isDown=next%2===0;
     const cm=modeRef.current;
-    let shouldStrum = cm==="build" ? buildActiveRef.current[next]===true
+    const r1 = row1SizeRef.current||8;
+    const displayIdx = cm==="build" && next >= r1 ? 8+(next-r1) : next;
+    setCurrentBeat(cm==="build" ? displayIdx : next);
+    if(next%4===0) playClick(next===0);
+    const isDown=(cm==="build" ? displayIdx : next)%2===0;
+    // Map next (0..total-1) to strumActive array index
+    const r1 = row1SizeRef.current||8;
+    const mappedIdx = cm==="build" && next >= r1 ? 8+(next-r1) : next;
+    let shouldStrum = cm==="build" ? buildActiveRef.current[mappedIdx]===true
       : patternRef.current ? patternRef.current.active[next]===true : true;
     if(shouldStrum) playChordStrum(STRUM_ANCHOR_CHORDS.has(strumChordRef.current)?strumChordRef.current+"_anchor":strumChordRef.current, isDown);
   },[playClick, playChordStrum]);
@@ -378,7 +395,7 @@ function StrummingTab({ audio }) {
   },[]);
 
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm]);
-  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[hasSecondRow]);
+  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[hasSecondRow,row1Size,row2Size]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
   const handleTogglePlay = async ()=>{
@@ -386,7 +403,7 @@ function StrummingTab({ audio }) {
     else{await init();startMetronome();setIsPlaying(true);}
   };
 
-  const totalBlocks = mode==="build"&&hasSecondRow ? 16 : 8;
+  const totalBlocks = mode==="build" ? (hasSecondRow ? row1Size+row2Size : row1Size) : 8;
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
   return (
@@ -472,8 +489,14 @@ function StrummingTab({ audio }) {
       {mode==="build" && (
         <BuildStrumPanel buildActive={buildActive} setBuildActive={setBuildActive}
           hasSecondRow={hasSecondRow} setHasSecondRow={setHasSecondRow}
+          row1Size={row1Size} setRow1Size={setRow1Size}
+          row2Size={row2Size} setRow2Size={setRow2Size}
           currentBeat={currentBeat} isPlaying={isPlaying}
-          stopMetronome={stopMetronome} setIsPlaying={setIsPlaying} />
+          stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
+          savedStrums={savedStrums} setSavedStrums={setSavedStrums}
+          showSavedStrums={showSavedStrums} setShowSavedStrums={setShowSavedStrums}
+          strumSavePrompt={strumSavePrompt} setStrumSavePrompt={setStrumSavePrompt}
+          strumSaveName={strumSaveName} setStrumSaveName={setStrumSaveName} />
       )}
 
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
@@ -2411,53 +2434,172 @@ function ChordCard({ chord, isActive, accentColor }) {
 }
 
 function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSecondRow,
-  currentBeat, isPlaying, stopMetronome, setIsPlaying }) {
+  row1Size, setRow1Size, row2Size, setRow2Size,
+  currentBeat, isPlaying, stopMetronome, setIsPlaying,
+  savedStrums, setSavedStrums, showSavedStrums, setShowSavedStrums,
+  strumSavePrompt, setStrumSavePrompt, strumSaveName, setStrumSaveName }) {
+
+  const cycleSize = (cur) => cur===8?4:cur===4?6:8;
+  const sizeLabel = (n) => n===6?"Triplet":n===4?"4":"8";
+
+  const doSave = () => {
+    if(!strumSaveName.trim()) return;
+    const pattern = { id:Date.now(), name:strumSaveName.trim(),
+      buildActive, hasSecondRow, row1Size, row2Size,
+      savedAt:new Date().toLocaleDateString() };
+    const updated = [...savedStrums, pattern];
+    setSavedStrums(updated);
+    localStorage.setItem("ntc_strum_tab", JSON.stringify(updated));
+    setStrumSavePrompt(false); setStrumSaveName(""); setShowSavedStrums(true);
+  };
+
+  const doLoad = (p) => {
+    if(isPlaying){stopMetronome();setIsPlaying(false);}
+    setBuildActive(p.buildActive);
+    setHasSecondRow(p.hasSecondRow||false);
+    setRow1Size(p.row1Size||8);
+    setRow2Size(p.row2Size||8);
+    setShowSavedStrums(false);
+  };
+
   return (
     <div style={{ width:"100%", background:"#0a0a0a",
       border:"1px solid #2a2a2a", borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
       <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>BUILD YOUR PATTERN</div>
       <p style={{ textAlign:"center", fontSize:12, color:"#888", marginBottom:16 }}>Tap blocks to toggle active ↔ ghost</p>
-      <div style={{ fontSize:11, color:"#555", textAlign:"center", marginBottom:6, letterSpacing:1 }}>ROW 1</div>
-      <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap", marginBottom:4 }}>
-        {buildActive.slice(0,8).map((a,i)=>(
-          <BuildBlock key={i} dir={DIRS16[i]} active={a} beat={currentBeat===i&&isPlaying}
-            onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-              setBuildActive(p=>p.map((v,idx)=>idx===i?!v:v)); }} />
-        ))}
+
+      {/* Row 1 */}
+      <div style={{ marginBottom:10 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
+          <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 1</div>
+          <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+            const ns=cycleSize(row1Size); setRow1Size(ns);
+            setBuildActive(p=>{ const n=[...p]; for(let i=ns;i<8;i++) n[i]=false; return n; });
+          }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+            background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+            {sizeLabel(row1Size)} ↻
+          </button>
+        </div>
+        <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap" }}>
+          {Array(row1Size).fill(null).map((_,i)=>(
+            <BuildBlock key={i} dir={DIRS16[i%8]} active={buildActive[i]} beat={currentBeat===i&&isPlaying}
+              onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                setBuildActive(p=>p.map((v,idx)=>idx===i?!v:v)); }} />
+          ))}
+        </div>
       </div>
+
+      {/* Row 2 */}
       {hasSecondRow && (
-        <>
-          <div style={{ fontSize:11, color:"#555", textAlign:"center", margin:"10px 0 6px", letterSpacing:1 }}>ROW 2</div>
+        <div style={{ marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
+            <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 2</div>
+            <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+              const ns=cycleSize(row2Size); setRow2Size(ns);
+              setBuildActive(p=>{ const n=[...p]; for(let i=8+ns;i<16;i++) n[i]=false; return n; });
+            }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+              background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+              {sizeLabel(row2Size)} ↻
+            </button>
+          </div>
           <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"wrap" }}>
-            {buildActive.slice(8,16).map((a,i)=>(
-              <BuildBlock key={i+8} dir={DIRS16[i]} active={a} beat={currentBeat===i+8&&isPlaying}
+            {Array(row2Size).fill(null).map((_,i)=>(
+              <BuildBlock key={i+8} dir={DIRS16[i%8]} active={buildActive[i+8]} beat={currentBeat===i+8&&isPlaying}
                 onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
                   setBuildActive(p=>p.map((v,idx)=>idx===i+8?!v:v)); }} />
             ))}
           </div>
-        </>
+        </div>
       )}
-      <div style={{ display:"flex", justifyContent:"center", gap:10, marginTop:16 }}>
+
+      {/* Row controls */}
+      <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, marginBottom:16, flexWrap:"wrap" }}>
         {!hasSecondRow
           ? <button onClick={()=>{ setHasSecondRow(true);
               setBuildActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
+              setRow2Size(8);
               if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
-              padding:"8px 18px", borderRadius:10, border:"1px dashed #FFBE0B",
-              background:"rgba(247,127,0,0.08)", color:"#F77F00",
-              fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Second Row</button>
+              padding:"8px 18px", borderRadius:10, border:"1px solid #FFBE0B",
+              background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>
           : <button onClick={()=>{ setHasSecondRow(false);
-              setBuildActive(p=>p.slice(0,8));
+              setBuildActive(p=>[...p.slice(0,8),...Array(8).fill(false)]);
               if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
               padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
-              background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row 2</button>
+              background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>
         }
-        <button onClick={()=>setBuildActive(defaultBuild(hasSecondRow?16:8))} style={{
+        <button onClick={()=>{ setBuildActive([...defaultBuild(8),...Array(8).fill(false)]); setRow1Size(8); }} style={{
           padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
           background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
+        <button onClick={()=>setStrumSavePrompt(p=>!p)} style={{
+          padding:"8px 14px", borderRadius:10, border:"1px solid #FFBE0B44",
+          background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+        <button onClick={()=>setShowSavedStrums(s=>!s)} style={{
+          padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
+          background:"#111", color:"#888", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+          📂 My Patterns ({savedStrums.length})
+        </button>
       </div>
+
+      {/* Save prompt */}
+      {strumSavePrompt && (
+        <div style={{ marginBottom:14, background:"#111", border:"1px solid #FFBE0B33",
+          borderRadius:14, padding:"14px" }}>
+          <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this pattern</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <input autoFocus value={strumSaveName} onChange={e=>setStrumSaveName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&doSave()}
+              placeholder="e.g. D DU UDU..."
+              style={{ flex:1, padding:"9px 12px", borderRadius:10,
+                border:"1px solid #333", background:"#0a0a0a",
+                color:"#fff", fontSize:13, outline:"none" }} />
+            <button onClick={doSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+              background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+              color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+            <button onClick={()=>{setStrumSavePrompt(false);setStrumSaveName("");}} style={{
+              padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+              background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* Saved patterns */}
+      {showSavedStrums && (
+        <div style={{ marginBottom:14, display:"flex", flexDirection:"column", gap:6 }}>
+          {savedStrums.length===0 && (
+            <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"14px 0" }}>
+              No saved patterns yet — build something and hit 💾
+            </div>
+          )}
+          {savedStrums.map(p=>(
+            <div key={p.id} style={{ background:"#111", border:"1px solid #2a2a2a",
+              borderRadius:12, padding:"10px 14px",
+              display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"#fff",
+                  whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
+                  {p.hasSecondRow?"2 rows":"1 row"} · {p.savedAt}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:6, marginLeft:10 }}>
+                <button onClick={()=>doLoad(p)} style={{ padding:"6px 12px", borderRadius:8, border:"none",
+                  background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                  color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                <button onClick={()=>{
+                  const updated=savedStrums.filter(x=>x.id!==p.id);
+                  setSavedStrums(updated);
+                  localStorage.setItem("ntc_strum_tab", JSON.stringify(updated));
+                }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                  background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
 
 function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, accentColor,
   onToggle, canPlay, disabledLabel, countIn }) {
