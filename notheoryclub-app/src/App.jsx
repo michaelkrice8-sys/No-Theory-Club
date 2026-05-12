@@ -1053,263 +1053,407 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
 
   return (
     <>
-      {loadedName && (
-        <div style={{ width:"100%", textAlign:"center", marginBottom:4 }}>
-          <div style={{ fontSize:18, fontWeight:900, color:"#fff", letterSpacing:0.3,
-            textShadow:"0 2px 8px rgba(0,0,0,0.5)", marginBottom:2 }}>
-            {loadedName}
-          </div>
-        </div>
-      )}
-
-      {pickerOpen && (
-        <ChordPickerPanel customChords={songChords} setCustomChords={setSongChords}
-          maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
-          stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
-          setChordIndex={setChordIndex} setBeatCount={setBeatCount}
-          beatRef={chordIdxRef} chordRef={chordIdxRef}
-          chordVariants={chordVariants} updateVariant={updateVariant}
-          allowDuplicates={true} />
-      )}
-      <button onClick={()=>setPickerOpen(o=>!o)} style={{
-        width:"100%", marginBottom:12, padding:"8px",
-        borderRadius:10, border:"1px solid #2a2a2a",
-        background:"transparent", color:"#555",
-        fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:1,
-      }}>
-        {pickerOpen ? "▲ HIDE BUILDER" : "▼ SHOW BUILDER"}
-      </button>
-
-      {songChords.length>=1 && (
+      {/* ── SHARED LINK VIEW ─────────────────────────────── */}
+      {!pickerOpen && (
         <>
-          <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
-            isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
-            bpm={bpm} beatsPerChord={beatsPerChord}
-            chordVariants={chordVariants} updateVariant={updateVariant} />
-          <div style={{ width:"100%", marginBottom:20 }}>
-            <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>BEATS PER CHORD</div>
-            <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:12 }}>
-              {BEATS_OPTIONS.map(b=>(
-                <button key={b} onClick={()=>{ setBeatsPerChord(b); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
-                  padding:"9px 26px", borderRadius:10,
-                  border: beatsPerChord===b ? "2px solid #FFBE0B" : "2px solid #2a2210",
-                  background: beatsPerChord===b ? "rgba(255,190,11,0.12)" : "#111",
-                  color: beatsPerChord===b ? "#FFBE0B" : "#555",
-                  fontSize:15, fontWeight:800, cursor:"pointer",
-                }}>{b}</button>
+          {/* Title */}
+          {loadedName && (
+            <div style={{ width:"100%", textAlign:"center", marginBottom:16 }}>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:0.3,
+                textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{loadedName}</div>
+            </div>
+          )}
+
+          {/* Chord carousel */}
+          {songChords.length>=1 && (
+            <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
+              isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
+              bpm={bpm} beatsPerChord={beatsPerChord}
+              chordVariants={chordVariants} updateVariant={updateVariant} />
+          )}
+
+          {/* Strum pattern */}
+          <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+            borderRadius:20, padding:"16px", marginBottom:16 }}>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+            <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap", marginBottom: hasSecondRow ? 10 : 0 }}>
+              {Array(row1Size).fill(null).map((_,i)=>(
+                <BuildBlock key={i} dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying} onClick={()=>{}} />
               ))}
             </div>
-            <div style={{ display:"flex", justifyContent:"center", gap:8 }}>
-              {Array(beatsPerChord).fill(null).map((_,i)=>(
-                <div key={i} style={{ width:14, height:14, borderRadius:"50%",
-                  background:isPlaying&&beatCount===i?"#FFBE0B":i===0?"#2a1f00":"#111",
-                  border:`1px solid ${i===0?"#f5a62344":"#2a1f00"}`,
-                  boxShadow:isPlaying&&beatCount===i?"0 0 8px rgba(255,190,11,0.7)":"none",
-                  transition:"background 0.05s" }} />
-              ))}
-            </div>
+            {hasSecondRow && (
+              <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap", marginTop:8 }}>
+                {Array(row2Size).fill(null).map((_,i)=>(
+                  <BuildBlock key={i+8} dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying} onClick={()=>{}} />
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* BPM + Play */}
+          <div style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a",
+            borderRadius:14, padding:"14px", marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
+              <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+            </div>
+            <input type="range" min={40} max={160} value={bpm}
+              onChange={e=>setBpm(Number(e.target.value))}
+              style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+            <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
+              {[60,80,100,120].map(b=>(
+                <button key={b} onClick={()=>setBpm(b)} style={{
+                  flex:1, padding:"5px 0", borderRadius:8,
+                  border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
+                  background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
+                  color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+              ))}
+            </div>
+            <button onClick={handleTogglePlay} disabled={!canPlay} style={{
+              width:"100%", padding:"13px", borderRadius:12, border:"none",
+              background:!canPlay?"#111":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#FFD60A,#F77F00)",
+              color:!canPlay?"#333":isPlaying?"#fff":"#111",
+              fontSize:17, fontWeight:900, cursor:canPlay?"pointer":"not-allowed",
+              boxShadow:!canPlay?"none":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 24px rgba(255,214,10,0.4)",
+            }}>{!canPlay?"Select a chord to start":isPlaying?"⏹ Stop":"▶ Play"}</button>
+          </div>
+
+          {/* Save / Load */}
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            <button onClick={()=>setSavePrompt(p=>!p)} style={{
+              flex:1, padding:"10px", borderRadius:12,
+              border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
+              color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+            <button onClick={()=>setShowSaved(s=>!s)} style={{
+              flex:1, padding:"10px", borderRadius:12,
+              border:"1px solid #2a2a2a", background:"#111",
+              color:"#888", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+              📂 My Patterns ({savedPatterns.length})
+            </button>
+          </div>
+
+          {savePrompt && (
+            <div style={{ marginBottom:10, background:"#111", border:"1px solid #FFBE0B33",
+              borderRadius:14, padding:"14px" }}>
+              <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this pattern</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&doSave()}
+                  placeholder="e.g. Verse loop..."
+                  style={{ flex:1, padding:"9px 12px", borderRadius:10,
+                    border:"1px solid #333", background:"#0a0a0a",
+                    color:"#fff", fontSize:13, outline:"none" }} />
+                <button onClick={doSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+                  background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                  color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+                <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
+                  padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                  background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+              </div>
+            </div>
+          )}
+
+          {showSaved && (
+            <div style={{ marginBottom:10, display:"flex", flexDirection:"column", gap:6 }}>
+              {savedPatterns.length===0 && (
+                <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"14px 0" }}>
+                  No saved patterns yet
+                </div>
+              )}
+              {savedPatterns.map(p=>(
+                <div key={p.id} style={{ background:"#111", border:"1px solid #2a2a2a",
+                  borderRadius:12, padding:"10px 14px",
+                  display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:800, color:"#fff",
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                    <div style={{ fontSize:11, color:"#555", marginTop:2 }}>{p.bpm} BPM · {p.savedAt}</div>
+                  </div>
+                  <div style={{ display:"flex", gap:6, marginLeft:10 }}>
+                    <button onClick={()=>{
+                      if(isPlaying){stopMetronome();setIsPlaying(false);}
+                      setSongChords(p.songChords||[]); setStrumActive(p.strumActive);
+                      setHasSecondRow(p.hasSecondRow||false);
+                      setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
+                      setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
+                      setLoadedName(p.name); setShowSaved(false);
+                    }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
+                      background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                      color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                    <button onClick={()=>doShare(p)} style={{ padding:"6px 10px", borderRadius:8,
+                      border:"1px solid #333", background:"transparent",
+                      color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗</button>
+                    <button onClick={()=>{
+                      const updated=savedPatterns.filter(x=>x.id!==p.id);
+                      setSavedPatterns(updated);
+                      localStorage.setItem("ntc_strum", JSON.stringify(updated));
+                    }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                      background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Show builder link */}
+          <button onClick={()=>setPickerOpen(true)} style={{
+            width:"100%", padding:"8px", marginTop:4,
+            borderRadius:10, border:"1px solid #2a2a2a",
+            background:"transparent", color:"#555",
+            fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:1,
+          }}>▼ SHOW BUILDER</button>
         </>
       )}
 
-      <div data-song-panel style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
-        borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
-        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>STRUM BUILDER</div>
-        {loadedName && (
-          <div style={{ fontSize:18, fontWeight:900, color:"#fff", textAlign:"center",
-            marginBottom:12, letterSpacing:0.3, textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>
-            {loadedName}
-          </div>
-        )}
-        {!loadedName && <div style={{ marginBottom:12 }} />}
-
-        {/* BPM */}
-        <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-            <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
-            <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
-          </div>
-          <input type="range" min={40} max={160} value={bpm}
-            onChange={e=>setBpm(Number(e.target.value))}
-            style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
-          <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-            {[60,80,100,120].map(b=>(
-              <button key={b} onClick={()=>setBpm(b)} style={{
-                flex:1, padding:"5px 0", borderRadius:8,
-                border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
-                background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
-                color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
-            ))}
-          </div>
-          <button onClick={handleTogglePlay} disabled={!canPlay} style={{
-            width:"100%", padding:"11px", borderRadius:12, border:"none",
-            background: !canPlay?"#111":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
-            color:!canPlay?"#333":"#fff", fontSize:15, fontWeight:800,
-            cursor:canPlay?"pointer":"not-allowed", transition:"all 0.15s",
-            boxShadow:!canPlay?"none":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
-          }}>{!canPlay?"Select a chord to start":isPlaying?"⏹ Stop":"▶ Start"}</button>
-        </div>
-
-        {/* Pattern preset buttons */}
-        <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:16 }}>
-          {[1,2,3].map(n=>(
-            <PatternBtn key={n} label={`Pattern ${n}`} active={strumPatternBtn===n}
-              onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                const pat=STRUM_PATTERNS[n].active;
-                setStrumActive(prev=>{ const next=[...prev]; for(let i=0;i<8;i++) next[i]=pat[i]; return next; });
-                setHasSecondRow(false); setRow1Size(8); setStrumPatternBtn(n); }} />
-          ))}
-          <PatternBtn label="🎲 Random" active={strumPatternBtn==="random"} accent
-            onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-              setStrumActive(generateRandomPattern().active); setStrumPatternBtn("random"); setHasSecondRow(false); setRow1Size(8); }} />
-        </div>
-
-        {/* Row 1 */}
-        <div style={{ marginBottom:10 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
-            <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 1</div>
-            <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-              const ns=cycleSize(row1Size); setRow1Size(ns);
-              setStrumActive(p=>{ const n=[...p]; for(let i=ns;i<8;i++) n[i]=false; return n; });
-              setStrumPatternBtn(null);
-            }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
-              background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
-              {sizeLabel(row1Size)} ↻
-            </button>
-          </div>
-          <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-            {Array(row1Size).fill(null).map((_,i)=>(
-              <BuildBlock key={i} dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying}
-                onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                  setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v)); setStrumPatternBtn(null); }} />
-            ))}
-          </div>
-        </div>
-
-        {/* Row 2 */}
-        {hasSecondRow && (
-          <div style={{ marginBottom:10 }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
-              <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 2</div>
-              <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                const ns=cycleSize(row2Size); setRow2Size(ns);
-                setStrumActive(p=>{ const n=[...p]; for(let i=8+ns;i<16;i++) n[i]=false; return n; });
-                setStrumPatternBtn(null);
-              }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
-                background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
-                {sizeLabel(row2Size)} ↻
-              </button>
+      {/* ── FULL BUILDER VIEW ────────────────────────────── */}
+      {pickerOpen && (
+        <>
+          {loadedName && (
+            <div style={{ width:"100%", textAlign:"center", marginBottom:4 }}>
+              <div style={{ fontSize:18, fontWeight:900, color:"#fff", letterSpacing:0.3,
+                textShadow:"0 2px 8px rgba(0,0,0,0.5)", marginBottom:2 }}>{loadedName}</div>
             </div>
-            <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-              {Array(row2Size).fill(null).map((_,i)=>(
-                <BuildBlock key={i+8} dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying}
-                  onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                    setStrumActive(p=>p.map((v,idx)=>idx===i+8?!v:v)); setStrumPatternBtn(null); }} />
-              ))}
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* Row controls */}
-        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, marginBottom:16, flexWrap:"wrap" }}>
-          {!hasSecondRow
-            ? <button onClick={()=>{ setHasSecondRow(true);
-                setStrumActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
-                setRow2Size(8);
-                if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
-                padding:"8px 18px", borderRadius:10, border:"1px solid #FFBE0B",
-                background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>
-            : <button onClick={()=>{ setHasSecondRow(false);
-                setStrumActive(p=>[...p.slice(0,8),...Array(8).fill(false)]);
-                if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
-                padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
-                background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>
-          }
-          <button onClick={()=>{ setStrumActive([...defaultBuild(8),...Array(8).fill(false)]); setStrumPatternBtn(null); setLoadedName(null); setSongChords([]); setPickerOpen(true); }} style={{
-            padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
-            background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
-          <button onClick={()=>setSavePrompt(p=>!p)} style={{
-            padding:"8px 14px", borderRadius:10, border:"1px solid #FFBE0B44",
-            background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
-          <button onClick={()=>setShowSaved(s=>!s)} style={{
-            padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
-            background:"#111", color:"#888", fontSize:12, fontWeight:700, cursor:"pointer" }}>
-            📂 My Patterns ({savedPatterns.length})
-          </button>
-        </div>
+          <ChordPickerPanel customChords={songChords} setCustomChords={setSongChords}
+            maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
+            stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
+            setChordIndex={setChordIndex} setBeatCount={setBeatCount}
+            beatRef={chordIdxRef} chordRef={chordIdxRef}
+            chordVariants={chordVariants} updateVariant={updateVariant}
+            allowDuplicates={true} />
 
-        {/* Save prompt */}
-        {savePrompt && (
-          <div style={{ marginBottom:14, background:"#111", border:"1px solid #FFBE0B33",
-            borderRadius:14, padding:"14px" }}>
-            <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this pattern</div>
-            <div style={{ display:"flex", gap:8 }}>
-              <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&doSave()}
-                placeholder="e.g. Verse loop, Chorus..."
-                style={{ flex:1, padding:"9px 12px", borderRadius:10,
-                  border:"1px solid #333", background:"#0a0a0a",
-                  color:"#fff", fontSize:13, outline:"none" }} />
-              <button onClick={doSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
-                background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
-                color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
-              <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
-                padding:"9px 12px", borderRadius:10, border:"1px solid #333",
-                background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
-            </div>
-          </div>
-        )}
+          <button onClick={()=>setPickerOpen(false)} style={{
+            width:"100%", marginBottom:12, padding:"8px",
+            borderRadius:10, border:"1px solid #2a2a2a",
+            background:"transparent", color:"#555",
+            fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:1,
+          }}>▲ HIDE BUILDER</button>
 
-        {/* Saved patterns list */}
-        {showSaved && (
-          <div style={{ marginBottom:14, display:"flex", flexDirection:"column", gap:6 }}>
-            {savedPatterns.length===0 && (
-              <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"14px 0" }}>
-                No saved patterns yet — build something and hit 💾
+          {songChords.length>=1 && (
+            <>
+              <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
+                isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
+                bpm={bpm} beatsPerChord={beatsPerChord}
+                chordVariants={chordVariants} updateVariant={updateVariant} />
+              <div style={{ width:"100%", marginBottom:20 }}>
+                <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>BEATS PER CHORD</div>
+                <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:12 }}>
+                  {BEATS_OPTIONS.map(b=>(
+                    <button key={b} onClick={()=>{ setBeatsPerChord(b); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+                      padding:"9px 26px", borderRadius:10,
+                      border: beatsPerChord===b ? "2px solid #FFBE0B" : "2px solid #2a2210",
+                      background: beatsPerChord===b ? "rgba(255,190,11,0.12)" : "#111",
+                      color: beatsPerChord===b ? "#FFBE0B" : "#555",
+                      fontSize:15, fontWeight:800, cursor:"pointer",
+                    }}>{b}</button>
+                  ))}
+                </div>
+                <div style={{ display:"flex", justifyContent:"center", gap:8 }}>
+                  {Array(beatsPerChord).fill(null).map((_,i)=>(
+                    <div key={i} style={{ width:14, height:14, borderRadius:"50%",
+                      background:isPlaying&&beatCount===i?"#FFBE0B":i===0?"#2a1f00":"#111",
+                      border:`1px solid ${i===0?"#f5a62344":"#2a1f00"}`,
+                      boxShadow:isPlaying&&beatCount===i?"0 0 8px rgba(255,190,11,0.7)":"none",
+                      transition:"background 0.05s" }} />
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          <div data-song-panel style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+            borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
+            <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>STRUM BUILDER</div>
+            {loadedName && (
+              <div style={{ fontSize:18, fontWeight:900, color:"#fff", textAlign:"center",
+                marginBottom:12, letterSpacing:0.3, textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>
+                {loadedName}
               </div>
             )}
-            {savedPatterns.map(p=>(
-              <div key={p.id} style={{ background:"#111", border:"1px solid #2a2a2a",
-                borderRadius:12, padding:"10px 14px",
-                display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:800, color:"#fff",
-                    whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
-                  <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
-                    {p.bpm} BPM · {p.hasSecondRow?"2 rows":"1 row"} · {p.savedAt}
-                  </div>
+            {!loadedName && <div style={{ marginBottom:12 }} />}
+
+            <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
+                <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+              </div>
+              <input type="range" min={40} max={160} value={bpm}
+                onChange={e=>setBpm(Number(e.target.value))}
+                style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+              <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
+                {[60,80,100,120].map(b=>(
+                  <button key={b} onClick={()=>setBpm(b)} style={{
+                    flex:1, padding:"5px 0", borderRadius:8,
+                    border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
+                    background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
+                    color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+                ))}
+              </div>
+              <button onClick={handleTogglePlay} disabled={!canPlay} style={{
+                width:"100%", padding:"11px", borderRadius:12, border:"none",
+                background:!canPlay?"#111":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
+                color:!canPlay?"#333":"#fff", fontSize:15, fontWeight:800,
+                cursor:canPlay?"pointer":"not-allowed", transition:"all 0.15s",
+                boxShadow:!canPlay?"none":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
+              }}>{!canPlay?"Select a chord to start":isPlaying?"⏹ Stop":"▶ Start"}</button>
+            </div>
+
+            <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:16 }}>
+              {[1,2,3].map(n=>(
+                <PatternBtn key={n} label={`Pattern ${n}`} active={strumPatternBtn===n}
+                  onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                    const pat=STRUM_PATTERNS[n].active;
+                    setStrumActive(prev=>{ const next=[...prev]; for(let i=0;i<8;i++) next[i]=pat[i]; return next; });
+                    setHasSecondRow(false); setRow1Size(8); setStrumPatternBtn(n); }} />
+              ))}
+              <PatternBtn label="🎲 Random" active={strumPatternBtn==="random"} accent
+                onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                  setStrumActive(generateRandomPattern().active); setStrumPatternBtn("random"); setHasSecondRow(false); setRow1Size(8); }} />
+            </div>
+
+            <div style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
+                <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 1</div>
+                <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                  const ns=cycleSize(row1Size); setRow1Size(ns);
+                  setStrumActive(p=>{ const n=[...p]; for(let i=ns;i<8;i++) n[i]=false; return n; });
+                  setStrumPatternBtn(null);
+                }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+                  background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                  {sizeLabel(row1Size)} ↻
+                </button>
+              </div>
+              <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                {Array(row1Size).fill(null).map((_,i)=>(
+                  <BuildBlock key={i} dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying}
+                    onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                      setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v)); setStrumPatternBtn(null); }} />
+                ))}
+              </div>
+            </div>
+
+            {hasSecondRow && (
+              <div style={{ marginBottom:10 }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
+                  <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW 2</div>
+                  <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                    const ns=cycleSize(row2Size); setRow2Size(ns);
+                    setStrumActive(p=>{ const n=[...p]; for(let i=8+ns;i<16;i++) n[i]=false; return n; });
+                    setStrumPatternBtn(null);
+                  }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+                    background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                    {sizeLabel(row2Size)} ↻
+                  </button>
                 </div>
-                <div style={{ display:"flex", gap:6, marginLeft:10 }}>
-                  <button onClick={()=>{
-                    if(isPlaying){stopMetronome();setIsPlaying(false);}
-                    setSongChords(p.songChords||[]); setStrumActive(p.strumActive);
-                    setHasSecondRow(p.hasSecondRow||false);
-                    setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
-                    setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
-                    setLoadedName(p.name); setPickerOpen(false); setShowSaved(false);
-                  }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
-                    background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
-                    color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
-                  <button onClick={()=>doShare(p)} style={{ padding:"6px 10px", borderRadius:8,
-                    border:"1px solid #333", background:"transparent",
-                    color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗 Share</button>
-                  <button onClick={()=>{
-                    const updated=savedPatterns.filter(x=>x.id!==p.id);
-                    setSavedPatterns(updated);
-                    localStorage.setItem("ntc_strum", JSON.stringify(updated));
-                  }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
-                    background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+                <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                  {Array(row2Size).fill(null).map((_,i)=>(
+                    <BuildBlock key={i+8} dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying}
+                      onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                        setStrumActive(p=>p.map((v,idx)=>idx===i+8?!v:v)); setStrumPatternBtn(null); }} />
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            )}
 
-    {/* Copyright */}
-    <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
-      © {new Date().getFullYear()} No Theory Club · All rights reserved.
-    </div>
+            <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, marginBottom:16, flexWrap:"wrap" }}>
+              {!hasSecondRow
+                ? <button onClick={()=>{ setHasSecondRow(true);
+                    setStrumActive(p=>[...p.slice(0,8),...defaultBuild(8)]);
+                    setRow2Size(8);
+                    if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+                    padding:"8px 18px", borderRadius:10, border:"1px solid #FFBE0B",
+                    background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>
+                : <button onClick={()=>{ setHasSecondRow(false);
+                    setStrumActive(p=>[...p.slice(0,8),...Array(8).fill(false)]);
+                    if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+                    padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
+                    background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>
+              }
+              <button onClick={()=>{ setStrumActive([...defaultBuild(8),...Array(8).fill(false)]); setStrumPatternBtn(null); setLoadedName(null); setSongChords([]); setPickerOpen(true); }} style={{
+                padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
+                background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
+              <button onClick={()=>setSavePrompt(p=>!p)} style={{
+                padding:"8px 14px", borderRadius:10, border:"1px solid #FFBE0B44",
+                background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+              <button onClick={()=>setShowSaved(s=>!s)} style={{
+                padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
+                background:"#111", color:"#888", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                📂 My Patterns ({savedPatterns.length})
+              </button>
+            </div>
+
+            {savePrompt && (
+              <div style={{ marginBottom:14, background:"#111", border:"1px solid #FFBE0B33",
+                borderRadius:14, padding:"14px" }}>
+                <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this pattern</div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
+                    onKeyDown={e=>e.key==="Enter"&&doSave()}
+                    placeholder="e.g. Verse loop, Chorus..."
+                    style={{ flex:1, padding:"9px 12px", borderRadius:10,
+                      border:"1px solid #333", background:"#0a0a0a",
+                      color:"#fff", fontSize:13, outline:"none" }} />
+                  <button onClick={doSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+                    background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                    color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+                  <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
+                    padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                    background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+                </div>
+              </div>
+            )}
+
+            {showSaved && (
+              <div style={{ marginBottom:14, display:"flex", flexDirection:"column", gap:6 }}>
+                {savedPatterns.length===0 && (
+                  <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"14px 0" }}>
+                    No saved patterns yet — build something and hit 💾
+                  </div>
+                )}
+                {savedPatterns.map(p=>(
+                  <div key={p.id} style={{ background:"#111", border:"1px solid #2a2a2a",
+                    borderRadius:12, padding:"10px 14px",
+                    display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:"#fff",
+                        whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                      <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
+                        {p.bpm} BPM · {p.hasSecondRow?"2 rows":"1 row"} · {p.savedAt}
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:6, marginLeft:10 }}>
+                      <button onClick={()=>{
+                        if(isPlaying){stopMetronome();setIsPlaying(false);}
+                        setSongChords(p.songChords||[]); setStrumActive(p.strumActive);
+                        setHasSecondRow(p.hasSecondRow||false);
+                        setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
+                        setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
+                        setLoadedName(p.name); setPickerOpen(false); setShowSaved(false);
+                      }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
+                        background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                        color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                      <button onClick={()=>doShare(p)} style={{ padding:"6px 10px", borderRadius:8,
+                        border:"1px solid #333", background:"transparent",
+                        color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗 Share</button>
+                      <button onClick={()=>{
+                        const updated=savedPatterns.filter(x=>x.id!==p.id);
+                        setSavedPatterns(updated);
+                        localStorage.setItem("ntc_strum", JSON.stringify(updated));
+                      }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                        background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
+            © {new Date().getFullYear()} No Theory Club · All rights reserved.
+          </div>
+        </>
+      )}
     </>
   );
 }
