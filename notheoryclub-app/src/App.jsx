@@ -94,13 +94,13 @@ const CHORD_VARIATION_MAP = {
 const HAS_VARIATIONS = new Set(Object.keys(CHORD_VARIATION_MAP).filter(c => CHORD_VARIATION_MAP[c].length > 1));
 
 // ─── CHORD DRILL URL ENCODING ────────────────────────────────────────────────
-function encodeChordDrill(chords, bpm, beatsPerChord) {
-  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord }));
+function encodeChordDrill(chords, bpm, beatsPerChord, name) {
+  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord, n: name||"" }));
 }
 function decodeChordDrill(str) {
   try {
     const obj = JSON.parse(atob(str));
-    return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2 };
+    return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2, name: obj.n||"" };
   } catch { return null; }
 }
 
@@ -220,8 +220,10 @@ function useAudio() {
 export default function App() {
   const hasSharedPattern = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("pattern");
+  const hasSharedDrill = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("drill");
 
-  const [tab, setTab] = useState(hasSharedPattern ? "song" : "strum");
+  const [tab, setTab] = useState(hasSharedDrill ? "chords" : hasSharedPattern ? "song" : "strum");
   const [buildMode, setBuildMode] = useState(hasSharedPattern ? "advanced" : "simple");
   const audio = useAudio();
   const [chordVariants, setChordVariants] = useState({G:"G",C:"C",Em:"Em",D:"D",Am:"Am",A:"A",E:"E",Dm:"Dm",Bm:"Bm","Fmaj7":"Fmaj7"});
@@ -488,6 +490,8 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
   const [showSavedDrills, setShowSavedDrills] = useState(false);
   const [drillSavePrompt, setDrillSavePrompt] = useState(false);
   const [drillSaveName, setDrillSaveName] = useState("");
+  const [loadedDrillName, setLoadedDrillName] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(true);
 
   // Load drill from URL on first mount
   useEffect(()=>{
@@ -500,6 +504,12 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         setCustomChords(decoded.chords);
         setBpm(decoded.bpm);
         setBeatsPerChord(decoded.beatsPerChord);
+        if(decoded.name) {
+          setLoadedDrillName(decoded.name);
+          setTimeout(()=>{ setDrillSaveName(decoded.name); setDrillSavePrompt(true); }, 600);
+        }
+        setPickerOpen(false);
+        window.history.replaceState({}, "", window.location.pathname);
       }
     }
   // eslint-disable-next-line
@@ -645,14 +655,36 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         </div>
       )}
 
+      {viewMode==="build" && loadedDrillName && (
+        <div style={{ width:"100%", textAlign:"center", marginBottom:4 }}>
+          <div style={{ fontSize:18, fontWeight:900, color:"#fff", letterSpacing:0.3,
+            textShadow:"0 2px 8px rgba(0,0,0,0.5)", marginBottom:2 }}>
+            {loadedDrillName}
+          </div>
+        </div>
+      )}
+
       {viewMode==="build" && (
-        <ChordPickerPanel customChords={customChords} setCustomChords={setCustomChords}
-          maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
-          stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
-          setChordIndex={setChordIndex} setBeatCount={setBeatCount}
-          beatRef={beatRef} chordRef={chordRef}
-          chordVariants={chordVariants} updateVariant={updateVariant}
-          allowDuplicates={true} />
+        <>
+          {pickerOpen && (
+            <ChordPickerPanel customChords={customChords} setCustomChords={setCustomChords}
+              maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
+              stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
+              setChordIndex={setChordIndex} setBeatCount={setBeatCount}
+              beatRef={beatRef} chordRef={chordRef}
+              chordVariants={chordVariants} updateVariant={updateVariant}
+              allowDuplicates={true} />
+          )}
+          <button onClick={()=>setPickerOpen(o=>!o)} style={{
+            width:"100%", marginBottom:12, padding:"8px",
+            borderRadius:10, border:"1px solid #2a2a2a",
+            background:"transparent",
+            color:"#555", fontSize:11, fontWeight:700,
+            cursor:"pointer", letterSpacing:1,
+          }}>
+            {pickerOpen ? "▲  HIDE BUILDER" : "▼  SHOW BUILDER"}
+          </button>
+        </>
       )}
 
       {chords.length>=2 && (
