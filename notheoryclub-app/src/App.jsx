@@ -1072,6 +1072,19 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
               chordVariants={chordVariants} updateVariant={updateVariant} />
           )}
 
+          {/* Beat count dots */}
+          {songChords.length>=1 && beatsPerChord>1 && (
+            <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:16 }}>
+              {Array(beatsPerChord).fill(null).map((_,i)=>(
+                <div key={i} style={{ width:14, height:14, borderRadius:"50%",
+                  background:isPlaying&&beatCount===i?"#FFBE0B":i===0?"#2a1f00":"#111",
+                  border:`1px solid ${i===0?"#f5a62344":"#2a1f00"}`,
+                  boxShadow:isPlaying&&beatCount===i?"0 0 8px rgba(255,190,11,0.7)":"none",
+                  transition:"background 0.05s" }} />
+              ))}
+            </div>
+          )}
+
           {/* Strum pattern */}
           <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
             borderRadius:20, padding:"16px", marginBottom:16 }}>
