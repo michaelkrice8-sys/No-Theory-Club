@@ -2466,6 +2466,19 @@ function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSeco
     setShowSavedStrums(false);
   };
 
+  const doShare = (p) => {
+    try {
+      const encoded = encodeStrumDrill(p.name, p.buildActive, p.hasSecondRow||false,
+        p.row1Size||8, p.row2Size||8, [], 60, 2, {});
+      const url = `${window.location.origin}${window.location.pathname}?strum=${encoded}`;
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(url)
+          .then(()=>alert(`✅ Link copied!\n\nShare "${p.name}" with your members.`))
+          .catch(()=>prompt("Copy this link:", url));
+      } else { prompt("Copy this link:", url); }
+    } catch(e) { alert("Couldn't generate link."); }
+  };
+
   return (
     <div style={{ width:"100%", background:"#0a0a0a",
       border:"1px solid #2a2a2a", borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
@@ -2589,6 +2602,9 @@ function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSeco
                 <button onClick={()=>doLoad(p)} style={{ padding:"6px 12px", borderRadius:8, border:"none",
                   background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
                   color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                <button onClick={()=>doShare(p)} style={{ padding:"6px 10px", borderRadius:8,
+                  border:"1px solid #333", background:"transparent",
+                  color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗 Share</button>
                 <button onClick={()=>{
                   const updated=savedStrums.filter(x=>x.id!==p.id);
                   setSavedStrums(updated);
