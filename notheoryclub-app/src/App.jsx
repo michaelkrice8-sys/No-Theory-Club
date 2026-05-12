@@ -93,6 +93,17 @@ const CHORD_VARIATION_MAP = {
 };
 const HAS_VARIATIONS = new Set(Object.keys(CHORD_VARIATION_MAP).filter(c => CHORD_VARIATION_MAP[c].length > 1));
 
+// ─── CHORD DRILL URL ENCODING ────────────────────────────────────────────────
+function encodeChordDrill(chords, bpm, beatsPerChord) {
+  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord }));
+}
+function decodeChordDrill(str) {
+  try {
+    const obj = JSON.parse(atob(str));
+    return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2 };
+  } catch { return null; }
+}
+
 // ─── KEY DETECTION ───────────────────────────────────────────────────────────
 // Diatonic chords per key (limited to chords in our app)
 const KEY_SETS = [
