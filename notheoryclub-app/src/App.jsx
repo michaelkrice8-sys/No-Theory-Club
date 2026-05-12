@@ -580,6 +580,8 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         setLoadedDrillName(drillName);
         setDrillSaveName(drillName);
         setPickerOpen(false);
+        if(decoded.chordVariants && Object.keys(decoded.chordVariants).length > 0)
+          Object.entries(decoded.chordVariants).forEach(([c,v])=>updateVariant(c,v));
         window.history.replaceState({}, "", window.location.pathname);
       }
     }
