@@ -920,6 +920,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   const [beatCount, setBeatCount] = useState(0);
   const [currentStrum, setCurrentStrum] = useState(-1);
   const [loadedName, setLoadedName] = useState(null);
+  const [pickerOpen, setPickerOpen] = useState(true);
   const [savedPatterns, setSavedPatterns] = useState(()=>{
     try{ return JSON.parse(localStorage.getItem("ntc_strum")||"[]"); } catch{ return []; }
   });
@@ -962,6 +963,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
         setHasSecondRow(d.hasSecondRow); setRow1Size(d.row1Size); setRow2Size(d.row2Size);
         setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
         setLoadedName(d.name); setSaveName(d.name);
+        setPickerOpen(false);
         window.history.replaceState({}, "", window.location.pathname);
       }
     }
@@ -1051,12 +1053,32 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
 
   return (
     <>
-      <ChordPickerPanel customChords={songChords} setCustomChords={setSongChords}
-        maxChords={6} accentColor="#FFBE0B" isPlaying={isPlaying}
-        stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
-        setChordIndex={setChordIndex} setBeatCount={setBeatCount}
-        beatRef={chordIdxRef} chordRef={chordIdxRef}
-        chordVariants={chordVariants} updateVariant={updateVariant} />
+      {loadedName && (
+        <div style={{ width:"100%", textAlign:"center", marginBottom:4 }}>
+          <div style={{ fontSize:18, fontWeight:900, color:"#fff", letterSpacing:0.3,
+            textShadow:"0 2px 8px rgba(0,0,0,0.5)", marginBottom:2 }}>
+            {loadedName}
+          </div>
+        </div>
+      )}
+
+      {pickerOpen && (
+        <ChordPickerPanel customChords={songChords} setCustomChords={setSongChords}
+          maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
+          stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
+          setChordIndex={setChordIndex} setBeatCount={setBeatCount}
+          beatRef={chordIdxRef} chordRef={chordIdxRef}
+          chordVariants={chordVariants} updateVariant={updateVariant}
+          allowDuplicates={true} />
+      )}
+      <button onClick={()=>setPickerOpen(o=>!o)} style={{
+        width:"100%", marginBottom:12, padding:"8px",
+        borderRadius:10, border:"1px solid #2a2a2a",
+        background:"transparent", color:"#555",
+        fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:1,
+      }}>
+        {pickerOpen ? "▲ HIDE BUILDER" : "▼ SHOW BUILDER"}
+      </button>
 
       {songChords.length>=1 && (
         <>
@@ -1203,7 +1225,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
                 padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
                 background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>
           }
-          <button onClick={()=>{ setStrumActive([...defaultBuild(8),...Array(8).fill(false)]); setStrumPatternBtn(null); setLoadedName(null); }} style={{
+          <button onClick={()=>{ setStrumActive([...defaultBuild(8),...Array(8).fill(false)]); setStrumPatternBtn(null); setLoadedName(null); setSongChords([]); setPickerOpen(true); }} style={{
             padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
             background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
           <button onClick={()=>setSavePrompt(p=>!p)} style={{
@@ -1264,7 +1286,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
                     setHasSecondRow(p.hasSecondRow||false);
                     setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
                     setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
-                    setLoadedName(p.name); setShowSaved(false);
+                    setLoadedName(p.name); setPickerOpen(false); setShowSaved(false);
                   }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
                     background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
                     color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
