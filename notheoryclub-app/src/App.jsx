@@ -94,13 +94,13 @@ const CHORD_VARIATION_MAP = {
 const HAS_VARIATIONS = new Set(Object.keys(CHORD_VARIATION_MAP).filter(c => CHORD_VARIATION_MAP[c].length > 1));
 
 // ─── CHORD DRILL URL ENCODING ────────────────────────────────────────────────
-function encodeChordDrill(chords, bpm, beatsPerChord, name) {
-  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord, n: name||"" }));
+function encodeChordDrill(chords, bpm, beatsPerChord, name, variants) {
+  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord, n: name||"", v: variants||{} }));
 }
 function decodeChordDrill(str) {
   try {
     const obj = JSON.parse(atob(str));
-    return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2, name: obj.n||"" };
+    return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2, name: obj.n||"", chordVariants: obj.v||{} };
   } catch { return null; }
 }
 
@@ -849,6 +849,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
                     if(!drillSaveName.trim()) return;
                     const drill = { id:Date.now(), name:drillSaveName.trim(),
                       chords:customChords, bpm, beatsPerChord,
+                      chordVariants:{...chordVariants},
                       savedAt:new Date().toLocaleDateString() };
                     const updated=[...savedDrills, drill];
                     setSavedDrills(updated);
@@ -863,6 +864,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
                   if(!drillSaveName.trim()) return;
                   const drill = { id:Date.now(), name:drillSaveName.trim(),
                     chords:customChords, bpm, beatsPerChord,
+                    chordVariants:{...chordVariants},
                     savedAt:new Date().toLocaleDateString() };
                   const updated=[...savedDrills, drill];
                   setSavedDrills(updated);
@@ -901,6 +903,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
                     <button onClick={()=>{
                       if(isPlaying){stopMetronome();setIsPlaying(false);}
                       setCustomChords(d.chords); setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
+                      if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
                       setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0;
                       setLoadedDrillName(d.name);
                       setShowSavedDrills(false);
@@ -908,7 +911,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
                       background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
                       color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
                     <button onClick={()=>{
-                      const encoded = encodeChordDrill(d.chords, d.bpm, d.beatsPerChord, d.name);
+                      const encoded = encodeChordDrill(d.chords, d.bpm, d.beatsPerChord, d.name, d.chordVariants||{});
                       const url = `${window.location.origin}${window.location.pathname}?drill=${encoded}`;
                       navigator.clipboard?.writeText(url)
                         .then(()=>alert(`✅ Link copied!\n\nShare "${d.name}" with your members.`))
