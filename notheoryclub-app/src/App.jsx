@@ -504,10 +504,9 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         setCustomChords(decoded.chords);
         setBpm(decoded.bpm);
         setBeatsPerChord(decoded.beatsPerChord);
-        if(decoded.name) {
-          setLoadedDrillName(decoded.name);
-          setTimeout(()=>{ setDrillSaveName(decoded.name); setDrillSavePrompt(true); }, 600);
-        }
+        const drillName = decoded.name || "Shared Drill";
+        setLoadedDrillName(drillName);
+        setTimeout(()=>{ setDrillSaveName(drillName); setDrillSavePrompt(true); }, 600);
         setPickerOpen(false);
         window.history.replaceState({}, "", window.location.pathname);
       }
@@ -828,6 +827,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
                       if(isPlaying){stopMetronome();setIsPlaying(false);}
                       setCustomChords(d.chords); setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
                       setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0;
+                      setLoadedDrillName(d.name);
                       setShowSavedDrills(false);
                     }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
                       background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
@@ -1772,7 +1772,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           {allowDuplicates ? "BUILD YOUR CHORD SET" : maxChords===6 ? "PICK YOUR CHORDS" : "BUILD YOUR CHORD SET"}
         </div>
         {customChords.length > 0
-          ? <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setCustomChords([]); setChordIndex(0); setBeatCount(0); if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0; }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.5 }}>Reset</button>
+          ? <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setCustomChords([]); setChordIndex(0); setBeatCount(0); if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0; setLoadedDrillName(null); }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.5 }}>Reset</button>
           : <div style={{ width:32 }} />
         }
       </div>
