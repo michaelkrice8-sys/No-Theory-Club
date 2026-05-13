@@ -1768,7 +1768,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
         const totalContentHeight = innerEl.offsetHeight;
         const maxOffset = Math.max(0, totalContentHeight - containerHeight);
         // Keep active row ~20px from top, but never exceed maxOffset
-        const target = Math.min(Math.max(0, rowTop - 20), maxOffset);
+        const target = Math.min(Math.max(0, rowTop - 20 + 8), maxOffset);
         setViewScrollOffset(target);
       }
     }
@@ -2023,8 +2023,14 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             borderRadius:20, padding:"16px", marginBottom:14 }}>
             <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
             <div ref={viewScrollRef} style={{ height:290, overflow:"hidden", position:"relative" }}>
+              {/* Gradient fade masks so top/bottom rows don't hard-clip */}
+              <div style={{ position:"absolute", top:0, left:0, right:0, height:20, zIndex:2, pointerEvents:"none",
+                background:"linear-gradient(to bottom, #0a0a0a 0%, transparent 100%)" }} />
+              <div style={{ position:"absolute", bottom:0, left:0, right:0, height:28, zIndex:2, pointerEvents:"none",
+                background:"linear-gradient(to top, #0a0a0a 0%, transparent 100%)" }} />
               <div ref={viewInnerRef} style={{
                 position:"relative",
+                paddingTop:8,
                 transform:`translateY(-${viewScrollOffset}px)`,
                 transition:"transform 0.55s ease",
               }}>
@@ -2058,17 +2064,17 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                   const rowOpacity = (!isPlaying && countIn === 0)
                     ? 0.55
                     : isActiveRow  ? 1
-                    : isIncomingRow ? 0.45
+                    : isIncomingRow ? 0.75
                     : 0.28;
                   return (
                     <div key={rowIdx}
                       ref={el => { viewRowRefs.current[rowIdx] = el; }}
-                      style={{ marginBottom:10, opacity:rowOpacity, transition:"opacity 0.35s ease" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-                        {/* Repeat label */}
+                      style={{ marginBottom:10, opacity:rowOpacity, transition:"opacity 0.5s ease" }}>
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                        {/* Repeat label — height 40 + flex-start keeps it aligned with block center */}
                         <div style={{
-                          width:32, height:40, display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize: isActiveRow ? 18 : 14, fontWeight:900,
+                          width:38, height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize: isActiveRow ? 22 : 17, fontWeight:900,
                           color: isActiveRow ? "#FFBE0B" : "#F79200",
                           textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
                           letterSpacing:0.5, transition:"all 0.3s",
@@ -2348,13 +2354,13 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             const rowOpacity = (!isPlaying && countIn === 0)
               ? 1
               : isActiveRow ? 1
-              : isIncomingRow ? 0.45
+              : isIncomingRow ? 0.75
               : 0.28;
             return (
               <div key={rowIdx} style={{
                 marginBottom:10,
                 opacity: rowOpacity,
-                transition:"opacity 0.35s ease",
+                transition:"opacity 0.5s ease",
               }}
                 ref={el => { rowRefsRef.current[rowIdx] = el; }}>
 
