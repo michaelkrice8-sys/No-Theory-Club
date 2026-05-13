@@ -1299,9 +1299,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                         color:row.repeat>1?"#FFBE0B":"#555", fontSize:12, fontWeight:700, cursor:"pointer" }}>
                         {row.repeat}× 🔁
                       </button>
-                      <button onClick={()=>copyRow(sec.id,rowIdx)} title="Copy row" style={{
-                        padding:"6px 10px", borderRadius:8, border:"1px solid #333",
-                        background:"#1a1a1a", color:"#888", fontSize:14, cursor:"pointer" }}>⧉</button>
                       {sec.rows.length>1&&(
                         <button onClick={()=>removeRow(sec.id,rowIdx)} title="Remove row" style={{
                           padding:"6px 10px", borderRadius:8, border:"1px solid #3a1a1a",
@@ -1328,10 +1325,20 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   </div>
                 );
               })}
-              <button onClick={()=>addRow(sec.id)} style={{
-                width:"100%", marginTop:12, padding:"7px", borderRadius:9,
-                border:"1px dashed #2a2a2a", background:"transparent",
-                color:"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>
+              <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                <button onClick={()=>addRow(sec.id)} style={{
+                  flex:2, padding:"9px", borderRadius:10,
+                  border:"1px dashed #FFBE0B", background:"rgba(255,190,11,0.06)",
+                  color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>
+                <button onClick={()=>copyRow(sec.id, sec.rows.length-1)} style={{
+                  flex:2, padding:"9px", borderRadius:10,
+                  border:"1px dashed #666", background:"rgba(255,255,255,0.03)",
+                  color:"#888", fontSize:12, fontWeight:700, cursor:"pointer" }}>⧉ Copy Row</button>
+                <button onClick={()=>setSections(s=>s.map(x=>x.id!==sec.id?x:{...x,rows:[makeSongRow()]}))} style={{
+                  flex:1, padding:"9px", borderRadius:10,
+                  border:"1px solid #2a2a2a", background:"transparent",
+                  color:"#555", fontSize:12, cursor:"pointer" }}>Reset</button>
+              </div>
             </div>
           </div>
         );
