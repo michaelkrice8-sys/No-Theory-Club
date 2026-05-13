@@ -2023,11 +2023,6 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             borderRadius:20, padding:"16px", marginBottom:14 }}>
             <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
             <div ref={viewScrollRef} style={{ height:290, overflow:"hidden", position:"relative" }}>
-              {/* Gradient fade masks so top/bottom rows don't hard-clip */}
-              <div style={{ position:"absolute", top:0, left:0, right:0, height:20, zIndex:2, pointerEvents:"none",
-                background:"linear-gradient(to bottom, #0a0a0a 0%, transparent 100%)" }} />
-              <div style={{ position:"absolute", bottom:0, left:0, right:0, height:28, zIndex:2, pointerEvents:"none",
-                background:"linear-gradient(to top, #0a0a0a 0%, transparent 100%)" }} />
               <div ref={viewInnerRef} style={{
                 position:"relative",
                 paddingTop:8,
@@ -2061,11 +2056,13 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                   const repeat = rowRepeats[rowIdx]||1;
                   const isActiveRow   = activeRowIdx === rowIdx;
                   const isIncomingRow = incomingRowIdx === rowIdx;
-                  const rowOpacity = (!isPlaying && countIn === 0)
-                    ? 0.55
-                    : isActiveRow  ? 1
-                    : isIncomingRow ? 0.75
-                    : 0.28;
+                  const rowOpacity = rowIdx <= 1
+                    ? 1
+                    : (!isPlaying && countIn === 0)
+                      ? 0.55
+                      : isActiveRow ? 1
+                      : isIncomingRow ? 0.75
+                      : 0.28;
                   return (
                     <div key={rowIdx}
                       ref={el => { viewRowRefs.current[rowIdx] = el; }}
