@@ -967,14 +967,14 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
 // ─── SONG BUILDER (sections) ─────────────────────────────────────────────────
 function makeSongRow() {
   return { id: Date.now() + Math.random(), size:8, repeat:1,
-    strumActive: defaultBuild(8), blockChords: Array(8).fill(null) };
+    strumActive: [true,false,true,false,false,true,true,true], blockChords: Array(8).fill(null) };
 }
 function makeSection(name) {
   return { id: Date.now() + Math.random(), name, rows: [makeSongRow()] };
 }
 
 function SongBuilder({ audio, chordVariants, updateVariant }) {
-  const { init, playClick } = audio;
+  const { init, playClick, playChordStrum } = audio;
 
   // ── Editor state ──
   const [sections, setSections] = useState([makeSection("Verse 1"), makeSection("Chorus")]);
@@ -1011,25 +1011,27 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); cancelAnimationFrame(scrollRafRef.current); },[]);
 
   // ── Auto-scroll (UG style — slow smooth drift) ──
-  const doScroll = useCallback(()=>{
-    const cur = window.scrollY;
-    const target = scrollTargetRef.current;
-    const diff = target - cur;
-    if(Math.abs(diff) < 1){ scrollRafRef.current = null; return; }
-    const step = Math.sign(diff) * Math.min(Math.abs(diff) * 0.07, 4);
-    window.scrollTo(0, cur + step);
-    scrollRafRef.current = requestAnimationFrame(doScroll);
+  // Constant slow scroll — runs every frame while playing, drifts at ~0.6px/frame
+  const isPlayingRef = useRef(false);
+  const constantScroll = useCallback(()=>{
+    if(!isPlayingRef.current){ scrollRafRef.current = null; return; }
+    window.scrollBy(0, 0.6);
+    scrollRafRef.current = requestAnimationFrame(constantScroll);
   },[]);
 
-  const scrollToRow = useCallback((secId, rowIdx)=>{
-    const el = rowDomRefs.current[`${secId}_${rowIdx}`];
-    if(!el) return;
-    const rect = el.getBoundingClientRect();
-    const target = window.scrollY + rect.top - window.innerHeight * 0.38;
-    scrollTargetRef.current = Math.max(0, target);
+  const startScroll = useCallback(()=>{
+    isPlayingRef.current = true;
     if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-    scrollRafRef.current = requestAnimationFrame(doScroll);
-  },[doScroll]);
+    scrollRafRef.current = requestAnimationFrame(constantScroll);
+  },[constantScroll]);
+
+  const stopScroll = useCallback(()=>{
+    isPlayingRef.current = false;
+    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
+  },[]);
+
+  // Keep scrollToRow for initial position on play start
+  const scrollToRow = useCallback((secId, rowIdx)=>{},[]);
 
   // ── Tick ──
   const tick = useCallback(()=>{
@@ -1058,12 +1060,19 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
     if(!muteRef.current && beat % 2 === 0) playClick(beat === 0 && pass === 0);
 
+    // Play chord strum if block has assigned chord and strum is active
+    const playRow = sectionsRef.current[secIdx]?.rows[rowIdx];
+    if(playRow && playRow.strumActive[beat] && playRow.blockChords[beat]){
+      const isDown = beat % 2 === 0;
+      playChordStrum(playRow.blockChords[beat], isDown, 0);
+    }
+
     // Scroll when row changes
     if(rowIdx !== prevRowIdx || secIdx !== prevSecIdx){
       const targetSec = sectionsRef.current[secIdx];
       if(targetSec) scrollToRow(targetSec.id, rowIdx);
     }
-  },[playClick, scrollToRow]);
+  },[playClick, playChordStrum, scrollToRow]);
 
   const startMetronome = useCallback(()=>{
     clearInterval(intervalRef.current);
@@ -1071,15 +1080,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     const ms = (60/bpmRef.current/2)*1000;
     intervalRef.current = setInterval(tick, ms);
-  },[tick]);
+    startScroll();
+  },[tick, startScroll]);
 
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current);
-    cancelAnimationFrame(scrollRafRef.current);
-    scrollRafRef.current = null;
+    stopScroll();
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
-  },[]);
+  },[stopScroll]);
 
   useEffect(()=>{ if(isPlaying){ stopMetronome(); startMetronome(); } },[bpm]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
@@ -1293,7 +1302,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                         background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
                         {sizeLabel(row.size)} ↻
                       </button>
-                      <button onClick={()=>updateRow(sec.id,rowIdx,r=>({...r,repeat:r.repeat>=8?1:r.repeat+1}))} style={{
+                      <button onClick={()=>updateRow(sec.id,rowIdx,r=>({...r,repeat:r.repeat>=4?1:r.repeat+1}))} style={{
                         padding:"6px 12px", borderRadius:8, border:"1px solid #333",
                         background:row.repeat>1?"rgba(255,190,11,0.12)":"#1a1a1a",
                         color:row.repeat>1?"#FFBE0B":"#555", fontSize:12, fontWeight:700, cursor:"pointer" }}>
@@ -3027,6 +3036,7 @@ function SectionHeader({ title, sub }) {
 const MODE_GRADIENTS = [
   "linear-gradient(135deg, #FFD60A, #FFBE0B)",
   "linear-gradient(135deg, #FFBE0B, #F79200)",
+  "linear-gradient(135deg, #E06000, #B84000)",
 ];
 
 function ModeTabs({ options, value, onChange }) {
@@ -3037,7 +3047,7 @@ function ModeTabs({ options, value, onChange }) {
         <button key={m} onClick={()=>onChange(m)} style={{
           flex:1, padding:"11px 12px", borderRadius:10, border:"none",
           background: value===m ? MODE_GRADIENTS[i] : "transparent",
-          color: value===m ? "#111" : "#555",
+          color: value===m ? (i===2 ? "#fff" : "#111") : "#555",
           fontSize:14, fontWeight:900,
           textShadow: value===m ? "0 1px 3px rgba(0,0,0,0.25)" : "none",
           boxShadow: value===m ? "0 2px 10px rgba(255,190,11,0.3)" : "none",
