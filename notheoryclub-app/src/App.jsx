@@ -350,7 +350,6 @@ function StrummingTab({ audio }) {
   const [strumSaveName, setStrumSaveName] = useState("");
   const [sharedViewName, setSharedViewName] = useState(null);
   const [builderOpen, setBuilderOpen] = useState(true);
-  const [strumExpanded, setStrumExpanded] = useState(false);
 
   const STRUM_CHORDS = ["G", "C", "Em", "D"];
 
@@ -1618,6 +1617,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   const [savePrompt, setSavePrompt] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [builderOpen, setBuilderOpen] = useState(true);
+  const [strumExpanded, setStrumExpanded] = useState(false);
 
   const intervalRef = useRef(null);
   const bpmRef = useRef(bpm);
