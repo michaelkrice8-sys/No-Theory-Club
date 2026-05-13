@@ -1201,41 +1201,48 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               boxShadow:isDragOver?"0 0 12px rgba(255,190,11,0.3)":playPos.secIdx===idx&&isPlaying?"0 0 14px rgba(255,190,11,0.15)":"none" }}>
 
             {/* Section header */}
-            <div style={{ padding:"10px 14px 0" }}>
-              {/* Top row: drag + actions */}
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
-                <div style={{ fontSize:18, color:"#333", cursor:"grab", userSelect:"none", padding:"0 4px" }}>☰</div>
-                <div style={{ display:"flex", gap:4 }}>
-                  <button onClick={()=>copySection(sec.id)} title="Duplicate section" style={{
-                    background:"none", border:"none", color:"#555", fontSize:14, cursor:"pointer", padding:"3px 6px", borderRadius:6 }}>⧉</button>
-                  <button onClick={()=>deleteSection(sec.id)} style={{
-                    background:"none", border:"none", color:"#e74c3c55", fontSize:14, cursor:"pointer", padding:"3px 6px", borderRadius:6 }}>✕</button>
-                </div>
-              </div>
-              {/* Centered title */}
-              <div style={{ textAlign:"center", marginBottom:6 }}>
+            <div style={{ padding:"12px 14px 8px", display:"flex", alignItems:"flex-start", gap:8, position:"relative" }}>
+
+              {/* LEFT: Assign Chords button */}
+              <button onClick={()=>setAssignSectionId(isAssigning?null:sec.id)} style={{
+                padding:"6px 10px", borderRadius:8, border:"none", cursor:"pointer", flexShrink:0,
+                background:isAssigning?"rgba(255,190,11,0.18)":"rgba(255,255,255,0.06)",
+                color:isAssigning?"#FFBE0B":"#888", fontSize:11, fontWeight:800, letterSpacing:0.3,
+                boxShadow:isAssigning?"0 0 8px rgba(255,190,11,0.25)":"none",
+                transition:"all 0.15s" }}>
+                {isAssigning?"✕ Close":"✏️ Chords"}
+              </button>
+
+              {/* CENTER: Title */}
+              <div style={{ flex:1, textAlign:"center" }}>
                 {editingId===sec.id
                   ? <input autoFocus value={editingName}
                       onChange={e=>setEditingName(e.target.value)}
                       onBlur={()=>{ renameSection(sec.id,editingName.trim()||sec.name); setEditingId(null); }}
                       onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ renameSection(sec.id,editingName.trim()||sec.name); setEditingId(null); }}}
-                      style={{ textAlign:"center", background:"transparent", border:"none", borderBottom:"1px solid #FFBE0B",
-                        color:"#fff", fontSize:16, fontWeight:900, outline:"none", padding:"2px 8px", width:"80%" }} />
+                      style={{ textAlign:"center", background:"transparent", border:"none",
+                        borderBottom:"1px solid #FFBE0B", color:"#fff", fontSize:16, fontWeight:900,
+                        outline:"none", padding:"2px 8px", width:"100%" }} />
                   : <div onClick={()=>{ setEditingId(sec.id); setEditingName(sec.name); }}
-                      style={{ fontSize:16, fontWeight:900, color: playPos.secIdx===idx&&isPlaying?"#FFBE0B":"#fff", cursor:"text",
+                      style={{ fontSize:16, fontWeight:900, cursor:"text", lineHeight:1.3,
+                        color:playPos.secIdx===idx&&isPlaying?"#FFBE0B":"#fff",
                         textShadow:playPos.secIdx===idx&&isPlaying?"0 0 12px rgba(255,190,11,0.5)":"none",
                         transition:"color 0.2s, text-shadow 0.2s" }}>
                       {sec.name}
                     </div>
                 }
-                {/* Assign chords text toggle */}
-                <button onClick={()=>setAssignSectionId(isAssigning?null:sec.id)} style={{
-                  marginTop:4, background:"none", border:"none", padding:0, cursor:"pointer",
-                  fontSize:11, fontWeight:700, letterSpacing:0.5,
-                  color:isAssigning?"#FFBE0B":"#555",
-                  textDecoration:isAssigning?"none":"underline" }}>
-                  {isAssigning?"▲ Close Chord Picker":"✏️ Assign Chords"}
-                </button>
+              </div>
+
+              {/* RIGHT: Move + Copy + Delete */}
+              <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                <div style={{ fontSize:22, color:"#555", cursor:"grab", userSelect:"none",
+                  padding:"2px 4px", lineHeight:1 }} title="Drag to reorder">☰</div>
+                <button onClick={()=>copySection(sec.id)} title="Duplicate section" style={{
+                  padding:"5px 9px", borderRadius:8, border:"1px solid #333",
+                  background:"#1a1a1a", color:"#888", fontSize:16, cursor:"pointer" }}>⧉</button>
+                <button onClick={()=>deleteSection(sec.id)} title="Delete section" style={{
+                  padding:"5px 9px", borderRadius:8, border:"1px solid #3a1a1a",
+                  background:"#1a0a0a", color:"#e74c3c88", fontSize:16, cursor:"pointer" }}>✕</button>
               </div>
             </div>
 
@@ -1279,24 +1286,26 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                       opacity: isPlaying&&!isActiveRow&&playPos.secIdx===idx ? 0.45 : 1,
                       transition:"opacity 0.3s" }}>
                     {/* Row controls */}
-                    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:6 }}>
-                      <span style={{ fontSize:9, color: isActiveRow?"#FFBE0B":"#444", letterSpacing:1, fontWeight:700 }}>ROW {rowIdx+1}</span>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:6, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:9, color:isActiveRow?"#FFBE0B":"#444", letterSpacing:1, fontWeight:700, minWidth:32 }}>ROW {rowIdx+1}</span>
                       <button onClick={()=>updateRow(sec.id,rowIdx,r=>({...r,size:cycleSize(r.size),strumActive:defaultBuild(cycleSize(r.size)),blockChords:Array(cycleSize(r.size)).fill(null)}))} style={{
-                        padding:"4px 10px", borderRadius:7, border:"1px solid #333",
-                        background:"#1a1a1a", color:"#FFBE0B", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                        padding:"6px 12px", borderRadius:8, border:"1px solid #333",
+                        background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
                         {sizeLabel(row.size)} ↻
                       </button>
                       <button onClick={()=>updateRow(sec.id,rowIdx,r=>({...r,repeat:r.repeat>=8?1:r.repeat+1}))} style={{
-                        padding:"4px 10px", borderRadius:7, border:"1px solid #333",
+                        padding:"6px 12px", borderRadius:8, border:"1px solid #333",
                         background:row.repeat>1?"rgba(255,190,11,0.12)":"#1a1a1a",
-                        color:row.repeat>1?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                        color:row.repeat>1?"#FFBE0B":"#555", fontSize:12, fontWeight:700, cursor:"pointer" }}>
                         {row.repeat}× 🔁
                       </button>
                       <button onClick={()=>copyRow(sec.id,rowIdx)} title="Copy row" style={{
-                        background:"none", border:"none", color:"#555", fontSize:13, cursor:"pointer", padding:"2px 5px" }}>⧉</button>
+                        padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                        background:"#1a1a1a", color:"#888", fontSize:14, cursor:"pointer" }}>⧉</button>
                       {sec.rows.length>1&&(
-                        <button onClick={()=>removeRow(sec.id,rowIdx)} style={{
-                          background:"none", border:"none", color:"#e74c3c44", fontSize:13, cursor:"pointer", padding:"2px 4px" }}>✕</button>
+                        <button onClick={()=>removeRow(sec.id,rowIdx)} title="Remove row" style={{
+                          padding:"6px 10px", borderRadius:8, border:"1px solid #3a1a1a",
+                          background:"#1a0a0a", color:"#e74c3c88", fontSize:14, cursor:"pointer" }}>✕</button>
                       )}
                     </div>
                     {/* Blocks */}
