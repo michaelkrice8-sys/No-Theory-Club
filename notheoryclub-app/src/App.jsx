@@ -974,7 +974,7 @@ function makeSection(name) {
 }
 
 function SongBuilder({ audio, chordVariants, updateVariant }) {
-  const { init, playClick, playChordStrum } = audio;
+  const { init, playChordClick, playChordStrum } = audio;
 
   // ── Editor state ──
   const [sections, setSections] = useState([makeSection("Verse 1"), makeSection("Chorus")]);
@@ -992,36 +992,39 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [muteClick, setMuteClick] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [countIn, setCountIn] = useState(0);
+  const [countInBeat, setCountInBeat] = useState(-1);
   const [playPos, setPlayPos] = useState({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
 
   // ── Refs ──
   const intervalRef = useRef(null);
   const countInRef = useRef(null);
   const bpmRef = useRef(bpm);
+  const capoRef = useRef(capo);
   const muteRef = useRef(muteClick);
   const sectionsRef = useRef(sections);
   const playPosRef = useRef({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
+  // sub-tick counter: 2 sub-ticks (16th notes) per block (8th note)
+  const subTickRef = useRef(0);
   const rowDomRefs = useRef({});
   const scrollTargetRef = useRef(0);
   const scrollRafRef = useRef(null);
   const currentChordRef = useRef(null);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
+  useEffect(()=>{ capoRef.current=capo; },[capo]);
   useEffect(()=>{ muteRef.current=muteClick; },[muteClick]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); cancelAnimationFrame(scrollRafRef.current); },[]);
 
-  // ── Auto-scroll (UG style — slow smooth drift) ──
-  // Smooth scroll toward a target using RAF easing — no page jump
+  // ── Smooth scroll to row ──
   const scrollToRow = useCallback((secId, rowIdx)=>{
     const el = rowDomRefs.current[`${secId}_${rowIdx}`];
     if(!el) return;
     const rect = el.getBoundingClientRect();
     const target = window.scrollY + rect.top - window.innerHeight * 0.35;
-    const clamped = Math.max(0, target);
-    scrollTargetRef.current = clamped;
-    if(scrollRafRef.current) return; // already animating
-    const animate = () => {
+    scrollTargetRef.current = Math.max(0, target);
+    if(scrollRafRef.current) return;
+    const animate = ()=>{
       const cur = window.scrollY;
       const diff = scrollTargetRef.current - cur;
       if(Math.abs(diff) < 0.5){ scrollRafRef.current = null; return; }
@@ -1031,91 +1034,105 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     scrollRafRef.current = requestAnimationFrame(animate);
   },[]);
 
-  const startScroll = useCallback(()=>{},[]);
-  const stopScroll = useCallback(()=>{
-    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
-  },[]);
-
-  // ── Tick ──
+  // ── Tick — 16th note resolution (2 sub-ticks per 8th-note block) ──
   const tick = useCallback(()=>{
     const secs = sectionsRef.current;
     if(!secs.length) return;
+
+    // Advance sub-tick (0 or 1 within each block)
+    subTickRef.current = (subTickRef.current + 1) % 2;
+    const isBlockStart = subTickRef.current === 0;
+
     let { secIdx, rowIdx, beat, pass } = playPosRef.current;
     const prevRowIdx = rowIdx, prevSecIdx = secIdx;
 
-    beat++;
-    const sec = secs[secIdx];
-    if(!sec) return;
-    const row = sec.rows[rowIdx];
-    if(!row) return;
+    if(isBlockStart){
+      beat++;
+      const sec = secs[secIdx];
+      if(!sec) return;
+      const row = sec.rows[rowIdx];
+      if(!row) return;
+      if(beat >= row.size){
+        beat = 0; pass++;
+        if(pass >= row.repeat){
+          pass = 0; rowIdx++;
+          if(rowIdx >= sec.rows.length){ rowIdx = 0; secIdx++; }
+          if(secIdx >= secs.length) secIdx = 0;
+        }
+      }
+      playPosRef.current = { secIdx, rowIdx, beat, pass };
+      setPlayPos({ secIdx, rowIdx, beat, pass });
+    }
 
-    if(beat >= row.size){
-      beat = 0; pass++;
-      if(pass >= row.repeat){
-        pass = 0; rowIdx++;
-        if(rowIdx >= sec.rows.length){ rowIdx = 0; secIdx++; }
-        if(secIdx >= secs.length) secIdx = 0;
+    // Click on beat 0 of every 4 sub-ticks (quarter notes)
+    if(!muteRef.current && subTickRef.current === 0 && beat % 4 === 0)
+      playChordClick(beat === 0 && playPosRef.current.pass === 0);
+
+    // Chord strum — fire on sub-tick 0 of active blocks
+    if(isBlockStart){
+      const { secIdx:si, rowIdx:ri, beat:b } = playPosRef.current;
+      const playRow = sectionsRef.current[si]?.rows[ri];
+      if(playRow){
+        if(playRow.blockChords[b]) currentChordRef.current = playRow.blockChords[b];
+        if(playRow.strumActive[b] && currentChordRef.current){
+          const isDown = b % 2 === 0;
+          playChordStrum(currentChordRef.current, isDown, capoRef.current);
+        }
+      }
+      // Scroll when row changes
+      if(rowIdx !== prevRowIdx || secIdx !== prevSecIdx){
+        const targetSec = sectionsRef.current[secIdx];
+        if(targetSec) scrollToRow(targetSec.id, rowIdx);
       }
     }
-
-    playPosRef.current = { secIdx, rowIdx, beat, pass };
-    setPlayPos({ secIdx, rowIdx, beat, pass });
-
-    if(!muteRef.current) playClick(beat === 0 && pass === 0);
-
-    // Track last assigned chord and play on every active strum beat
-    const playRow = sectionsRef.current[secIdx]?.rows[rowIdx];
-    if(playRow){
-      if(playRow.blockChords[beat]) currentChordRef.current = playRow.blockChords[beat];
-      if(playRow.strumActive[beat] && currentChordRef.current){
-        const isDown = beat % 2 === 0; // even blocks = down, odd = up
-        playChordStrum(currentChordRef.current, isDown, capoRef.current);
-      }
-    }
-
-    // Scroll when row changes
-    if(rowIdx !== prevRowIdx || secIdx !== prevSecIdx){
-      const targetSec = sectionsRef.current[secIdx];
-      if(targetSec) scrollToRow(targetSec.id, rowIdx);
-    }
-  },[playClick, playChordStrum, scrollToRow]);
+  },[playChordClick, playChordStrum, scrollToRow]);
 
   const startMetronome = useCallback(()=>{
-    clearInterval(intervalRef.current);
+    if(intervalRef.current) clearInterval(intervalRef.current);
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
+    subTickRef.current = 1; // next tick will flip to 0 → isBlockStart → beat becomes 0
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
-    const ms = (60/bpmRef.current)*1000;
+    currentChordRef.current = null;
+    const ms = (60/bpmRef.current/4)*1000; // 16th notes
     intervalRef.current = setInterval(tick, ms);
-    startScroll();
-  },[tick, startScroll]);
+  },[tick]);
 
   const stopMetronome = useCallback(()=>{
-    clearInterval(intervalRef.current);
-    stopScroll();
+    clearInterval(intervalRef.current); intervalRef.current = null;
+    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
     currentChordRef.current = null;
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
-  },[stopScroll]);
+    subTickRef.current = 0;
+  },[]);
 
   useEffect(()=>{ if(isPlaying){ stopMetronome(); startMetronome(); } },[bpm]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
+  // ── Countdown — identical to Advanced ──
   const handleTogglePlay = async()=>{
     if(isPlaying){
-      clearInterval(countInRef.current); setCountIn(0);
-      stopMetronome(); setIsPlaying(false); return;
+      stopMetronome(); setIsPlaying(false); setCountIn(0); setCountInBeat(-1); return;
     }
     if(countIn>0){
-      clearInterval(countInRef.current); setCountIn(0);
+      clearInterval(countInRef.current);
+      setCountIn(0); setCountInBeat(-1);
       startMetronome(); setIsPlaying(true); return;
     }
     await init();
-    let beat=4; setCountIn(beat); playClick(true);
+    const ms = (60/bpmRef.current)*1000;
+    let beat=4, beatIdx=0;
+    setCountIn(beat); setCountInBeat(beatIdx); playChordClick(true);
     countInRef.current = setInterval(()=>{
-      beat--;
-      if(beat<=0){ clearInterval(countInRef.current); setCountIn(0); startMetronome(); setIsPlaying(true); }
-      else { setCountIn(beat); playClick(false); }
-    }, (60/bpmRef.current)*1000);
+      beat--; beatIdx+=2;
+      if(beat<=0){
+        clearInterval(countInRef.current);
+        setCountIn(0); setCountInBeat(-1);
+        startMetronome(); setIsPlaying(true);
+      } else {
+        setCountIn(beat); setCountInBeat(beatIdx%8); playChordClick(false);
+      }
+    }, ms);
   };
 
   // ── Section ops ──
@@ -1330,11 +1347,20 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
                         const isBeat=isActiveRow&&playPos.beat===colIdx;
+                        const isCountGlow=countIn>0&&rowIdx===0&&idx===0&&colIdx===countInBeat;
                         return (
                           <div key={colIdx} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                            <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
-                              beat={isBeat} assigned={!!ch}
-                              onClick={()=>handleBlockClick(sec.id,rowIdx,colIdx,isAssigning)} />
+                            {isCountGlow
+                              ? <div style={{ width:40, height:40, borderRadius:10,
+                                  display:"flex", alignItems:"center", justifyContent:"center",
+                                  background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                  boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                  <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
+                                </div>
+                              : <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
+                                  beat={isBeat} assigned={!!ch}
+                                  onClick={()=>handleBlockClick(sec.id,rowIdx,colIdx,isAssigning)} />
+                            }
                             <div style={{ fontSize:13, fontWeight:900, height:18, lineHeight:"18px",
                               color:ch?"#FFBE0B":"transparent",
                               textShadow:ch&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none" }}>{ch||"·"}</div>
