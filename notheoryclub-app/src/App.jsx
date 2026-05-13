@@ -1885,14 +1885,50 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
             {(()=>{
               const offsets = getRowOffsets(rowSizes);
+
+              // Row state: which row is active, which is incoming
+              let activeRowIdx = -1;
+              let incomingRowIdx = -1;
+              if(countIn > 0) {
+                activeRowIdx = 0;
+              } else if(isPlaying && currentStrum >= 0) {
+                let remaining = currentStrum;
+                for(let r = 0; r < rowSizes.length; r++) {
+                  const rowTotal = rowSizes[r] * (rowRepeats[r]||1);
+                  if(remaining < rowTotal) {
+                    activeRowIdx = r;
+                    if(remaining >= rowTotal - 2 && rowSizes.length > 1)
+                      incomingRowIdx = (r + 1) % rowSizes.length;
+                    break;
+                  }
+                  remaining -= rowTotal;
+                }
+              }
+
               return rowSizes.map((rowSize, rowIdx)=>{
                 const offset = offsets[rowIdx];
                 const repeat = rowRepeats[rowIdx]||1;
+                const isActiveRow = activeRowIdx === rowIdx;
+                const isIncomingRow = incomingRowIdx === rowIdx;
+                const rowOpacity = (!isPlaying && countIn === 0)
+                  ? 0.55
+                  : isActiveRow ? 1
+                  : isIncomingRow ? 0.45
+                  : 0.12;
                 return (
-                  <div key={rowIdx} style={{ marginBottom:rowIdx<rowSizes.length-1?10:0 }}>
+                  <div key={rowIdx} style={{
+                    marginBottom:rowIdx<rowSizes.length-1?10:0,
+                    opacity: rowOpacity,
+                    transition:"opacity 0.35s ease",
+                  }}>
                     <div style={{ display:"flex", alignItems:"center", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-                      <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center",
-                        fontSize:12, fontWeight:900, color:"#F79200", opacity:repeat>1?0.8:0.3, letterSpacing:0.5 }}>{repeat}×</div>
+                      <div style={{
+                        width:32, height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize: isActiveRow ? 18 : 14, fontWeight:900,
+                        color: isActiveRow ? "#FFBE0B" : "#F79200",
+                        textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
+                        letterSpacing:0.5, transition:"all 0.3s",
+                      }}>{repeat}×</div>
                       {Array(rowSize).fill(null).map((_,colIdx)=>{
                         const i=offset+colIdx;
                         return (
@@ -2119,13 +2155,43 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             }
           }
 
+          // Row-level active/incoming state
+          let activeRowIdx = -1;
+          let incomingRowIdx = -1;
+          if(countIn > 0) {
+            activeRowIdx = 0;
+          } else if(isPlaying && currentStrum >= 0) {
+            let remaining = currentStrum;
+            for(let r = 0; r < rowSizes.length; r++) {
+              const rowTotal = rowSizes[r] * (rowRepeats[r]||1);
+              if(remaining < rowTotal) {
+                activeRowIdx = r;
+                if(remaining >= rowTotal - 2 && rowSizes.length > 1)
+                  incomingRowIdx = (r + 1) % rowSizes.length;
+                break;
+              }
+              remaining -= rowTotal;
+            }
+          }
+
           return rowSizes.map((rowSize, rowIdx)=>{
             const offset = offsets[rowIdx];
             const repeat = rowRepeats[rowIdx]||1;
             const cycleSize = rowSize===8 ? 4 : rowSize===4 ? 6 : 8;
             const sizeLabel = rowSize===6 ? "Triplet" : rowSize===4 ? "4" : "8";
+            const isActiveRow = activeRowIdx === rowIdx;
+            const isIncomingRow = incomingRowIdx === rowIdx;
+            const rowOpacity = (!isPlaying && countIn === 0)
+              ? 1
+              : isActiveRow ? 1
+              : isIncomingRow ? 0.45
+              : 0.12;
             return (
-              <div key={rowIdx} style={{ marginBottom:10 }}
+              <div key={rowIdx} style={{
+                marginBottom:10,
+                opacity: rowOpacity,
+                transition:"opacity 0.35s ease",
+              }}
                 ref={el => { rowRefsRef.current[rowIdx] = el; }}>
 
                 {/* Repeat pill — only shown when row repeats more than once */}
@@ -2133,9 +2199,10 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                   <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}>
                     <div style={{
                       display:"flex", alignItems:"center", gap:5,
-                      background:"rgba(255,190,11,0.1)",
-                      border:"1px solid rgba(255,190,11,0.3)",
+                      background: isActiveRow ? "rgba(255,190,11,0.18)" : "rgba(255,190,11,0.08)",
+                      border: isActiveRow ? "1px solid rgba(255,190,11,0.5)" : "1px solid rgba(255,190,11,0.2)",
                       borderRadius:20, padding:"4px 12px",
+                      transition:"all 0.3s",
                     }}>
                       <span style={{ fontSize:13, color:"#FFBE0B", fontWeight:900 }}>↻</span>
                       <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B", letterSpacing:0.5 }}>{repeat}×</span>
