@@ -986,11 +986,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   const [showSaved, setShowSaved] = useState(false);
   const [savePrompt, setSavePrompt] = useState(false);
   const [saveName, setSaveName] = useState("");
-  const [capo, setCapo] = useState(0);
-  const [countIn, setCountIn] = useState(0);
 
   const intervalRef = useRef(null);
-  const countInIntervalRef = useRef(null);
   const bpmRef = useRef(bpm);
   const bpcRef = useRef(beatsPerChord);
   const chordsRef = useRef(songChords);
@@ -1003,7 +1000,6 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   const row1SizeRef = useRef(8);
   const row2SizeRef = useRef(8);
   const hasSecondRowRef = useRef(false);
-  const capoRef = useRef(0);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -1014,7 +1010,6 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
     hasSecondRowRef.current=hasSecondRow;
     totalStrumRef.current=hasSecondRow?row1Size+row2Size:row1Size;
   },[row1Size,row2Size,hasSecondRow]);
-  useEffect(()=>{ capoRef.current=capo; },[capo]);
 
   // Load from URL on mount
   useEffect(()=>{
@@ -1059,7 +1054,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
     const isDown=strumIdx%2===0;
     if(strumRef.current[strumIdx]){
       const currentChord=chordsRef.current[chordIdxRef.current];
-      if(currentChord) playChordStrum(getAudioKey(currentChord, chordVariants), isDown, capoRef.current);
+      if(currentChord) playChordStrum(getAudioKey(currentChord, chordVariants), isDown);
     }
   },[playChordClick,playChordStrum,chordVariants]);
 
@@ -1079,7 +1074,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   },[]);
 
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord,hasSecondRow,row1Size,row2Size]);
-  useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInIntervalRef.current); },[]);
+  useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
   const doSave = () => {
     if(!saveName.trim()) return;
@@ -1111,28 +1106,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
   const isLastBeat = isPlaying&&beatsPerChord>1&&beatCount===beatsPerChord-1;
 
   const handleTogglePlay = async()=>{
-    if(isPlaying){ stopMetronome(); setIsPlaying(false); return; }
-    if(countIn>0){
-      clearInterval(countInIntervalRef.current);
-      setCountIn(0);
-      startMetronome(); setIsPlaying(true);
-      return;
-    }
-    if(!canPlay) return;
-    await init();
-    const ms=(60/bpmRef.current)*1000;
-    let beat=4;
-    setCountIn(beat); playChordClick(true);
-    countInIntervalRef.current=setInterval(()=>{
-      beat--;
-      if(beat<=0){
-        clearInterval(countInIntervalRef.current);
-        setCountIn(0);
-        startMetronome(); setIsPlaying(true);
-      } else {
-        setCountIn(beat); playChordClick(false);
-      }
-    }, ms);
+    if(isPlaying){stopMetronome();setIsPlaying(false);}
+    else if(canPlay){await init();startMetronome();setIsPlaying(true);}
   };
 
   const cycleSize = (cur) => cur===8?4:cur===4?6:8;
@@ -1209,16 +1184,13 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
                   color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
               ))}
             </div>
-            <button onClick={handleTogglePlay} disabled={!canPlay&&countIn===0} style={{
+            <button onClick={handleTogglePlay} disabled={!canPlay} style={{
               width:"100%", padding:"13px", borderRadius:12, border:"none",
-              background:!canPlay?"#111":countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#FFD60A,#F77F00)",
-              color:!canPlay?"#333":"#fff",
-              fontSize:countIn>0?22:17, fontWeight:900, cursor:canPlay||countIn>0?"pointer":"not-allowed",
-              boxShadow:!canPlay?"none":countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 24px rgba(255,214,10,0.4)",
-              transition:"all 0.15s",
-            }}>
-              {!canPlay?"Select a chord to start":countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Play"}
-            </button>
+              background:!canPlay?"#111":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#FFD60A,#F77F00)",
+              color:!canPlay?"#333":isPlaying?"#fff":"#111",
+              fontSize:17, fontWeight:900, cursor:canPlay?"pointer":"not-allowed",
+              boxShadow:!canPlay?"none":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 24px rgba(255,214,10,0.4)",
+            }}>{!canPlay?"Select a chord to start":isPlaying?"⏹ Stop":"▶ Play"}</button>
           </div>
 
           {/* Save / Load */}
@@ -1393,15 +1365,13 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
                     color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
                 ))}
               </div>
-              <button onClick={handleTogglePlay} disabled={!canPlay&&countIn===0} style={{
+              <button onClick={handleTogglePlay} disabled={!canPlay} style={{
                 width:"100%", padding:"11px", borderRadius:12, border:"none",
-                background:!canPlay?"#111":countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
-                color:!canPlay?"#333":"#fff", fontSize:countIn>0?22:15, fontWeight:800,
-                cursor:canPlay||countIn>0?"pointer":"not-allowed", transition:"all 0.15s",
-                boxShadow:!canPlay?"none":countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
-              }}>
-                {!canPlay?"Select a chord to start":countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Start"}
-              </button>
+                background:!canPlay?"#111":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
+                color:!canPlay?"#333":"#fff", fontSize:15, fontWeight:800,
+                cursor:canPlay?"pointer":"not-allowed", transition:"all 0.15s",
+                boxShadow:!canPlay?"none":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
+              }}>{!canPlay?"Select a chord to start":isPlaying?"⏹ Stop":"▶ Start"}</button>
             </div>
 
             <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginBottom:16 }}>
@@ -1415,19 +1385,6 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
               <PatternBtn label="🎲 Random" active={strumPatternBtn==="random"} accent
                 onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
                   setStrumActive(generateRandomPattern().active); setStrumPatternBtn("random"); setHasSecondRow(false); setRow1Size(8); }} />
-              <div style={{ display:"flex", alignItems:"center", gap:6,
-                background:"#111", border:"1px solid #2a2a2a", borderRadius:10, padding:"6px 10px" }}>
-                <span style={{ fontSize:11, color:"#555", fontWeight:700 }}>CAPO</span>
-                <button onClick={()=>setCapo(c=>Math.max(0,c-1))} style={{
-                  width:22, height:22, borderRadius:6, border:"1px solid #333",
-                  background:"#1a1a1a", color:"#aaa", fontSize:16, cursor:"pointer",
-                  display:"flex", alignItems:"center", justifyContent:"center" }}>−</button>
-                <span style={{ fontSize:14, fontWeight:900, color:capo>0?"#FFBE0B":"#444", minWidth:14, textAlign:"center" }}>{capo}</span>
-                <button onClick={()=>setCapo(c=>Math.min(7,c+1))} style={{
-                  width:22, height:22, borderRadius:6, border:"1px solid #333",
-                  background:"#1a1a1a", color:"#aaa", fontSize:16, cursor:"pointer",
-                  display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
-              </div>
             </div>
 
             <div style={{ marginBottom:10 }}>
@@ -1611,6 +1568,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   const [showSaved, setShowSaved] = useState(false);
   const [savePrompt, setSavePrompt] = useState(false);
   const [saveName, setSaveName] = useState("");
+  const [builderOpen, setBuilderOpen] = useState(true);
 
   const intervalRef = useRef(null);
   const bpmRef = useRef(bpm);
@@ -1623,7 +1581,6 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   const currentChordRef = useRef(null);
   const muteRef = useRef(muteMetronome);
   const capoRef = useRef(capo);
-  const countIntervalRef = useRef(null);
 
   // Compute flat block offsets from rowSizes
   const getRowOffsets = (sizes) => {
@@ -1802,8 +1759,10 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
       }
       setBpm(d.b||60);
       setCapo(d.c||0);
+      setLoadedPatternName(d.n||"Shared Pattern");
+      setSaveName(d.n||"Shared Pattern");
+      setBuilderOpen(false);
       window.history.replaceState({}, "", window.location.pathname);
-      setTimeout(()=>{ setSaveName(d.n||"Shared Pattern"); setSavePrompt(true); setLoadedPatternName(d.n||"Shared Pattern"); }, 500);
     } catch(e) {}
   }, []);
 
@@ -1814,18 +1773,11 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   };
 
   const handleTogglePlay = async()=>{
-    if(isPlaying){
+    if(isPlaying || countIn>0){
       stopMetronome();
       setIsPlaying(false);
       setCountIn(0);
       setCountInBeat(-1);
-    } else if(countIn>0){
-      // Skip countdown — jump straight to playback
-      clearInterval(countIntervalRef.current);
-      setCountIn(0);
-      setCountInBeat(-1);
-      startMetronome();
-      setIsPlaying(true);
     } else {
       await init();
       const ms = (60/bpm)*1000;
@@ -1834,11 +1786,11 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
       setCountIn(beat);
       setCountInBeat(beatIdx);
       playChordClick(true);
-      countIntervalRef.current = setInterval(()=>{
+      const countInterval = setInterval(()=>{
         beat--;
         beatIdx += 2;
         if(beat <= 0){
-          clearInterval(countIntervalRef.current);
+          clearInterval(countInterval);
           setCountIn(0);
           setCountInBeat(-1);
           startMetronome();
@@ -1882,6 +1834,120 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
 
   return (
     <>
+      {/* ── VIEW MODE (shared link) ──────────────────────────── */}
+      {!builderOpen && (
+        <>
+          {loadedPatternName && (
+            <div style={{ width:"100%", textAlign:"center", marginBottom:14 }}>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:0.3,
+                textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{loadedPatternName}</div>
+            </div>
+          )}
+
+          {/* Read-only rows */}
+          <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+            borderRadius:20, padding:"16px", marginBottom:14 }}>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+            {(()=>{
+              const offsets = getRowOffsets(rowSizes);
+              return rowSizes.map((rowSize, rowIdx)=>{
+                const offset = offsets[rowIdx];
+                const repeat = rowRepeats[rowIdx]||1;
+                return (
+                  <div key={rowIdx} style={{ marginBottom:rowIdx<rowSizes.length-1?10:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                      <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize:12, fontWeight:900, color:"#F79200", opacity:repeat>1?0.8:0.3, letterSpacing:0.5 }}>{repeat}×</div>
+                      {Array(rowSize).fill(null).map((_,colIdx)=>{
+                        const i=offset+colIdx;
+                        return (
+                          <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                              beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
+                            <div style={{ fontSize:20, fontWeight:900, height:22,
+                              color:blockChords[i]?"#FFBE0B":"transparent",
+                              textShadow:blockChords[i]?"0 0 8px rgba(255,190,11,0.6)":"none" }}>{blockChords[i]||"·"}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          {/* BPM + Play */}
+          <div style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a",
+            borderRadius:14, padding:"14px", marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
+              <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+            </div>
+            <input type="range" min={40} max={160} value={bpm}
+              onChange={e=>setBpm(Number(e.target.value))}
+              style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+            <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
+              {[60,80,100,120].map(b=>(
+                <button key={b} onClick={()=>setBpm(b)} style={{
+                  flex:1, padding:"5px 0", borderRadius:8,
+                  border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
+                  background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
+                  color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+              ))}
+            </div>
+            <button onClick={handleTogglePlay} style={{
+              width:"100%", padding:"11px", borderRadius:12, border:"none",
+              background: countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
+              color:"#fff", fontSize:countIn>0?22:15, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
+              boxShadow: countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
+            }}>
+              {countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Start"}
+            </button>
+          </div>
+
+          {/* Save */}
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            <button onClick={()=>setSavePrompt(p=>!p)} style={{
+              flex:1, padding:"10px", borderRadius:12,
+              border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
+              color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save to My Patterns</button>
+          </div>
+          {savePrompt && (
+            <div style={{ marginBottom:10, background:"#111", border:"1px solid #FFBE0B33",
+              borderRadius:14, padding:"14px" }}>
+              <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this pattern</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&handleSave()}
+                  placeholder="e.g. Verse riff, Intro loop..."
+                  style={{ flex:1, padding:"9px 12px", borderRadius:10,
+                    border:"1px solid #333", background:"#0a0a0a",
+                    color:"#fff", fontSize:13, outline:"none" }} />
+                <button onClick={handleSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+                  background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                  color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+                <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
+                  padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                  background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+              </div>
+            </div>
+          )}
+
+          {/* Show builder toggle */}
+          <button onClick={()=>setBuilderOpen(true)} style={{
+            width:"100%", padding:"8px", borderRadius:10, border:"1px solid #2a2a2a",
+            background:"transparent", color:"#555", fontSize:11, fontWeight:700,
+            cursor:"pointer", letterSpacing:1, marginBottom:8 }}>▼ SHOW BUILDER</button>
+
+          <div style={{ textAlign:"center", paddingTop:8, paddingBottom:8, color:"#333", fontSize:11 }}>
+            © {new Date().getFullYear()} No Theory Club · All rights reserved.
+          </div>
+        </>
+      )}
+
+      {/* ── FULL BUILDER ─────────────────────────────────────── */}
+      {builderOpen && (
       <div data-song-panel style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
         <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>SONG BUILDER</div>
@@ -1922,10 +1988,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
               : "0 4px 16px rgba(39,174,96,0.4)",
           }}>
-            {countIn>0
-              ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>
-              : isPlaying ? "⏹ Stop" : "▶ Start"
-            }
+            {countIn>0 ? countIn : isPlaying ? "⏹ Stop" : "▶ Start"}
           </button>
         </div>
 
@@ -2031,6 +2094,12 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                   }}>{rowRepeats[rowIdx]||1}× 🔁</button>
                 </div>
                 <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                  {/* Repeat count — shown to the left of the first block */}
+                  <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                    fontSize:12, fontWeight:900, color:"#F79200",
+                    opacity:(rowRepeats[rowIdx]||1)>1?0.8:0.3, letterSpacing:0.5 }}>
+                    {rowRepeats[rowIdx]||1}×
+                  </div>
                   {Array(rowSize).fill(null).map((_,colIdx)=>{
                     const i = offset+colIdx;
                     const assignedChord=blockChords[i];
@@ -2063,10 +2132,10 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
         })()}
 
         <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, flexWrap:"wrap" }}>
-          {rowSizes.length<30 && <button onClick={()=>{ setRowSizes(p=>[...p,8]); setRowRepeats(p=>[...p,1]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+          {rowSizes.length<10 && <button onClick={()=>{ setRowSizes(p=>[...p,8]); setRowRepeats(p=>[...p,1]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
             padding:"8px 16px", borderRadius:10, border:"1px dashed #FFBE0B",
             background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>}
-          {rowSizes.length<30 && <button onClick={()=>{
+          {rowSizes.length<10 && <button onClick={()=>{
             if(isPlaying){stopMetronome();setIsPlaying(false);}
             const lastRowIdx = rowSizes.length-1;
             const offsets = getRowOffsets(rowSizes);
@@ -2193,6 +2262,15 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
     <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
       © {new Date().getFullYear()} No Theory Club · All rights reserved.
     </div>
+
+      {/* Hide builder toggle — only shown when builder is open and loaded from URL */}
+      {loadedPatternName && (
+        <button onClick={()=>setBuilderOpen(false)} style={{
+          width:"100%", padding:"8px", borderRadius:10, border:"1px solid #2a2a2a",
+          background:"transparent", color:"#555", fontSize:11, fontWeight:700,
+          cursor:"pointer", letterSpacing:1, marginBottom:16 }}>▲ HIDE BUILDER</button>
+      )}
+      )}{/* end builderOpen */}
     </>
   );
 }
