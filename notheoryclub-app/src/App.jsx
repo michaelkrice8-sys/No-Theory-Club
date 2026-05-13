@@ -350,6 +350,7 @@ function StrummingTab({ audio }) {
   const [strumSaveName, setStrumSaveName] = useState("");
   const [sharedViewName, setSharedViewName] = useState(null);
   const [builderOpen, setBuilderOpen] = useState(true);
+  const [strumExpanded, setStrumExpanded] = useState(false);
 
   const STRUM_CHORDS = ["G", "C", "Em", "D"];
 
@@ -2018,10 +2019,21 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             </div>
           )}
 
-          {/* ── Strum Pattern Panel (scrollable 3-row window) ── */}
+          {/* ── Strum Pattern Panel ── */}
           <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
             borderRadius:20, padding:"16px", marginBottom:14 }}>
-            <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+              <div style={{ width:40 }} />
+              <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>STRUMMING PATTERN</div>
+              <button onClick={()=>setStrumExpanded(e=>!e)} style={{
+                padding:"3px 8px", borderRadius:8, border:"1px solid #333",
+                background:"transparent", color:"#555", fontSize:10, fontWeight:700,
+                cursor:"pointer", letterSpacing:0.5,
+              }}>{strumExpanded ? "⊟ less" : "⊞ more"}</button>
+            </div>
+
+            {/* ── COMPACT: 3-row scroll window ── */}
+            {!strumExpanded && (
             <div ref={viewScrollRef} style={{ height:290, overflow:"hidden", position:"relative" }}>
               <div ref={viewInnerRef} style={{
                 position:"relative",
@@ -2107,6 +2119,67 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               })()}
               </div>{/* end inner translateY wrapper */}
             </div>
+            )}{/* end compact */}
+
+            {/* ── EXPANDED: full height, all rows visible ── */}
+            {strumExpanded && (
+              <div>
+              {(()=>{
+                const offsets = getRowOffsets(rowSizes);
+                return rowSizes.map((rowSize, rowIdx)=>{
+                  const offset = offsets[rowIdx];
+                  const repeat = rowRepeats[rowIdx]||1;
+                  // Compute active row for beat highlighting (no opacity dimming in expanded)
+                  let activeRowIdx = -1;
+                  if(countIn > 0) activeRowIdx = 0;
+                  else if(isPlaying && currentStrum >= 0) {
+                    let rem = currentStrum;
+                    for(let r = 0; r < rowSizes.length; r++) {
+                      const rt = rowSizes[r]*(rowRepeats[r]||1);
+                      if(rem < rt){ activeRowIdx = r; break; }
+                      rem -= rt;
+                    }
+                  }
+                  const isActiveRow = activeRowIdx === rowIdx;
+                  return (
+                    <div key={rowIdx} style={{ marginBottom:10 }}>
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                        <div style={{
+                          width:38, height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize: isActiveRow ? 22 : 17, fontWeight:900,
+                          color: isActiveRow ? "#FFBE0B" : "#F79200",
+                          textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
+                          letterSpacing:0.5, transition:"all 0.3s",
+                        }}>{repeat}×</div>
+                        {Array(rowSize).fill(null).map((_,colIdx)=>{
+                          const i = offset+colIdx;
+                          const isCountInGlow = countIn > 0 && rowIdx === 0 && colIdx === countInBeat;
+                          return (
+                            <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                              {isCountInGlow
+                                ? <div style={{ width:40, height:40, borderRadius:10,
+                                    display:"flex", alignItems:"center", justifyContent:"center",
+                                    background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                    boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                    <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
+                                  </div>
+                                : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                                    beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
+                              }
+                              <div style={{ fontSize:20, fontWeight:900, height:22,
+                                color:blockChords[i]?"#FFBE0B":"transparent",
+                                textShadow:blockChords[i]&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none",
+                              }}>{blockChords[i]||"·"}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+              </div>
+            )}{/* end expanded */}
           </div>
 
           {/* ── BPM + Play ── */}
