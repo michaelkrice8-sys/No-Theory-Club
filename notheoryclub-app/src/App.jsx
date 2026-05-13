@@ -1003,107 +1003,84 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const muteRef = useRef(muteClick);
   const sectionsRef = useRef(sections);
   const playPosRef = useRef({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
-  // sub-tick counter: 2 sub-ticks (16th notes) per block (8th note)
-  const subTickRef = useRef(0);
   const rowDomRefs = useRef({});
-  const scrollTargetRef = useRef(0);
-  const scrollRafRef = useRef(null);
   const currentChordRef = useRef(null);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
   useEffect(()=>{ muteRef.current=muteClick; },[muteClick]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
-  useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); cancelAnimationFrame(scrollRafRef.current); },[]);
+  useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); },[]);
 
-  // ── Smooth scroll to row ──
+  // ── Scroll to row — browser-native, non-blocking, user can override freely ──
   const scrollToRow = useCallback((secId, rowIdx)=>{
     const el = rowDomRefs.current[`${secId}_${rowIdx}`];
     if(!el) return;
-    const rect = el.getBoundingClientRect();
-    const target = window.scrollY + rect.top - window.innerHeight * 0.35;
-    scrollTargetRef.current = Math.max(0, target);
-    if(scrollRafRef.current) return;
-    const animate = ()=>{
-      const cur = window.scrollY;
-      const diff = scrollTargetRef.current - cur;
-      if(Math.abs(diff) < 0.5){ scrollRafRef.current = null; return; }
-      window.scrollTo(0, cur + diff * 0.06);
-      scrollRafRef.current = requestAnimationFrame(animate);
-    };
-    scrollRafRef.current = requestAnimationFrame(animate);
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   },[]);
 
-  // ── Tick — 16th note resolution (2 sub-ticks per 8th-note block) ──
+  // ── Tick — 16th note per block, matching AdvancedBuildSong exactly ──
   const tick = useCallback(()=>{
     const secs = sectionsRef.current;
     if(!secs.length) return;
 
-    // Advance sub-tick (0 or 1 within each block)
-    subTickRef.current = (subTickRef.current + 1) % 2;
-    const isBlockStart = subTickRef.current === 0;
-
     let { secIdx, rowIdx, beat, pass } = playPosRef.current;
     const prevRowIdx = rowIdx, prevSecIdx = secIdx;
 
-    if(isBlockStart){
-      beat++;
-      const sec = secs[secIdx];
-      if(!sec) return;
-      const row = sec.rows[rowIdx];
-      if(!row) return;
-      if(beat >= row.size){
-        beat = 0; pass++;
-        if(pass >= row.repeat){
-          pass = 0; rowIdx++;
-          if(rowIdx >= sec.rows.length){ rowIdx = 0; secIdx++; }
-          if(secIdx >= secs.length) secIdx = 0;
-        }
+    beat++;
+    const sec = secs[secIdx];
+    if(!sec) return;
+    const row = sec.rows[rowIdx];
+    if(!row) return;
+
+    if(beat >= row.size){
+      beat = 0; pass++;
+      if(pass >= row.repeat){
+        pass = 0; rowIdx++;
+        if(rowIdx >= sec.rows.length){ rowIdx = 0; secIdx++; }
+        if(secIdx >= secs.length) secIdx = 0;
       }
-      playPosRef.current = { secIdx, rowIdx, beat, pass };
-      setPlayPos({ secIdx, rowIdx, beat, pass });
     }
 
-    // Click on beat 0 of every 4 sub-ticks (quarter notes)
-    if(!muteRef.current && subTickRef.current === 0 && beat % 4 === 0)
-      playChordClick(beat === 0 && playPosRef.current.pass === 0);
+    playPosRef.current = { secIdx, rowIdx, beat, pass };
+    setPlayPos({ secIdx, rowIdx, beat, pass });
 
-    // Chord strum — fire on sub-tick 0 of active blocks
-    if(isBlockStart){
-      const { secIdx:si, rowIdx:ri, beat:b } = playPosRef.current;
-      const playRow = sectionsRef.current[si]?.rows[ri];
-      if(playRow){
-        if(playRow.blockChords[b]) currentChordRef.current = playRow.blockChords[b];
-        if(playRow.strumActive[b] && currentChordRef.current){
-          const isDown = b % 2 === 0;
-          playChordStrum(currentChordRef.current, isDown, capoRef.current);
-        }
+    // Click every 4 blocks = quarter notes
+    if(!muteRef.current && beat % 4 === 0)
+      playChordClick(beat === 0 && pass === 0);
+
+    // Track chord and strum on every active block
+    const playRow = sectionsRef.current[secIdx]?.rows[rowIdx];
+    if(playRow){
+      if(playRow.blockChords[beat]) currentChordRef.current = playRow.blockChords[beat];
+      if(playRow.strumActive[beat] && currentChordRef.current){
+        const isDown = beat % 2 === 0;
+        playChordStrum(currentChordRef.current, isDown, capoRef.current);
       }
-      // Scroll when row changes
-      if(rowIdx !== prevRowIdx || secIdx !== prevSecIdx){
-        const targetSec = sectionsRef.current[secIdx];
-        if(targetSec) scrollToRow(targetSec.id, rowIdx);
-      }
+    }
+
+    // Scroll when row changes — non-blocking, user can always scroll freely
+    if(rowIdx !== prevRowIdx || secIdx !== prevSecIdx){
+      const targetSec = sectionsRef.current[secIdx];
+      if(targetSec) scrollToRow(targetSec.id, rowIdx);
     }
   },[playChordClick, playChordStrum, scrollToRow]);
 
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
-    subTickRef.current = 1; // next tick will flip to 0 → isBlockStart → beat becomes 0
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     currentChordRef.current = null;
-    const ms = (60/bpmRef.current/4)*1000; // 16th notes
+    const ms = (60/bpmRef.current/4)*1000; // 16th note per block
     intervalRef.current = setInterval(tick, ms);
+    tick(); // fire immediately — no gap after countdown
   },[tick]);
 
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current); intervalRef.current = null;
-    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
     currentChordRef.current = null;
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
-    subTickRef.current = 0;
   },[]);
 
   useEffect(()=>{ if(isPlaying){ stopMetronome(); startMetronome(); } },[bpm]);
