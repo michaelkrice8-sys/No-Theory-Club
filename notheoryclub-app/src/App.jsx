@@ -2026,10 +2026,10 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               <div style={{ width:40 }} />
               <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>STRUMMING PATTERN</div>
               <button onClick={()=>setStrumExpanded(e=>!e)} style={{
-                padding:"3px 8px", borderRadius:8, border:"1px solid #333",
-                background:"transparent", color:"#555", fontSize:10, fontWeight:700,
+                padding:"7px 14px", borderRadius:10, border:"1px solid #FFBE0B44",
+                background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700,
                 cursor:"pointer", letterSpacing:0.5,
-              }}>{strumExpanded ? "⊟ less" : "⊞ more"}</button>
+              }}>{strumExpanded ? "⊟ Collapse" : "⊞ Expand"}</button>
             </div>
 
             {/* ── COMPACT: 3-row scroll window ── */}
@@ -2068,13 +2068,12 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                   const repeat = rowRepeats[rowIdx]||1;
                   const isActiveRow   = activeRowIdx === rowIdx;
                   const isIncomingRow = incomingRowIdx === rowIdx;
-                  const rowOpacity = rowIdx <= 1
-                    ? 1
-                    : (!isPlaying && countIn === 0)
-                      ? 0.55
-                      : isActiveRow ? 1
-                      : isIncomingRow ? 0.75
-                      : 0.28;
+                  const rowOpacity = (!isPlaying && countIn === 0)
+                    ? 0.55
+                    : rowIdx === activeRowIdx ? 1
+                    : rowIdx === activeRowIdx + 1 ? 1
+                    : rowIdx === activeRowIdx + 2 ? 0.75
+                    : 0.28;
                   return (
                     <div key={rowIdx}
                       ref={el => { viewRowRefs.current[rowIdx] = el; }}
