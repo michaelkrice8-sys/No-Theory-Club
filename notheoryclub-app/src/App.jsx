@@ -2097,13 +2097,53 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
 
         {(() => {
           const offsets = getRowOffsets(rowSizes);
+          const totalPlayBlocks = rowSizes.reduce((a,b,i)=>a+b*(rowRepeats[i]||1),0);
+
+          // Which array indices are 1–2 flat steps ahead with a different chord (incoming)
+          const incomingIndices = new Set();
+          if(isPlaying && currentStrum >= 0 && totalPlayBlocks > 0) {
+            for(let step = 1; step <= 2; step++) {
+              const flatPos = (currentStrum + step) % totalPlayBlocks;
+              let remaining = flatPos;
+              for(let r = 0; r < rowSizes.length; r++) {
+                const rowTotal = rowSizes[r] * (rowRepeats[r]||1);
+                if(remaining < rowTotal) {
+                  const arrayIdx = offsets[r] + (remaining % rowSizes[r]);
+                  if(blockChords[arrayIdx] && blockChords[arrayIdx] !== currentChordLabel) {
+                    incomingIndices.add(arrayIdx);
+                  }
+                  break;
+                }
+                remaining -= rowTotal;
+              }
+            }
+          }
+
           return rowSizes.map((rowSize, rowIdx)=>{
             const offset = offsets[rowIdx];
+            const repeat = rowRepeats[rowIdx]||1;
             const cycleSize = rowSize===8 ? 4 : rowSize===4 ? 6 : 8;
             const sizeLabel = rowSize===6 ? "Triplet" : rowSize===4 ? "4" : "8";
             return (
               <div key={rowIdx} style={{ marginBottom:10 }}
                 ref={el => { rowRefsRef.current[rowIdx] = el; }}>
+
+                {/* Repeat pill — only shown when row repeats more than once */}
+                {repeat > 1 && (
+                  <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}>
+                    <div style={{
+                      display:"flex", alignItems:"center", gap:5,
+                      background:"rgba(255,190,11,0.1)",
+                      border:"1px solid rgba(255,190,11,0.3)",
+                      borderRadius:20, padding:"4px 12px",
+                    }}>
+                      <span style={{ fontSize:13, color:"#FFBE0B", fontWeight:900 }}>↻</span>
+                      <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B", letterSpacing:0.5 }}>{repeat}×</span>
+                      <span style={{ fontSize:10, color:"#F79200", fontWeight:700, opacity:0.75 }}>this row repeats</span>
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
                   <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW {rowIdx+1}</div>
                   <button onClick={()=>{
@@ -2119,21 +2159,22 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                     setRowRepeats(p=>p.map((r,i)=>i===rowIdx?(r>=4?1:r+1):r));
                   }} style={{
                     padding:"6px 14px", borderRadius:8, border:"1px solid #333",
-                    background: (rowRepeats[rowIdx]||1)>1 ? "rgba(255,190,11,0.15)" : "#1a1a1a",
-                    color: (rowRepeats[rowIdx]||1)>1 ? "#FFBE0B" : "#555",
+                    background: repeat>1 ? "rgba(255,190,11,0.15)" : "#1a1a1a",
+                    color: repeat>1 ? "#FFBE0B" : "#555",
                     fontSize:12, fontWeight:700, cursor:"pointer", minWidth:54,
-                  }}>{rowRepeats[rowIdx]||1}× 🔁</button>
+                  }}>{repeat}× 🔁</button>
                 </div>
                 <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-                  <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:12, fontWeight:900, color:"#F79200",
-                    opacity:(rowRepeats[rowIdx]||1)>1?0.8:0.3, letterSpacing:0.5 }}>
-                    {rowRepeats[rowIdx]||1}×
-                  </div>
                   {Array(rowSize).fill(null).map((_,colIdx)=>{
                     const i = offset+colIdx;
                     const assignedChord=blockChords[i];
                     const isCountInGlow = countIn>0 && rowIdx===0 && colIdx===countInBeat;
+                    const isActive = isPlaying && i===currentFlatIdx && !!assignedChord;
+                    const isIncoming = isPlaying && incomingIndices.has(i);
+                    const chordColor = isActive ? "#FFBE0B" : isIncoming ? "#F79200" : "#FFBE0B";
+                    const chordOpacity = isActive ? 1 : isIncoming ? 0.65 : isPlaying ? 0.12 : 0.75;
+                    const chordGlow = isActive ? "0 0 10px rgba(255,190,11,0.7)"
+                      : isIncoming ? "0 0 8px rgba(247,146,0,0.45)" : "none";
                     return (
                       <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
                         {isCountInGlow
@@ -2148,9 +2189,11 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                               assigned={!!assignedChord} onClick={()=>handleBlockClick(i)} />
                         }
                         <div style={{ fontSize:20, fontWeight:900, height:22,
-                          color: assignedChord ? "#FFBE0B" : "transparent",
-                          textShadow: assignedChord ? "0 0 8px rgba(255,190,11,0.6)" : "none",
+                          color: assignedChord ? chordColor : "transparent",
+                          opacity: assignedChord ? chordOpacity : 0,
+                          textShadow: assignedChord ? chordGlow : "none",
                           letterSpacing:0.3,
+                          transition:"opacity 0.25s, color 0.25s, text-shadow 0.25s",
                         }}>{assignedChord||"·"}</div>
                       </div>
                     );
