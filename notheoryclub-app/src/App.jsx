@@ -1607,7 +1607,9 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   const currentPlayingRowRef = useRef(-1);
   const viewScrollRef = useRef(null);
   const viewRowRefs = useRef([]);
+  const viewInnerRef = useRef(null);
   const lastViewRowRef = useRef(-1);
+  const [viewScrollOffset, setViewScrollOffset] = useState(0);
   const [savedPatterns, setSavedPatterns] = useState(()=>{
     try { return JSON.parse(localStorage.getItem("ntc_patterns")||"[]"); } catch{ return []; }
   });
@@ -1731,10 +1733,10 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,rowSizes,rowRepeats]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
-  // Auto-scroll view mode strum panel to keep active row visible
+  // Auto-scroll view mode strum panel using translateY — starts at row 2, stops at end
   useEffect(()=>{
     if(!isPlaying && countIn === 0) {
-      if(viewScrollRef.current) viewScrollRef.current.scrollTop = 0;
+      setViewScrollOffset(0);
       lastViewRowRef.current = -1;
       return;
     }
@@ -1747,15 +1749,27 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
         rem -= rt;
       }
     }
+    if(activeRow <= 0) {
+      // Row 1 — no scroll, stay at top
+      if(activeRow !== lastViewRowRef.current) {
+        lastViewRowRef.current = activeRow;
+        setViewScrollOffset(0);
+      }
+      return;
+    }
     if(activeRow >= 0 && activeRow !== lastViewRowRef.current) {
       lastViewRowRef.current = activeRow;
       const rowEl = viewRowRefs.current[activeRow];
-      const containerEl = viewScrollRef.current;
-      if(rowEl && containerEl) {
-        const rowRect = rowEl.getBoundingClientRect();
-        const containerRect = containerEl.getBoundingClientRect();
-        const relativeTop = rowRect.top - containerRect.top + containerEl.scrollTop;
-        containerEl.scrollTo({ top: Math.max(0, relativeTop - 8), behavior: "smooth" });
+      const innerEl = viewInnerRef.current;
+      const containerHeight = 290;
+      if(rowEl && innerEl) {
+        // offsetTop relative to inner wrapper (which has position:relative)
+        const rowTop = rowEl.offsetTop;
+        const totalContentHeight = innerEl.offsetHeight;
+        const maxOffset = Math.max(0, totalContentHeight - containerHeight);
+        // Keep active row ~20px from top, but never exceed maxOffset
+        const target = Math.min(Math.max(0, rowTop - 20), maxOffset);
+        setViewScrollOffset(target);
       }
     }
   },[currentStrum, isPlaying, countIn, builderOpen]);
@@ -1929,7 +1943,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   })();
 
   // Displayed carousel values (pre-play fallback to first chord)
-  const carouselCurrent = (isPlaying || countIn > 0) ? currentChordLabel : _preFirst;
+  const carouselCurrent = (isPlaying || countIn > 0) ? (currentChordLabel || _preFirst) : _preFirst;
   const carouselNext    = (isPlaying || countIn > 0) ? nextChordLabel    : _preNext;
   const carouselPrev    = (isPlaying || countIn > 0) ? prevChordLabel    : null;
   const nextIsIncoming  = blocksUntilNext <= 3;
@@ -2008,7 +2022,12 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
           <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
             borderRadius:20, padding:"16px", marginBottom:14 }}>
             <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
-            <div ref={viewScrollRef} style={{ height:290, overflowY:"hidden" }}>
+            <div ref={viewScrollRef} style={{ height:290, overflow:"hidden", position:"relative" }}>
+              <div ref={viewInnerRef} style={{
+                position:"relative",
+                transform:`translateY(-${viewScrollOffset}px)`,
+                transition:"transform 0.55s ease",
+              }}>
               {(()=>{
                 const offsets = getRowOffsets(rowSizes);
 
@@ -2056,10 +2075,19 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                         }}>{repeat}×</div>
                         {Array(rowSize).fill(null).map((_,colIdx)=>{
                           const i = offset+colIdx;
+                          const isCountInGlow = countIn > 0 && rowIdx === 0 && colIdx === countInBeat;
                           return (
                             <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                              <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
-                                beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
+                              {isCountInGlow
+                                ? <div style={{ width:40, height:40, borderRadius:10,
+                                    display:"flex", alignItems:"center", justifyContent:"center",
+                                    background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                    boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                    <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
+                                  </div>
+                                : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                                    beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
+                              }
                               <div style={{ fontSize:20, fontWeight:900, height:22,
                                 color:blockChords[i]?"#FFBE0B":"transparent",
                                 opacity: blockChords[i] ? (isActiveRow ? 1 : isPlaying ? 0.15 : 0.7) : 0,
@@ -2074,6 +2102,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                   );
                 });
               })()}
+              </div>{/* end inner translateY wrapper */}
             </div>
           </div>
 
