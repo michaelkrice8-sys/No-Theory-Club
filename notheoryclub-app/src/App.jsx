@@ -1605,6 +1605,9 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   const [loadedPatternName, setLoadedPatternName] = useState(null);
   const rowRefsRef = useRef([]);
   const currentPlayingRowRef = useRef(-1);
+  const viewScrollRef = useRef(null);
+  const viewRowRefs = useRef([]);
+  const lastViewRowRef = useRef(-1);
   const [savedPatterns, setSavedPatterns] = useState(()=>{
     try { return JSON.parse(localStorage.getItem("ntc_patterns")||"[]"); } catch{ return []; }
   });
@@ -1728,6 +1731,33 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,rowSizes,rowRepeats]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
+  // Auto-scroll view mode strum panel to keep active row visible
+  useEffect(()=>{
+    if(!isPlaying && countIn === 0) {
+      if(viewScrollRef.current) viewScrollRef.current.scrollTop = 0;
+      lastViewRowRef.current = -1;
+      return;
+    }
+    let activeRow = countIn > 0 ? 0 : -1;
+    if(currentStrum >= 0) {
+      let rem = countIn > 0 ? 0 : currentStrum;
+      for(let r = 0; r < rowSizes.length; r++) {
+        const rt = rowSizes[r] * (rowRepeats[r]||1);
+        if(rem < rt) { activeRow = r; break; }
+        rem -= rt;
+      }
+    }
+    if(activeRow >= 0 && activeRow !== lastViewRowRef.current) {
+      lastViewRowRef.current = activeRow;
+      if(viewRowRefs.current[activeRow] && viewScrollRef.current) {
+        viewScrollRef.current.scrollTo({
+          top: Math.max(0, viewRowRefs.current[activeRow].offsetTop - 8),
+          behavior: "smooth",
+        });
+      }
+    }
+  },[currentStrum, isPlaying, countIn]);
+
   const handleSave = () => {
     if(!saveName.trim()) return;
     if(savedPatterns.length >= 20) { alert("You've reached the 20 pattern limit — delete one first!"); return; }
@@ -1850,103 +1880,202 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
     }
   };
 
-  // Find next chord after current position
-  const assignedChords = [...new Set(blockChords.filter(Boolean))];
+  // ── Chord carousel computations ─────────────────────────────────────────
+  const hasAnyChords = blockChords.some(Boolean);
+  const _offsets = getRowOffsets(rowSizes);
+  const _total = rowSizes.reduce((a,b,i)=>a+b*(rowRepeats[i]||1),0);
+
+  // Map flat playback position → blockChords array index
+  const flatToArrIdx = (flatPos) => {
+    let rem = flatPos;
+    for(let r = 0; r < rowSizes.length; r++) {
+      const rt = rowSizes[r] * (rowRepeats[r]||1);
+      if(rem < rt) return _offsets[r] + (rem % rowSizes[r]);
+      rem -= rt;
+    }
+    return 0;
+  };
+
+  // Pre-play: find first and second distinct chords in playback sequence
+  let _preFirst = null, _preNext = null;
+  for(let f = 0; f < _total; f++) {
+    const ch = blockChords[flatToArrIdx(f)];
+    if(ch) {
+      if(!_preFirst) _preFirst = ch;
+      else if(ch !== _preFirst) { _preNext = ch; break; }
+    }
+  }
+
+  // Live: next chord and how many blocks away
+  let blocksUntilNext = Infinity;
   const nextChordLabel = (() => {
-    if(!isPlaying || currentStrum < 0) return null;
-    for(let i=1; i<=totalBlocks; i++){
-      const idx=(currentStrum+i)%totalBlocks;
-      if(blockChords[idx] && blockChords[idx]!==currentChordLabel) return blockChords[idx];
+    if(_total === 0) return _preNext;
+    if(!isPlaying || currentStrum < 0) return _preNext;
+    for(let i = 1; i <= _total; i++) {
+      const ch = blockChords[flatToArrIdx((currentStrum + i) % _total)];
+      if(ch && ch !== currentChordLabel) { blocksUntilNext = i; return ch; }
     }
     return null;
   })();
   const prevChordLabel = (() => {
     if(!isPlaying || currentStrum < 0) return null;
-    for(let i=1; i<=totalBlocks; i++){
-      const idx=(currentStrum-i+totalBlocks)%totalBlocks;
-      if(blockChords[idx]) return blockChords[idx];
+    for(let i = 1; i <= _total; i++) {
+      const ch = blockChords[flatToArrIdx((currentStrum - i + _total) % _total)];
+      if(ch && ch !== currentChordLabel) return ch;
     }
     return null;
   })();
+
+  // Displayed carousel values (pre-play fallback to first chord)
+  const carouselCurrent = (isPlaying || countIn > 0) ? currentChordLabel : _preFirst;
+  const carouselNext    = (isPlaying || countIn > 0) ? nextChordLabel    : _preNext;
+  const carouselPrev    = (isPlaying || countIn > 0) ? prevChordLabel    : null;
+  const nextIsIncoming  = blocksUntilNext <= 3;
 
   return (
     <>
       {/* ── VIEW MODE (shared link) ──────────────────────────── */}
       {!builderOpen && (
         <>
+          {/* Title */}
           {loadedPatternName && (
             <div style={{ width:"100%", textAlign:"center", marginBottom:14 }}>
               <div style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:0.3,
                 textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{loadedPatternName}</div>
             </div>
           )}
+
+          {/* ── Chord Carousel Panel ── */}
+          {hasAnyChords && (
+            <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+              borderRadius:20, padding:"16px 14px", marginBottom:14 }}>
+              <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>CHORD</div>
+              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                {[
+                  { chord: carouselPrev,    role: "prev" },
+                  { chord: carouselCurrent, role: "active" },
+                  { chord: carouselNext,    role: "next" },
+                ].map(({ chord, role }, i) => {
+                  const isActive   = role === "active";
+                  const isNext     = role === "next";
+                  const isIncoming = isNext && nextIsIncoming;
+                  const img = chord ? getChordImg(chord, chordVariants) : null;
+                  return (
+                    <div key={role} style={{
+                      flex: isActive ? "0 0 46%" : "0 0 27%",
+                      display:"flex", flexDirection:"column", alignItems:"center",
+                      opacity: isActive ? 1 : isIncoming ? 1 : 0.35,
+                      transition:"opacity 0.25s",
+                    }}>
+                      <div style={{
+                        width:"100%", borderRadius:10, overflow:"hidden", background:"#000",
+                        border: isActive
+                          ? "2px solid #FFBE0B"
+                          : isIncoming
+                            ? "2px solid rgba(255,190,11,0.7)"
+                            : "1px solid #222",
+                        boxShadow: isActive
+                          ? "0 0 16px rgba(255,190,11,0.45)"
+                          : isIncoming
+                            ? "0 0 12px rgba(255,190,11,0.25)"
+                            : "none",
+                        transition:"border 0.2s, box-shadow 0.2s",
+                      }}>
+                        {img
+                          ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
+                              <img src={img} alt={chord} style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
+                            </div>
+                          : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
+                              justifyContent:"center", fontSize: isActive ? 32 : 20, fontWeight:900,
+                              color: isActive ? "#FFBE0B" : isIncoming ? "#FFD60A" : "#555" }}>
+                              {chord || ""}
+                            </div>
+                        }
+                      </div>
+                      <div style={{ marginTop:4, fontSize: isActive ? 15 : 11, fontWeight:900,
+                        color: isActive ? "#FFBE0B" : isIncoming ? "#FFD60A" : "#555",
+                        transition:"all 0.2s" }}>{chord || ""}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Strum Pattern Panel (scrollable 3-row window) ── */}
           <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
             borderRadius:20, padding:"16px", marginBottom:14 }}>
             <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
-            {(()=>{
-              const offsets = getRowOffsets(rowSizes);
+            <div ref={viewScrollRef} style={{ height:290, overflowY:"hidden" }}>
+              {(()=>{
+                const offsets = getRowOffsets(rowSizes);
 
-              // Row state: which row is active, which is incoming
-              let activeRowIdx = -1;
-              let incomingRowIdx = -1;
-              if(countIn > 0) {
-                activeRowIdx = 0;
-              } else if(isPlaying && currentStrum >= 0) {
-                let remaining = currentStrum;
-                for(let r = 0; r < rowSizes.length; r++) {
-                  const rowTotal = rowSizes[r] * (rowRepeats[r]||1);
-                  if(remaining < rowTotal) {
-                    activeRowIdx = r;
-                    if(remaining >= rowTotal - 2 && rowSizes.length > 1)
-                      incomingRowIdx = (r + 1) % rowSizes.length;
-                    break;
+                // Row state
+                let activeRowIdx = -1;
+                let incomingRowIdx = -1;
+                if(countIn > 0) {
+                  activeRowIdx = 0;
+                } else if(isPlaying && currentStrum >= 0) {
+                  let remaining = currentStrum;
+                  for(let r = 0; r < rowSizes.length; r++) {
+                    const rowTotal = rowSizes[r] * (rowRepeats[r]||1);
+                    if(remaining < rowTotal) {
+                      activeRowIdx = r;
+                      if(remaining >= rowTotal - 3 && rowSizes.length > 1)
+                        incomingRowIdx = (r + 1) % rowSizes.length;
+                      break;
+                    }
+                    remaining -= rowTotal;
                   }
-                  remaining -= rowTotal;
                 }
-              }
 
-              return rowSizes.map((rowSize, rowIdx)=>{
-                const offset = offsets[rowIdx];
-                const repeat = rowRepeats[rowIdx]||1;
-                const isActiveRow = activeRowIdx === rowIdx;
-                const isIncomingRow = incomingRowIdx === rowIdx;
-                const rowOpacity = (!isPlaying && countIn === 0)
-                  ? 0.55
-                  : isActiveRow ? 1
-                  : isIncomingRow ? 0.45
-                  : 0.12;
-                return (
-                  <div key={rowIdx} style={{
-                    marginBottom:rowIdx<rowSizes.length-1?10:0,
-                    opacity: rowOpacity,
-                    transition:"opacity 0.35s ease",
-                  }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-                      <div style={{
-                        width:32, height:40, display:"flex", alignItems:"center", justifyContent:"center",
-                        fontSize: isActiveRow ? 18 : 14, fontWeight:900,
-                        color: isActiveRow ? "#FFBE0B" : "#F79200",
-                        textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
-                        letterSpacing:0.5, transition:"all 0.3s",
-                      }}>{repeat}×</div>
-                      {Array(rowSize).fill(null).map((_,colIdx)=>{
-                        const i=offset+colIdx;
-                        return (
-                          <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                            <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
-                              beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
-                            <div style={{ fontSize:20, fontWeight:900, height:22,
-                              color:blockChords[i]?"#FFBE0B":"transparent",
-                              textShadow:blockChords[i]?"0 0 8px rgba(255,190,11,0.6)":"none" }}>{blockChords[i]||"·"}</div>
-                          </div>
-                        );
-                      })}
+                return rowSizes.map((rowSize, rowIdx)=>{
+                  const offset = offsets[rowIdx];
+                  const repeat = rowRepeats[rowIdx]||1;
+                  const isActiveRow   = activeRowIdx === rowIdx;
+                  const isIncomingRow = incomingRowIdx === rowIdx;
+                  const rowOpacity = (!isPlaying && countIn === 0)
+                    ? 0.55
+                    : isActiveRow  ? 1
+                    : isIncomingRow ? 0.45
+                    : 0.12;
+                  return (
+                    <div key={rowIdx}
+                      ref={el => { viewRowRefs.current[rowIdx] = el; }}
+                      style={{ marginBottom:10, opacity:rowOpacity, transition:"opacity 0.35s ease" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                        {/* Repeat label */}
+                        <div style={{
+                          width:32, height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize: isActiveRow ? 18 : 14, fontWeight:900,
+                          color: isActiveRow ? "#FFBE0B" : "#F79200",
+                          textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
+                          letterSpacing:0.5, transition:"all 0.3s",
+                        }}>{repeat}×</div>
+                        {Array(rowSize).fill(null).map((_,colIdx)=>{
+                          const i = offset+colIdx;
+                          return (
+                            <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                              <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                                beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
+                              <div style={{ fontSize:20, fontWeight:900, height:22,
+                                color:blockChords[i]?"#FFBE0B":"transparent",
+                                opacity: blockChords[i] ? (isActiveRow ? 1 : isPlaying ? 0.15 : 0.7) : 0,
+                                textShadow:blockChords[i]&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none",
+                                transition:"opacity 0.25s",
+                              }}>{blockChords[i]||"·"}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                );
-              });
-            })()}
+                  );
+                });
+              })()}
+            </div>
           </div>
+
+          {/* ── BPM + Play ── */}
           <div style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a",
             borderRadius:14, padding:"14px", marginBottom:14 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
@@ -1973,6 +2102,8 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               {countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Start"}
             </button>
           </div>
+
+          {/* ── Save ── */}
           <div style={{ display:"flex", gap:8, marginBottom:8 }}>
             <button onClick={()=>setSavePrompt(p=>!p)} style={{
               flex:1, padding:"10px", borderRadius:12,
@@ -1999,6 +2130,8 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               </div>
             </div>
           )}
+
+          {/* ── Show builder toggle ── */}
           <button onClick={()=>setBuilderOpen(true)} style={{
             width:"100%", padding:"8px", borderRadius:10, border:"1px solid #2a2a2a",
             background:"transparent", color:"#555", fontSize:11, fontWeight:700,
@@ -2138,7 +2271,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
           // Which array indices are 1–2 flat steps ahead with a different chord (incoming)
           const incomingIndices = new Set();
           if(isPlaying && currentStrum >= 0 && totalPlayBlocks > 0) {
-            for(let step = 1; step <= 2; step++) {
+            for(let step = 1; step <= 3; step++) {
               const flatPos = (currentStrum + step) % totalPlayBlocks;
               let remaining = flatPos;
               for(let r = 0; r < rowSizes.length; r++) {
@@ -2166,7 +2299,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               const rowTotal = rowSizes[r] * (rowRepeats[r]||1);
               if(remaining < rowTotal) {
                 activeRowIdx = r;
-                if(remaining >= rowTotal - 2 && rowSizes.length > 1)
+                if(remaining >= rowTotal - 3 && rowSizes.length > 1)
                   incomingRowIdx = (r + 1) % rowSizes.length;
                 break;
               }
