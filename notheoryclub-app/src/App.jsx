@@ -1749,14 +1749,16 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
     }
     if(activeRow >= 0 && activeRow !== lastViewRowRef.current) {
       lastViewRowRef.current = activeRow;
-      if(viewRowRefs.current[activeRow] && viewScrollRef.current) {
-        viewScrollRef.current.scrollTo({
-          top: Math.max(0, viewRowRefs.current[activeRow].offsetTop - 8),
-          behavior: "smooth",
-        });
+      const rowEl = viewRowRefs.current[activeRow];
+      const containerEl = viewScrollRef.current;
+      if(rowEl && containerEl) {
+        const rowRect = rowEl.getBoundingClientRect();
+        const containerRect = containerEl.getBoundingClientRect();
+        const relativeTop = rowRect.top - containerRect.top + containerEl.scrollTop;
+        containerEl.scrollTo({ top: Math.max(0, relativeTop - 8), behavior: "smooth" });
       }
     }
-  },[currentStrum, isPlaying, countIn]);
+  },[currentStrum, isPlaying, countIn, builderOpen]);
 
   const handleSave = () => {
     if(!saveName.trim()) return;
@@ -2038,7 +2040,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                     ? 0.55
                     : isActiveRow  ? 1
                     : isIncomingRow ? 0.45
-                    : 0.12;
+                    : 0.28;
                   return (
                     <div key={rowIdx}
                       ref={el => { viewRowRefs.current[rowIdx] = el; }}
@@ -2318,7 +2320,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               ? 1
               : isActiveRow ? 1
               : isIncomingRow ? 0.45
-              : 0.12;
+              : 0.28;
             return (
               <div key={rowIdx} style={{
                 marginBottom:10,
@@ -2372,7 +2374,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                     const isActive = isPlaying && i===currentFlatIdx && !!assignedChord;
                     const isIncoming = isPlaying && incomingIndices.has(i);
                     const chordColor = isActive ? "#FFBE0B" : isIncoming ? "#F79200" : "#FFBE0B";
-                    const chordOpacity = isActive ? 1 : isIncoming ? 0.65 : isPlaying ? 0.12 : 0.75;
+                    const chordOpacity = isActive ? 1 : isIncoming ? 0.65 : isPlaying ? 0.28 : 0.75;
                     const chordGlow = isActive ? "0 0 10px rgba(255,190,11,0.7)"
                       : isIncoming ? "0 0 8px rgba(247,146,0,0.45)" : "none";
                     return (
