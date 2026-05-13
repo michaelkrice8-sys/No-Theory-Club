@@ -1061,15 +1061,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     playPosRef.current = { secIdx, rowIdx, beat, pass };
     setPlayPos({ secIdx, rowIdx, beat, pass });
 
-    if(!muteRef.current && beat % 2 === 0) playClick(beat === 0 && pass === 0);
+    if(!muteRef.current) playClick(beat === 0 && pass === 0);
 
     // Track last assigned chord and play on every active strum beat
     const playRow = sectionsRef.current[secIdx]?.rows[rowIdx];
     if(playRow){
       if(playRow.blockChords[beat]) currentChordRef.current = playRow.blockChords[beat];
       if(playRow.strumActive[beat] && currentChordRef.current){
-        const isDown = beat % 2 === 0;
-        playChordStrum(currentChordRef.current, isDown, 0);
+        const isDown = beat % 2 === 0; // even blocks = down, odd = up
+        playChordStrum(currentChordRef.current, isDown, capoRef.current);
       }
     }
 
@@ -1084,7 +1084,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     clearInterval(intervalRef.current);
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
-    const ms = (60/bpmRef.current/2)*1000;
+    const ms = (60/bpmRef.current)*1000;
     intervalRef.current = setInterval(tick, ms);
     startScroll();
   },[tick, startScroll]);
