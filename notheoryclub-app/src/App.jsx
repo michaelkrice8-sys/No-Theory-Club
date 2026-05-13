@@ -1197,11 +1197,11 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
               <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
               <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
             </div>
-            <input type="range" min={40} max={160} value={bpm}
+            <input type="range" min={20} max={160} value={bpm}
               onChange={e=>setBpm(Number(e.target.value))}
               style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
             <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-              {[60,80,100,120].map(b=>(
+              {[40,60,80,100].map(b=>(
                 <button key={b} onClick={()=>setBpm(b)} style={{
                   flex:1, padding:"5px 0", borderRadius:8,
                   border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -1381,11 +1381,11 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
                 <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
                 <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
               </div>
-              <input type="range" min={40} max={160} value={bpm}
+              <input type="range" min={20} max={160} value={bpm}
                 onChange={e=>setBpm(Number(e.target.value))}
                 style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
               <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-                {[60,80,100,120].map(b=>(
+                {[40,60,80,100].map(b=>(
                   <button key={b} onClick={()=>setBpm(b)} style={{
                     flex:1, padding:"5px 0", borderRadius:8,
                     border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -1854,6 +1854,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
       setSaveName(d.n||"Shared Pattern");
       setBuilderOpen(false);
       window.history.replaceState({}, "", window.location.pathname);
+      window.scrollTo(0, 0);
     } catch(e) {}
   }, []);
 
@@ -2104,7 +2105,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                               }
                               <div style={{ fontSize:20, fontWeight:900, height:22,
                                 color:blockChords[i]?"#FFBE0B":"transparent",
-                                opacity: blockChords[i] ? (isActiveRow ? 1 : isPlaying ? 0.15 : 0.7) : 0,
+                                opacity: blockChords[i] ? 0.9 : 0,
                                 textShadow:blockChords[i]&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none",
                                 transition:"opacity 0.25s",
                               }}>{blockChords[i]||"·"}</div>
@@ -2188,10 +2189,10 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
               <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
               <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
             </div>
-            <input type="range" min={40} max={160} value={bpm} onChange={e=>setBpm(Number(e.target.value))}
+            <input type="range" min={20} max={160} value={bpm} onChange={e=>setBpm(Number(e.target.value))}
               style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
             <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-              {[60,80,100,120].map(b=>(
+              {[40,60,80,100].map(b=>(
                 <button key={b} onClick={()=>setBpm(b)} style={{
                   flex:1, padding:"5px 0", borderRadius:8,
                   border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -2199,14 +2200,23 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
                   color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
               ))}
             </div>
-            <button onClick={handleTogglePlay} style={{
-              width:"100%", padding:"11px", borderRadius:12, border:"none",
-              background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
-              color:"#fff", fontSize:countIn>0?22:15, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
-              boxShadow:countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
-            }}>
-              {countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Start"}
-            </button>
+            <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+              <button onClick={handleTogglePlay} style={{
+                flex:1, padding:"11px", borderRadius:12, border:"none",
+                background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
+                color:"#fff", fontSize:countIn>0?22:15, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
+                boxShadow:countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
+              }}>
+                {countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Start"}
+              </button>
+              <button onClick={()=>setMuteMetronome(m=>!m)} style={{
+                padding:"11px 14px", borderRadius:12,
+                border: muteMetronome?"2px solid #e74c3c":"1px solid #2a2a2a",
+                background: muteMetronome?"rgba(231,76,60,0.1)":"#111",
+                color: muteMetronome?"#e74c3c":"#666",
+                fontSize:18, cursor:"pointer",
+              }}>{muteMetronome?"🔇":"🔔"}</button>
+            </div>
           </div>
 
           {/* ── Save ── */}
@@ -2268,11 +2278,11 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
             <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
           </div>
-          <input type="range" min={40} max={160} value={bpm}
+          <input type="range" min={20} max={160} value={bpm}
             onChange={e=>setBpm(Number(e.target.value))}
             style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
           <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-            {[60,80,100,120].map(b=>(
+            {[40,60,80,100].map(b=>(
               <button key={b} onClick={()=>setBpm(b)} style={{
                 flex:1, padding:"5px 0", borderRadius:8,
                 border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -2394,62 +2404,14 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
             }
           }
 
-          // Row-level active/incoming state
-          let activeRowIdx = -1;
-          let incomingRowIdx = -1;
-          if(countIn > 0) {
-            activeRowIdx = 0;
-          } else if(isPlaying && currentStrum >= 0) {
-            let remaining = currentStrum;
-            for(let r = 0; r < rowSizes.length; r++) {
-              const rowTotal = rowSizes[r] * (rowRepeats[r]||1);
-              if(remaining < rowTotal) {
-                activeRowIdx = r;
-                if(remaining >= rowTotal - 3 && rowSizes.length > 1)
-                  incomingRowIdx = (r + 1) % rowSizes.length;
-                break;
-              }
-              remaining -= rowTotal;
-            }
-          }
-
           return rowSizes.map((rowSize, rowIdx)=>{
             const offset = offsets[rowIdx];
             const repeat = rowRepeats[rowIdx]||1;
             const cycleSize = rowSize===8 ? 4 : rowSize===4 ? 6 : 8;
             const sizeLabel = rowSize===6 ? "Triplet" : rowSize===4 ? "4" : "8";
-            const isActiveRow = activeRowIdx === rowIdx;
-            const isIncomingRow = incomingRowIdx === rowIdx;
-            const rowOpacity = (!isPlaying && countIn === 0)
-              ? 1
-              : isActiveRow ? 1
-              : isIncomingRow ? 0.75
-              : 0.28;
             return (
-              <div key={rowIdx} style={{
-                marginBottom:10,
-                opacity: rowOpacity,
-                transition:"opacity 0.5s ease",
-              }}
+              <div key={rowIdx} style={{ marginBottom:10 }}
                 ref={el => { rowRefsRef.current[rowIdx] = el; }}>
-
-                {/* Repeat pill — only shown when row repeats more than once */}
-                {repeat > 1 && (
-                  <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}>
-                    <div style={{
-                      display:"flex", alignItems:"center", gap:5,
-                      background: isActiveRow ? "rgba(255,190,11,0.18)" : "rgba(255,190,11,0.08)",
-                      border: isActiveRow ? "1px solid rgba(255,190,11,0.5)" : "1px solid rgba(255,190,11,0.2)",
-                      borderRadius:20, padding:"4px 12px",
-                      transition:"all 0.3s",
-                    }}>
-                      <span style={{ fontSize:13, color:"#FFBE0B", fontWeight:900 }}>↻</span>
-                      <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B", letterSpacing:0.5 }}>{repeat}×</span>
-                      <span style={{ fontSize:10, color:"#F79200", fontWeight:700, opacity:0.75 }}>this row repeats</span>
-                    </div>
-                  </div>
-                )}
-
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
                   <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW {rowIdx+1}</div>
                   <button onClick={()=>{
@@ -3284,14 +3246,14 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
             transition:"background 0.05s" }} />;
         })}
       </div>
-      <input type="range" min={40} max={160} value={bpm}
+      <input type="range" min={20} max={160} value={bpm}
         onChange={e=>setBpm(Number(e.target.value))}
         style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
       <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#555", marginBottom:14 }}>
         <span>40</span><span>160</span>
       </div>
       <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:16 }}>
-        {[60,80,100,120].map(b=>(
+        {[40,60,80,100].map(b=>(
           <button key={b} onClick={()=>setBpm(b)} style={{
             padding:"5px 12px", borderRadius:8,
             border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
