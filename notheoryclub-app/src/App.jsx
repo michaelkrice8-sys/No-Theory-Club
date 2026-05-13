@@ -1004,6 +1004,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const rowDomRefs = useRef({});
   const scrollTargetRef = useRef(0);
   const scrollRafRef = useRef(null);
+  const currentChordRef = useRef(null);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ muteRef.current=muteClick; },[muteClick]);
@@ -1011,27 +1012,29 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); cancelAnimationFrame(scrollRafRef.current); },[]);
 
   // ── Auto-scroll (UG style — slow smooth drift) ──
-  // Constant slow scroll — runs every frame while playing, drifts at ~0.6px/frame
-  const isPlayingRef = useRef(false);
-  const constantScroll = useCallback(()=>{
-    if(!isPlayingRef.current){ scrollRafRef.current = null; return; }
-    window.scrollBy(0, 0.6);
-    scrollRafRef.current = requestAnimationFrame(constantScroll);
+  // Smooth scroll toward a target using RAF easing — no page jump
+  const scrollToRow = useCallback((secId, rowIdx)=>{
+    const el = rowDomRefs.current[`${secId}_${rowIdx}`];
+    if(!el) return;
+    const rect = el.getBoundingClientRect();
+    const target = window.scrollY + rect.top - window.innerHeight * 0.35;
+    const clamped = Math.max(0, target);
+    scrollTargetRef.current = clamped;
+    if(scrollRafRef.current) return; // already animating
+    const animate = () => {
+      const cur = window.scrollY;
+      const diff = scrollTargetRef.current - cur;
+      if(Math.abs(diff) < 0.5){ scrollRafRef.current = null; return; }
+      window.scrollTo(0, cur + diff * 0.06);
+      scrollRafRef.current = requestAnimationFrame(animate);
+    };
+    scrollRafRef.current = requestAnimationFrame(animate);
   },[]);
 
-  const startScroll = useCallback(()=>{
-    isPlayingRef.current = true;
-    if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-    scrollRafRef.current = requestAnimationFrame(constantScroll);
-  },[constantScroll]);
-
+  const startScroll = useCallback(()=>{},[]);
   const stopScroll = useCallback(()=>{
-    isPlayingRef.current = false;
     if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
   },[]);
-
-  // Keep scrollToRow for initial position on play start
-  const scrollToRow = useCallback((secId, rowIdx)=>{},[]);
 
   // ── Tick ──
   const tick = useCallback(()=>{
@@ -1060,11 +1063,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
     if(!muteRef.current && beat % 2 === 0) playClick(beat === 0 && pass === 0);
 
-    // Play chord strum if block has assigned chord and strum is active
+    // Track last assigned chord and play on every active strum beat
     const playRow = sectionsRef.current[secIdx]?.rows[rowIdx];
-    if(playRow && playRow.strumActive[beat] && playRow.blockChords[beat]){
-      const isDown = beat % 2 === 0;
-      playChordStrum(playRow.blockChords[beat], isDown, 0);
+    if(playRow){
+      if(playRow.blockChords[beat]) currentChordRef.current = playRow.blockChords[beat];
+      if(playRow.strumActive[beat] && currentChordRef.current){
+        const isDown = beat % 2 === 0;
+        playChordStrum(currentChordRef.current, isDown, 0);
+      }
     }
 
     // Scroll when row changes
@@ -1086,6 +1092,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current);
     stopScroll();
+    currentChordRef.current = null;
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
   },[stopScroll]);
@@ -1094,9 +1101,13 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
   const handleTogglePlay = async()=>{
-    if(isPlaying||countIn>0){
+    if(isPlaying){
       clearInterval(countInRef.current); setCountIn(0);
       stopMetronome(); setIsPlaying(false); return;
+    }
+    if(countIn>0){
+      clearInterval(countInRef.current); setCountIn(0);
+      startMetronome(); setIsPlaying(true); return;
     }
     await init();
     let beat=4; setCountIn(beat); playClick(true);
@@ -3036,7 +3047,7 @@ function SectionHeader({ title, sub }) {
 const MODE_GRADIENTS = [
   "linear-gradient(135deg, #FFD60A, #FFBE0B)",
   "linear-gradient(135deg, #FFBE0B, #F79200)",
-  "linear-gradient(135deg, #E06000, #B84000)",
+  "linear-gradient(135deg, #D4720A, #9A3E00)",
 ];
 
 function ModeTabs({ options, value, onChange }) {
