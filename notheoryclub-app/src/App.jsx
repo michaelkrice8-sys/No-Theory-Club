@@ -1425,7 +1425,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                         // Playing → only active row countdown (>1), never restored after hitting 1
                         // Only show on active row, only while playing, only if counting down
                         const displayNum = remaining;
-                        const showNum = rep > 1 && isActiveRow && (isPlaying || isPaused) && remaining > 1;
+                        const showNum = isActiveRow && (isPlaying || isPaused);
                         return (
                           <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
                             {showNum && (
