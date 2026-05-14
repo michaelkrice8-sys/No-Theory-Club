@@ -1420,8 +1420,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               {sec.rows.map((row, rowIdx)=>{
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
-                  <div key={row.id} style={{ width:"100%", overflowX:"auto", paddingBottom:4 }}>
-                      <div style={{ display:"flex", alignItems:"flex-start", gap:3, flexWrap:"nowrap", width:"max-content", margin:"0 auto" }}>
+                  <div key={row.id} style={{ width:"100%", overflowX:"auto", paddingTop:6, paddingBottom:6 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:3, flexWrap:"nowrap", width:"max-content", margin:"0 auto" }}>
                       {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
                       {(()=>{
                         const rep = row.repeat||1;
@@ -1465,28 +1465,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           </div>
                         );
                       })}
-                      {/* Right repeat countdown — mirrors left */}
-                      {(()=>{
-                        const rep = row.repeat||1;
-                        const remaining = rep - playPos.pass;
-                        // Show: not playing → full count at low opacity
-                        // Playing → only active row countdown (>1), never restored after hitting 1
-                        const showNum = rep > 1 && (
-                          (!isPlaying && !isPaused) ||
-                          (isActiveRow && remaining > 1)
-                        );
-                        const displayNum = (!isPlaying && !isPaused) ? rep : remaining;
-                        return (
-                          <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                            {showNum && (
-                              <span style={{ fontSize:22, fontWeight:900, color:"#fff",
-                                opacity: isActiveRow ? 1 : 0.35,
-                                textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.5)" : "none",
-                                transition:"all 0.15s", lineHeight:1 }}>{displayNum}×</span>
-                            )}
-                          </div>
-                        );
-                      })()}
+
                     </div>
                   </div>
                 );
