@@ -1852,22 +1852,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                     ref={el=>{ rowDomRefs.current[`${sec.id}_${rowIdx}`]=el; }}
                     style={{ marginBottom:rowIdx<sec.rows.length-1?14:0,
                       opacity: 1 }}>
-                    {/* Lyrics text box */}
-                    <textarea
-                      value={row.text||""}
-                      onChange={e=>updateRow(sec.id,rowIdx,r=>({...r,text:e.target.value}))}
-                      placeholder="Add lyrics or notes for this row..."
-                      rows={2}
-                      style={{
-                        width:"100%", marginBottom:6,
-                        background:"rgba(255,255,255,0.05)",
-                        border:"1px solid #333", borderRadius:8,
-                        color:"#ccc", fontSize:12, lineHeight:1.5,
-                        padding:"7px 10px", resize:"vertical",
-                        outline:"none", fontFamily:"inherit",
-                        boxSizing:"border-box",
-                      }}
-                    />
                     {/* Row controls */}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:6, flexWrap:"wrap" }}>
                       <span style={{ fontSize:9, color:isActiveRow?"#FFBE0B":"#444", letterSpacing:1, fontWeight:700, minWidth:32 }}>ROW {rowIdx+1}</span>
@@ -1888,8 +1872,29 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           background:"#1a0a0a", color:"#e74c3c88", fontSize:14, cursor:"pointer" }}>✕</button>
                       )}
                     </div>
-                    {/* Blocks */}
-                    <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                    {/* Blocks + Lyrics wrapper — same width */}
+                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+                      {/* Lyrics text box — matches arrow row width */}
+                      <div style={{ width: row.size * 48 + (row.size-1) * 5, maxWidth:"100%" }}>
+                        <textarea
+                          value={row.text||""}
+                          onChange={e=>updateRow(sec.id,rowIdx,r=>({...r,text:e.target.value}))}
+                          onClick={e=>e.stopPropagation()}
+                          onMouseDown={e=>e.stopPropagation()}
+                          placeholder="Lyrics / notes..."
+                          rows={2}
+                          style={{
+                            width:"100%", marginBottom:4,
+                            background:"rgba(255,255,255,0.06)",
+                            border:"1px solid #383838", borderRadius:8,
+                            color:"#ddd", fontSize:14, lineHeight:1.55,
+                            padding:"6px 10px", resize:"none",
+                            outline:"none", fontFamily:"inherit",
+                            boxSizing:"border-box", cursor:"text",
+                          }}
+                        />
+                      </div>
+                      <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"nowrap" }}>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
                         const isBeat=isActiveRow&&playPos.beat===colIdx;
@@ -1913,7 +1918,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           </div>
                         );
                       })}
-                    </div>
+                      </div>
+                    </div>{/* end blocks+lyrics wrapper */}
                   </div>
                 );
               })}
