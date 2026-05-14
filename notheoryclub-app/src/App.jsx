@@ -243,8 +243,10 @@ export default function App() {
     new URLSearchParams(window.location.search).has("strum");
   const hasSharedStrumProg = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("strumprog");
-  const hasSharedSong = typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("song");
+  const [hasSharedSong] = useState(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("song")
+  );
 
   const [tab, setTab] = useState(
     hasSharedDrill ? "chords"
@@ -278,6 +280,18 @@ export default function App() {
     { id:"chords", label:"🤚 Chords" },
     { id:"song",   label:"🎵 Build a Song" },
   ];
+
+  // Share view — clean layout, no tabs
+  if(hasSharedSong) return (
+    <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
+      <div style={{ textAlign:"center", padding:"14px 16px 6px", background:"rgba(10,10,8,0.98)" }}>
+        <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5 }}>NO THEORY CLUB</div>
+        <div style={{ fontSize:10, color:"#555" }}>Guitar Practice Tool</div>
+      </div>
+      <BuildSongTab audio={audio} initialBuildMode="song" chordVariants={chordVariants} updateVariant={updateVariant} />
+    </div>
+  );
 
   return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
@@ -1024,18 +1038,16 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
   useEffect(()=>{ muteRef.current=muteClick; },[muteClick]);
+  // Sync ref and update live velocity if already playing
   useEffect(()=>{
     scrollSpeedRef.current = scrollSpeed;
-    if(!isPlaying) return;
-    if(scrollSpeed === 0){
-      scrollVelocityRef.current = 0;
-      // runScroll checks velocity each frame and stops itself
-    } else {
-      scrollVelocityRef.current = scrollSpeed * 0.06;
-      if(!scrollRafRef.current)
+    if(isPlaying || isPaused){
+      scrollVelocityRef.current = scrollSpeed * 0.18;
+      // If speed went to 0, RAF stops itself; if > 0 and stopped, restart
+      if(scrollSpeed > 0 && !scrollRafRef.current)
         scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
     }
-  },[scrollSpeed, isPlaying]);
+  },[scrollSpeed]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
@@ -1060,15 +1072,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
   },[]);
-
-  // Start scroll when playback begins (covers view mode path)
-  useEffect(()=>{
-    if(isPlaying && scrollSpeedRef.current > 0){
-      scrollVelocityRef.current = scrollSpeedRef.current * 0.18;
-      if(!scrollRafRef.current)
-        scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
-    }
-  },[isPlaying]);
 
   // No-op — row changes do NOT trigger any scroll recalculation
   const scrollToRow = useCallback(()=>{},[]);
@@ -1415,8 +1418,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               {sec.rows.map((row, rowIdx)=>{
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
-                  <div key={row.id}>
-                      <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                  <div key={row.id} style={{ width:"100%", overflowX:"auto", paddingBottom:4 }}>
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:3, flexWrap:"nowrap", width:"max-content", margin:"0 auto" }}>
                       {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
                       {(()=>{
                         const rep = row.repeat||1;
