@@ -1475,6 +1475,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   // ─────────────────────────────────────────────────────────────────────────
   // BUILDER MODE
   // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ width:"100%" }}>
 
       {/* ── Global Controls ── */}
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:16, padding:"14px 16px", marginBottom:20 }}>
