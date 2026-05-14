@@ -1270,6 +1270,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     setBpm(song.bpm||80); setCapo(song.capo||0);
     setScrollSpeed(song.scrollSpeed||0);
     setLoadedSongName(song.name); setShowSaved(false); setSongViewMode(false);
+    window.scrollTo(0,0);
   };
 
   const doDelete = (id) => {
@@ -1422,13 +1423,9 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                         const remaining = rep - playPos.pass;
                         // Show: not playing → full count at low opacity
                         // Playing → only active row countdown (>1), never restored after hitting 1
-                        // Non-active rows always show full count; active row counts down
-                        const displayNum = (isActiveRow && (isPlaying || isPaused)) ? remaining : rep;
-                        const showNum = rep > 1 && (
-                          !isActiveRow ||           // non-active: always show
-                          !isPlaying && !isPaused || // stopped: always show
-                          remaining > 1              // active+playing: only if counting
-                        );
+                        // Only show on active row, only while playing, only if counting down
+                        const displayNum = remaining;
+                        const showNum = rep > 1 && isActiveRow && (isPlaying || isPaused) && remaining > 1;
                         return (
                           <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
                             {showNum && (
@@ -1582,7 +1579,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               fontSize: countIn>0 ? 22 : 15,
               boxShadow: countIn>0 ? "0 4px 16px rgba(255,190,11,0.3)"
                 : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
-                : "0 4px 16px rgba(39,174,96,0.4)" }}>
+                : "none" }}>
               {countIn>0
                 ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,opacity:0.75,marginTop:2}}>tap to skip</div></>
                 : isPlaying ? "⏹ Stop" : isPaused ? "▶ Resume" : "▶ Play Song"}
@@ -1624,6 +1621,46 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ width:"100%", paddingBottom: assignSectionId ? 220 : 0 }}>
+
+      {/* ── Top bar: Back to View + My Songs ── */}
+      {(loadedSongName || savedSongs.length > 0) && (
+        <div style={{ display:"flex", gap:8, marginBottom:16 }}>
+          {loadedSongName && (
+            <button onClick={()=>{ setSongViewMode(true); window.scrollTo(0,0); }} style={{
+              flex:1, padding:"9px", borderRadius:10,
+              border:"1px solid rgba(255,190,11,0.35)", background:"rgba(255,190,11,0.07)",
+              color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+              ▲ Back to View
+            </button>
+          )}
+          <button onClick={()=>setShowSaved(s=>!s)} style={{
+            flex:1, padding:"9px", borderRadius:10,
+            border:"1px solid #2a2a2a", background:"#111",
+            color:"#888", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+            📂 My Songs ({savedSongs.length})
+          </button>
+        </div>
+      )}
+      {showSaved && (
+        <div style={{ marginBottom:16, display:"flex", flexDirection:"column", gap:8 }}>
+          {savedSongs.length===0 && <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"12px 0" }}>No saved songs yet</div>}
+          {savedSongs.map(s=>(
+            <div key={s.id} style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
+              padding:"10px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"#fff", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{s.name}</div>
+                <div style={{ fontSize:11, color:"#555", marginTop:2 }}>{s.sections?.length||0} sections · {s.bpm} BPM · {s.savedAt}</div>
+              </div>
+              <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                <button onClick={()=>doLoad(s)} style={{ padding:"5px 10px", borderRadius:8, border:"none",
+                  background:"linear-gradient(135deg,#FFBE0B,#F77F00)", color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                <button onClick={()=>doDelete(s.id)} style={{ padding:"5px 8px", borderRadius:8, border:"1px solid #333",
+                  background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Global Controls ── */}
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:16, padding:"14px 16px", marginBottom:20 }}>
