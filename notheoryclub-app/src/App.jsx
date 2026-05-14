@@ -28,6 +28,37 @@ const STRUM_PATTERNS = {
   3: { name: "Pattern #3", active: [true,false,false,false,true,false,true,true], songs: ["Sweet Home Alabama","Knockin' on Heaven's Door"] },
 };
 
+const SUPABASE_URL = "https://midwiwtywipemlyxcvau.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZ3dpdHl3aXBlbWx5eGN2YXUiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc0NzIzMTI4OCwiZXhwIjoyMDYyODA3Mjg4fQ.t1MkQoNSm5i8Y8p22hEJaRhbsQK8ydAFRb1VfZmhGKI";
+
+async function supabaseInsert(name, data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/songs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify({ name, data }),
+  });
+  if(!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return rows[0]?.id;
+}
+
+async function supabaseFetch(id) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/songs?id=eq.${id}&select=*`, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+    },
+  });
+  if(!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return rows[0] || null;
+}
+
 const DIRS16 = Array(16).fill(null).map((_,i) => i%2===0 ? "↓" : "↑");
 const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
 
@@ -244,8 +275,10 @@ export default function App() {
   const hasSharedStrumProg = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("strumprog");
   const [hasSharedSong] = useState(() =>
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).has("song")
+    typeof window !== "undefined" && (
+      new URLSearchParams(window.location.search).has("song") ||
+      new URLSearchParams(window.location.search).has("id")
+    )
   );
 
   const [tab, setTab] = useState(
@@ -1328,33 +1361,54 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     try{ localStorage.setItem("ntc_songs", JSON.stringify(updated)); } catch(e){}
   };
 
-  const doShare = (song) => {
+  const doShare = async (song) => {
     try {
       const payload = { n:song.name, secs:song.sections, b:song.bpm, c:song.capo||0, ss:song.scrollSpeed||0 };
-      const encoded = btoa(JSON.stringify(payload));
-      const url = `${window.location.origin}${window.location.pathname}?song=${encoded}`;
+      const id = await supabaseInsert(song.name, payload);
+      const url = `${window.location.origin}${window.location.pathname}?id=${id}`;
       navigator.clipboard.writeText(url)
-        .then(()=>alert(`✅ Link copied!\n\nShare with anyone — they'll open directly into "${song.name}".`))
+        .then(()=>alert(`✅ Link copied!\n\n"${song.name}" is now shareable at:\n${url}`))
         .catch(()=>prompt("Copy this link:", url));
-    } catch(e){ alert("Couldn't generate share link."); }
+    } catch(e){ 
+      console.error(e);
+      alert("Couldn't generate share link. Check your connection and try again.");
+    }
   };
 
   // ── Load from URL on mount ──
   useEffect(()=>{
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const encoded = params.get("song");
-      if(!encoded) return;
-      const d = JSON.parse(atob(encoded));
-      if(d.secs) setSections(decodeSections(d.secs));
-      if(d.b) setBpm(d.b);
-      if(d.c) setCapo(d.c);
-      if(d.ss !== undefined) setScrollSpeed(d.ss);
-      setLoadedSongName(d.n||"Shared Song");
-      setSongViewMode(true);
-      window.history.replaceState({}, "", window.location.pathname);
-      window.scrollTo(0,0);
-    } catch(e){}
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    const encoded = params.get("song");
+
+    if(id) {
+      // New Supabase short link
+      supabaseFetch(id).then(row => {
+        if(!row) return;
+        const d = row.data;
+        if(d.secs) setSections(decodeSections(d.secs));
+        if(d.b) setBpm(d.b);
+        if(d.c) setCapo(d.c);
+        if(d.ss !== undefined) setScrollSpeed(d.ss);
+        setLoadedSongName(d.n||row.name||"Shared Song");
+        setSongViewMode(true);
+        window.history.replaceState({}, "", window.location.pathname);
+        window.scrollTo(0,0);
+      }).catch(e=>console.error("Failed to load song:", e));
+    } else if(encoded) {
+      // Legacy ?song= URL
+      try {
+        const d = JSON.parse(atob(encoded));
+        if(d.secs) setSections(decodeSections(d.secs));
+        if(d.b) setBpm(d.b);
+        if(d.c) setCapo(d.c);
+        if(d.ss !== undefined) setScrollSpeed(d.ss);
+        setLoadedSongName(d.n||"Shared Song");
+        setSongViewMode(true);
+        window.history.replaceState({}, "", window.location.pathname);
+        window.scrollTo(0,0);
+      } catch(e){}
+    }
   },[]);
 
   // ── Section ops ──
