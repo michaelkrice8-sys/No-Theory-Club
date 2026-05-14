@@ -1147,8 +1147,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000; // 16th note per block
     intervalRef.current = setInterval(tick, ms);
     tick(); // fire immediately — no gap after countdown
-    startConstantScroll(); // kick off one-time constant scroll
-  },[tick, startConstantScroll]);
+  },[tick]);
 
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current); intervalRef.current = null;
@@ -1172,8 +1171,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
-    startConstantScroll();
-  },[tick, startConstantScroll]);
+  },[tick]);
 
   const startFromSection = useCallback(async(secIdx)=>{
     if(!intervalRef.current) await init();
@@ -1187,9 +1185,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
-    startConstantScroll();
     setIsPlaying(true);
-  },[init, tick, startConstantScroll]);
+  },[init, tick]);
 
   useEffect(()=>{
     bpmRef.current = bpm;
