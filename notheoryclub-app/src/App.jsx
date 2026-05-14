@@ -1512,24 +1512,10 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   transition:"background 0.3s, border-color 0.3s",
                   opacity:(isPlaying||isPaused) && !isActiveSection ? 0.25 : 1,
                 }}>
-                {/* Lyrics display — aligned with blocks, same width */}
-                {row.text && (
-                  <div style={{ display:"flex", alignItems:"flex-start" }}>
-                    {/* Spacer to match countdown badge width */}
-                    <div style={{ width:36, flexShrink:0 }} />
-                    <div style={{
-                      width: row.size * 40 + (row.size-1) * 3,
-                      fontSize: row.textSize||23, color:"#fff", lineHeight:1.5,
-                      padding:"5px 0 3px 0",
-                      whiteSpace:"pre-wrap", wordBreak:"break-word",
-                      opacity: (isPlaying||isPaused) ? (isActiveRow ? 1 : 0.45) : 1,
-                      transition:"opacity 0.3s",
-                    }}>{row.text}</div>
-                  </div>
-                )}
-                <div style={{ display:"flex", alignItems:"center" }}>
-                  {/* Countdown */}
-                  <div style={{ width:36, flexShrink:0, textAlign:"center" }}>
+                {/* Lyrics + Blocks — same container so text aligns with block 1 */}
+                <div style={{ display:"flex", alignItems:"flex-start" }}>
+                  {/* Countdown badge */}
+                  <div style={{ width:36, flexShrink:0, paddingTop:18, textAlign:"center" }}>
                     {isActiveRow && (isPlaying||isPaused) && (
                       <span style={{ fontSize:18, fontWeight:900, color:"#fff",
                         textShadow:"0 0 8px rgba(255,255,255,0.4)", lineHeight:1 }}>
@@ -1537,9 +1523,19 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                       </span>
                     )}
                   </div>
-                  {/* Blocks */}
-                  <div style={{ flex:1, overflowX:"auto", paddingTop:18, paddingBottom:10 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:3, flexWrap:"nowrap", width:"max-content", margin:"0 auto" }}>
+                  {/* Content: lyrics above blocks, same scroll container */}
+                  <div style={{ flex:1, overflowX:"auto" }}>
+                    {row.text && (
+                      <div style={{
+                        fontSize: row.textSize||23, color:"#fff", lineHeight:1.5,
+                        paddingTop:6, paddingBottom:4,
+                        whiteSpace:"pre", width:"max-content",
+                        opacity: (isPlaying||isPaused) ? (isActiveRow ? 1 : 0.45) : 1,
+                        transition:"opacity 0.3s",
+                      }}>{row.text}</div>
+                    )}
+                    <div style={{ paddingTop: row.text ? 0 : 18, paddingBottom:10 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:3, flexWrap:"nowrap", width:"max-content" }}>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch = row.blockChords[colIdx];
                         const isBeat = isActiveRow && playPos.beat === colIdx;
@@ -1563,6 +1559,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           </div>
                         );
                       })}
+                    </div>
                     </div>
                   </div>
                 </div>
