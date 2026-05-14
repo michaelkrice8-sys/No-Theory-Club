@@ -3313,7 +3313,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
 
       {/* ── FULL BUILDER ─────────────────────────────────────── */}
       {builderOpen && (
-      <>
+      <div style={{ paddingBottom: assignMode ? 220 : 0 }}>
       <div data-song-panel style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
         <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>SONG BUILDER</div>
@@ -3396,41 +3396,48 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
           </div>
         </div>
 
-        {/* Chord picker — shows automatically when in assign mode */}
+        {/* Chord picker — fixed bottom panel when in assign mode */}
         {assignMode && (
-          <>
-            {/* Category filter buttons */}
-            <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:8, flexWrap:"wrap" }}>
-              {["all","7","sus","add","/"].map(cat=>(
-                <button key={cat} onClick={()=>setCategoryFilter(cat)} style={{
-                  padding:"5px 14px", borderRadius:8,
-                  border: categoryFilter===cat ? "2px solid #FFBE0B" : "1px solid #2a2a2a",
-                  background: categoryFilter===cat ? "rgba(255,190,11,0.15)" : "#111",
-                  color: categoryFilter===cat ? "#FFBE0B" : "#555",
-                  fontSize:12, fontWeight:800, cursor:"pointer", transition:"all 0.1s",
-                }}>{cat==="all" ? "Basic" : cat}</button>
-              ))}
+          <div style={{
+            position:"fixed", bottom:0, left:0, right:0, zIndex:300,
+            background:"rgba(6,6,5,0.98)", backdropFilter:"blur(16px)",
+            borderTop:"2px solid rgba(255,190,11,0.35)",
+            padding:"10px 16px 16px",
+            boxShadow:"0 -8px 32px rgba(0,0,0,0.7)",
+          }}>
+            <div style={{ maxWidth:560, margin:"0 auto" }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                <div style={{ fontSize:11, color:"#888", letterSpacing:1 }}>
+                  ASSIGN CHORD · <span style={{ color:"#FFBE0B", fontWeight:800 }}>{assignChord}</span>
+                </div>
+                <button onClick={()=>setAssignMode(false)} style={{
+                  background:"none", border:"none", color:"#555", fontSize:18, cursor:"pointer", padding:"2px 6px" }}>✕</button>
+              </div>
+              <div style={{ display:"flex", gap:5, marginBottom:8, flexWrap:"wrap" }}>
+                {["all","7","sus","add","/"].map(cat=>(
+                  <button key={cat} onClick={()=>setCategoryFilter(cat)} style={{
+                    padding:"5px 12px", borderRadius:8,
+                    border: categoryFilter===cat ? "2px solid #FFBE0B" : "1px solid #2a2a2a",
+                    background: categoryFilter===cat ? "rgba(255,190,11,0.15)" : "rgba(0,0,0,0.4)",
+                    color: categoryFilter===cat ? "#FFBE0B" : "#555",
+                    fontSize:12, fontWeight:800, cursor:"pointer" }}>
+                    {cat==="all" ? "Basic" : cat}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
+                {(categoryFilter==="all" ? ALL_CHORDS : CHORD_CATEGORIES[categoryFilter]||[]).map(c=>(
+                  <button key={c} onClick={()=>setAssignChord(c)} style={{
+                    padding:"9px 4px", borderRadius:8, border:"none",
+                    background: assignChord===c ? "linear-gradient(135deg,#FFBE0B,#F77F00)" : "rgba(28,28,28,0.9)",
+                    color: assignChord===c ? "#111" : "#888",
+                    fontSize:12, fontWeight:800, cursor:"pointer",
+                    boxShadow: assignChord===c ? "0 0 10px rgba(255,190,11,0.5)" : "none",
+                    transition:"all 0.1s" }}>{c}</button>
+                ))}
+              </div>
             </div>
-
-            {/* Chord grid — filtered by category */}
-            <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
-              padding:"12px", marginBottom:8,
-              display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
-              {(categoryFilter==="all" ? ALL_CHORDS : CHORD_CATEGORIES[categoryFilter]||[]).map(c=>(
-                <button key={c} onClick={()=>setAssignChord(c)} style={{
-                  padding:"8px 4px", borderRadius:8, border:"none",
-                  background: assignChord===c ? "linear-gradient(135deg,#FFBE0B,#F77F00)" : "#1c1c1c",
-                  color: assignChord===c ? "#111" : "#888",
-                  fontSize:11, fontWeight:800, cursor:"pointer",
-                  boxShadow: assignChord===c ? "0 0 8px rgba(255,190,11,0.4)" : "none",
-                  transition:"all 0.1s",
-                }}>{c}</button>
-              ))}
-            </div>
-            <div style={{ textAlign:"center", fontSize:11, color:"#555", marginBottom:10 }}>
-              Tap a block to assign <span style={{ color:"#FFBE0B" }}>{assignChord}</span> · tap again to remove
-            </div>
-          </>
+          </div>
         )}
 
         {(() => {
@@ -3526,10 +3533,10 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
         })()}
 
         <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, flexWrap:"wrap" }}>
-          {rowSizes.length<10 && <button onClick={()=>{ setRowSizes(p=>[...p,8]); setRowRepeats(p=>[...p,1]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
+          {rowSizes.length<30 && <button onClick={()=>{ setRowSizes(p=>[...p,8]); setRowRepeats(p=>[...p,1]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
             padding:"8px 16px", borderRadius:10, border:"1px dashed #FFBE0B",
             background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>}
-          {rowSizes.length<10 && <button onClick={()=>{
+          {rowSizes.length<30 && <button onClick={()=>{
             if(isPlaying){stopMetronome();setIsPlaying(false);}
             const lastRowIdx = rowSizes.length-1;
             const offsets = getRowOffsets(rowSizes);
@@ -3662,7 +3669,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
           background:"transparent", color:"#555", fontSize:11, fontWeight:700,
           cursor:"pointer", letterSpacing:1, marginBottom:16 }}>▲ HIDE BUILDER</button>
       )}
-      </>
+      </div>
       )}{/* end builderOpen */}
     </>
   );
