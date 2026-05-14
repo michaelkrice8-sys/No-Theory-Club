@@ -1417,15 +1417,21 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 return (
                   <div key={row.id}>
                       <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-                      {/* Left repeat number — only shown when > 1 */}
-                      <div style={{ width:24, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                        {(row.repeat||1)>1 && (
-                          <span style={{ fontSize:22, fontWeight:900, color:"#fff",
-                            opacity: isActiveRow ? 1 : 0.5,
-                            textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.4)" : "none",
-                            transition:"all 0.2s", lineHeight:1 }}>{row.repeat}</span>
-                        )}
-                      </div>
+                      {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
+                      {(()=>{
+                        const rep = row.repeat||1;
+                        const remaining = isActiveRow ? rep - playPos.pass : rep;
+                        return (
+                          <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            {rep > 1 && remaining > 1 && (
+                              <span style={{ fontSize:22, fontWeight:900, color:"#fff",
+                                opacity: isActiveRow ? 1 : 0.45,
+                                textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.5)" : "none",
+                                transition:"all 0.15s", lineHeight:1 }}>{remaining}×</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
                         const isBeat=isActiveRow&&playPos.beat===colIdx;
@@ -1449,15 +1455,21 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           </div>
                         );
                       })}
-                      {/* Right repeat number — only shown when > 1 */}
-                      <div style={{ width:24, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                        {(row.repeat||1)>1 && (
-                          <span style={{ fontSize:22, fontWeight:900, color:"#fff",
-                            opacity: isActiveRow ? 1 : 0.5,
-                            textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.4)" : "none",
-                            transition:"all 0.2s", lineHeight:1 }}>{row.repeat}</span>
-                        )}
-                      </div>
+                      {/* Right repeat countdown — mirrors left */}
+                      {(()=>{
+                        const rep = row.repeat||1;
+                        const remaining = isActiveRow ? rep - playPos.pass : rep;
+                        return (
+                          <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            {rep > 1 && remaining > 1 && (
+                              <span style={{ fontSize:22, fontWeight:900, color:"#fff",
+                                opacity: isActiveRow ? 1 : 0.45,
+                                textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.5)" : "none",
+                                transition:"all 0.15s", lineHeight:1 }}>{remaining}×</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
