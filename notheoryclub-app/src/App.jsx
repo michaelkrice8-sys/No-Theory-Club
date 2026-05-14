@@ -1036,6 +1036,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const currentChordRef = useRef(null);
   const scrollVelocityRef = useRef(0);   // px per RAF frame
   const scrollRafRef = useRef(null);
+  const [scrollSectionTitle, setScrollSectionTitle] = useState("");
+  const sectionDividerRefs = useRef({});
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
@@ -1254,8 +1256,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [saveName, setSaveName] = useState("");
   const [loadedSongName, setLoadedSongName] = useState(null);
   const [songViewMode, setSongViewMode] = useState(false);
-  const [scrollSectionTitle, setScrollSectionTitle] = useState("");
-  const sectionDividerRefs = useRef({});
 
   // ── Encode / decode sections for URL ──
   const encodeSections = (secs) => secs.map(sec=>({
