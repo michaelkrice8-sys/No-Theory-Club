@@ -1005,19 +1005,45 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const playPosRef = useRef({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
   const rowDomRefs = useRef({});
   const currentChordRef = useRef(null);
+  const scrollVelocityRef = useRef(0);   // px per RAF frame
+  const scrollRafRef = useRef(null);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
   useEffect(()=>{ muteRef.current=muteClick; },[muteClick]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
-  useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); },[]);
+  useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
-  // ── Scroll to row — browser-native, non-blocking, user can override freely ──
+  // ── Teleprompter scroll — constant velocity, no jump, non-locking ──
+  const runScroll = useCallback(()=>{
+    if(scrollVelocityRef.current === 0){ scrollRafRef.current = null; return; }
+    window.scrollBy(0, scrollVelocityRef.current);
+    scrollRafRef.current = requestAnimationFrame(runScroll);
+  },[]);
+
   const scrollToRow = useCallback((secId, rowIdx)=>{
     const el = rowDomRefs.current[`${secId}_${rowIdx}`];
     if(!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  },[]);
+
+    // Distance to center this row in the viewport
+    const rect = el.getBoundingClientRect();
+    const distToCenter = rect.top + rect.height/2 - window.innerHeight/2;
+
+    // Duration of this row in ms → frames at ~60fps
+    const secs = sectionsRef.current;
+    const sec = secs.find(s=>s.id===secId);
+    const row = sec?.rows[rowIdx];
+    if(!row) return;
+    const rowDurationMs = row.size * (row.repeat||1) * (60/bpmRef.current/4) * 1000;
+    const frames = Math.max(1, rowDurationMs / (1000/60));
+
+    // Constant px per frame to arrive centered by end of row
+    scrollVelocityRef.current = distToCenter / frames;
+
+    // Start loop if not running
+    if(!scrollRafRef.current)
+      scrollRafRef.current = requestAnimationFrame(runScroll);
+  },[runScroll]);
 
   // ── Tick — 16th note per block, matching AdvancedBuildSong exactly ──
   const tick = useCallback(()=>{
@@ -1078,6 +1104,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current); intervalRef.current = null;
+    scrollVelocityRef.current = 0;
+    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
     currentChordRef.current = null;
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
@@ -1297,8 +1325,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   <div key={row.id}
                     ref={el=>{ rowDomRefs.current[`${sec.id}_${rowIdx}`]=el; }}
                     style={{ marginBottom:rowIdx<sec.rows.length-1?14:0,
-                      opacity: isPlaying&&!isActiveRow&&playPos.secIdx===idx ? 0.45 : 1,
-                      transition:"opacity 0.3s" }}>
+                      opacity: 1 }}>
                     {/* Row controls */}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:6, flexWrap:"wrap" }}>
                       <span style={{ fontSize:9, color:isActiveRow?"#FFBE0B":"#444", letterSpacing:1, fontWeight:700, minWidth:32 }}>ROW {rowIdx+1}</span>
