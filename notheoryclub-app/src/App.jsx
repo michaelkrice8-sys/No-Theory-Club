@@ -1417,19 +1417,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 return (
                   <div key={row.id}>
                       <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-                      {/* Repeat box — replaces both pill and small label */}
-                      <div style={{
-                        minWidth:36, height:40, display:"flex", flexDirection:"column",
-                        alignItems:"center", justifyContent:"center",
-                        background: isActiveRow ? "rgba(255,190,11,0.12)" : "rgba(247,146,0,0.06)",
-                        border: isActiveRow ? "1px solid rgba(255,190,11,0.4)" : "1px solid rgba(247,146,0,0.2)",
-                        borderRadius:8, padding:"0 6px",
-                        transition:"all 0.2s",
-                      }}>
-                        <span style={{ fontSize:15, fontWeight:900, lineHeight:1,
-                          color:isActiveRow?"#FFBE0B":"#F79200",
-                          textShadow:isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none" }}>{row.repeat||1}×</span>
-                        {(row.repeat||1)>1&&<span style={{ fontSize:8, color:"#F79200", opacity:0.6, letterSpacing:0.5, marginTop:2 }}>LOOP</span>}
+                      {/* Left repeat number — only shown when > 1 */}
+                      <div style={{ width:24, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        {(row.repeat||1)>1 && (
+                          <span style={{ fontSize:22, fontWeight:900, color:"#fff",
+                            opacity: isActiveRow ? 1 : 0.5,
+                            textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.4)" : "none",
+                            transition:"all 0.2s", lineHeight:1 }}>{row.repeat}</span>
+                        )}
                       </div>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
@@ -1454,6 +1449,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           </div>
                         );
                       })}
+                      {/* Right repeat number — only shown when > 1 */}
+                      <div style={{ width:24, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        {(row.repeat||1)>1 && (
+                          <span style={{ fontSize:22, fontWeight:900, color:"#fff",
+                            opacity: isActiveRow ? 1 : 0.5,
+                            textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.4)" : "none",
+                            transition:"all 0.2s", lineHeight:1 }}>{row.repeat}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
