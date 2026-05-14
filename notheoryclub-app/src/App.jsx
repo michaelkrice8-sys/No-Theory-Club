@@ -1166,6 +1166,22 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     startConstantScroll();
   },[tick, startConstantScroll]);
 
+  const startFromSection = useCallback(async(secIdx)=>{
+    if(!intervalRef.current) await init();
+    clearInterval(intervalRef.current); intervalRef.current = null;
+    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
+    currentChordRef.current = null;
+    playPosRef.current = { secIdx, rowIdx:0, beat:-1, pass:0, _secPass:0 };
+    setPlayPos({ secIdx, rowIdx:0, beat:-1, pass:0 });
+    setIsPaused(false);
+    setCountIn(0); setCountInBeat(-1);
+    const ms = (60/bpmRef.current/4)*1000;
+    intervalRef.current = setInterval(tick, ms);
+    tick();
+    startConstantScroll();
+    setIsPlaying(true);
+  },[init, tick, startConstantScroll]);
+
   useEffect(()=>{
     bpmRef.current = bpm;
     if(isPlaying){
@@ -1360,23 +1376,39 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             opacity: (isPlaying||isPaused) && !isActiveSection && !isIncomingSection ? 0.55 : 1,
           }}>
             {/* Section header */}
-            <div style={{ padding:"12px 16px 8px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <div style={{ fontSize:17, fontWeight:900,
+            <div style={{ padding:"14px 16px 10px" }}>
+              {/* Title row — centered */}
+              <div style={{ textAlign:"center", marginBottom:8, position:"relative" }}>
+                <div style={{ fontSize:20, fontWeight:900, letterSpacing:0.3,
                   color: isActiveSection ? "#FFBE0B" : "#fff",
-                  textShadow: isActiveSection ? "0 0 10px rgba(255,190,11,0.4)" : "none",
-                  transition:"color 0.2s, text-shadow 0.2s" }}>{sec.name}</div>
-                {(sec.repeat||1)>1 && (
-                  <div style={{ fontSize:11, fontWeight:800, color:"#FFBE0B",
-                    background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.3)",
-                    borderRadius:20, padding:"2px 9px" }}>↻ {sec.repeat}×</div>
+                  textShadow: isActiveSection ? "0 0 12px rgba(255,190,11,0.45)" : "none",
+                  transition:"color 0.2s, text-shadow 0.2s" }}>
+                  {sec.name}
+                  {(sec.repeat||1)>1 && (
+                    <span style={{ fontSize:13, fontWeight:700, color:"#F79200",
+                      marginLeft:8, opacity:0.8 }}>↻ {sec.repeat}×</span>
+                  )}
+                </div>
+                {/* Active dot */}
+                {(isPlaying||isPaused) && isActiveSection && (
+                  <div style={{ position:"absolute", right:0, top:"50%", transform:"translateY(-50%)",
+                    width:8, height:8, borderRadius:"50%",
+                    background: isPaused ? "#F79200" : "#FFBE0B",
+                    boxShadow: isPaused ? "0 0 8px rgba(247,146,0,0.8)" : "0 0 8px rgba(255,190,11,0.8)" }} />
                 )}
               </div>
-              {(isPlaying||isPaused) && isActiveSection && (
-                <div style={{ width:8, height:8, borderRadius:"50%",
-                  background: isPaused ? "#F79200" : "#FFBE0B",
-                  boxShadow: isPaused ? "0 0 8px rgba(247,146,0,0.8)" : "0 0 8px rgba(255,190,11,0.8)" }} />
-              )}
+              {/* Start here button */}
+              <div style={{ display:"flex", justifyContent:"flex-start" }}>
+                <button onClick={()=>startFromSection(idx)} style={{
+                  padding:"5px 12px", borderRadius:8, border:"none", cursor:"pointer",
+                  background: isActiveSection&&(isPlaying||isPaused)
+                    ? "rgba(255,190,11,0.15)"
+                    : "rgba(255,255,255,0.06)",
+                  color: isActiveSection&&(isPlaying||isPaused) ? "#FFBE0B" : "#555",
+                  fontSize:11, fontWeight:700, letterSpacing:0.3 }}>
+                  {isActiveSection&&isPlaying ? "▶ Playing" : isActiveSection&&isPaused ? "⏸ Paused here" : "▶ Start here"}
+                </button>
+              </div>
             </div>
             {/* Rows */}
             <div style={{ padding:"0 14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
@@ -1384,20 +1416,21 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
                   <div key={row.id}>
-                    {/* Row repeat pill */}
-                    {(row.repeat||1)>1 && (
-                      <div style={{ textAlign:"center", marginBottom:4 }}>
-                        <span style={{ fontSize:10, fontWeight:800, color:"#F79200",
-                          background:"rgba(247,146,0,0.1)", borderRadius:20,
-                          padding:"2px 8px", border:"1px solid rgba(247,146,0,0.25)" }}>↻ {row.repeat}×</span>
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                      {/* Repeat box — replaces both pill and small label */}
+                      <div style={{
+                        minWidth:36, height:40, display:"flex", flexDirection:"column",
+                        alignItems:"center", justifyContent:"center",
+                        background: isActiveRow ? "rgba(255,190,11,0.12)" : "rgba(247,146,0,0.06)",
+                        border: isActiveRow ? "1px solid rgba(255,190,11,0.4)" : "1px solid rgba(247,146,0,0.2)",
+                        borderRadius:8, padding:"0 6px",
+                        transition:"all 0.2s",
+                      }}>
+                        <span style={{ fontSize:15, fontWeight:900, lineHeight:1,
+                          color:isActiveRow?"#FFBE0B":"#F79200",
+                          textShadow:isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none" }}>{row.repeat||1}×</span>
+                        {(row.repeat||1)>1&&<span style={{ fontSize:8, color:"#F79200", opacity:0.6, letterSpacing:0.5, marginTop:2 }}>LOOP</span>}
                       </div>
-                    )}
-                    <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
-                      <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center",
-                        fontSize:isActiveRow?16:13, fontWeight:900,
-                        color:isActiveRow?"#FFBE0B":"#F79200",
-                        textShadow:isActiveRow?"0 0 8px rgba(255,190,11,0.7)":"none",
-                        transition:"all 0.2s" }}>{row.repeat||1}×</div>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
                         const isBeat=isActiveRow&&playPos.beat===colIdx;
@@ -1626,15 +1659,29 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             {/* Section header */}
             <div style={{ padding:"12px 14px 8px", display:"flex", alignItems:"flex-start", gap:8, position:"relative" }}>
 
-              {/* LEFT: Assign Chords button */}
-              <button onClick={()=>setAssignSectionId(isAssigning?null:sec.id)} style={{
-                padding:"6px 10px", borderRadius:8, border:"none", cursor:"pointer", flexShrink:0,
-                background:isAssigning?"rgba(255,190,11,0.18)":"rgba(255,255,255,0.06)",
-                color:isAssigning?"#FFBE0B":"#888", fontSize:11, fontWeight:800, letterSpacing:0.3,
-                boxShadow:isAssigning?"0 0 8px rgba(255,190,11,0.25)":"none",
-                transition:"all 0.15s" }}>
-                {isAssigning?"✕ Close":"✏️ Chords"}
-              </button>
+              {/* LEFT: Assign Chords + Section Play */}
+              <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+                <button onClick={()=>setAssignSectionId(isAssigning?null:sec.id)} style={{
+                  padding:"6px 10px", borderRadius:8, border:"none", cursor:"pointer",
+                  background:isAssigning?"rgba(255,190,11,0.18)":"rgba(255,255,255,0.06)",
+                  color:isAssigning?"#FFBE0B":"#888", fontSize:11, fontWeight:800, letterSpacing:0.3,
+                  boxShadow:isAssigning?"0 0 8px rgba(255,190,11,0.25)":"none",
+                  transition:"all 0.15s" }}>
+                  {isAssigning?"✕ Close":"✏️ Chords"}
+                </button>
+                <button onClick={()=>{
+                  if(isPlaying&&(isPlaying||isPaused)&&playPos.secIdx===idx){ stopMetronome(); setIsPlaying(false); setIsPaused(false); }
+                  else startFromSection(idx);
+                }} style={{
+                  padding:"6px 10px", borderRadius:8, border:"none", cursor:"pointer",
+                  background: (isPlaying||isPaused)&&playPos.secIdx===idx
+                    ? "rgba(231,76,60,0.15)"
+                    : "rgba(39,174,96,0.12)",
+                  color: (isPlaying||isPaused)&&playPos.secIdx===idx ? "#e74c3c" : "#27ae60",
+                  fontSize:13, fontWeight:900, transition:"all 0.15s" }}>
+                  {(isPlaying||isPaused)&&playPos.secIdx===idx ? "⏹" : "▶"}
+                </button>
+              </div>
 
               {/* CENTER: Title */}
               <div style={{ flex:1, textAlign:"center" }}>
