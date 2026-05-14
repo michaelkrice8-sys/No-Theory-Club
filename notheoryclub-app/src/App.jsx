@@ -1036,8 +1036,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const currentChordRef = useRef(null);
   const scrollVelocityRef = useRef(0);   // px per RAF frame
   const scrollRafRef = useRef(null);
-  const [scrollSectionTitle, setScrollSectionTitle] = useState("");
-  const sectionDividerRefs = useRef({});
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
@@ -1053,22 +1051,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     }
   },[scrollSpeed]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
-  // Update sticky header title based on scroll position (when not playing)
-  useEffect(()=>{
-    if(!songViewMode) return;
-    const onScroll = ()=>{
-      if(isPlaying||isPaused) return;
-      let activeIdx = 0;
-      Object.entries(sectionDividerRefs.current).forEach(([idx,el])=>{
-        if(!el) return;
-        const rect = el.getBoundingClientRect();
-        if(rect.top < window.innerHeight * 0.5) activeIdx = Number(idx);
-      });
-      setScrollSectionTitle(sections[activeIdx]?.name || "");
-    };
-    window.addEventListener('scroll', onScroll, { passive:true });
-    return ()=>window.removeEventListener('scroll', onScroll);
-  },[songViewMode, isPlaying, isPaused, sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
   // ── Constant-velocity scroll — set once at play start, never recalculated ──
@@ -1093,13 +1075,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
   },[]);
 
-  // Smooth scroll to active row on each row change
-  const scrollToRow = useCallback((secId, rowIdx)=>{
-    const key = `${secId}_${rowIdx}`;
-    const el = rowDomRefs.current[key];
-    if(!el) return;
-    el.scrollIntoView({ behavior:'smooth', block:'nearest' });
-  },[]);
+  // No-op — row changes do NOT trigger any scroll recalculation
+  const scrollToRow = useCallback(()=>{},[]);
 
   // ── Tick — 16th note per block, matching AdvancedBuildSong exactly ──
   const tick = useCallback(()=>{
@@ -1166,7 +1143,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000; // 16th note per block
     intervalRef.current = setInterval(tick, ms);
     tick(); // fire immediately — no gap after countdown
-  },[tick]);
+    startConstantScroll(); // kick off one-time constant scroll
+  },[tick, startConstantScroll]);
 
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current); intervalRef.current = null;
@@ -1190,7 +1168,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
-  },[tick]);
+    startConstantScroll();
+  },[tick, startConstantScroll]);
 
   const startFromSection = useCallback(async(secIdx)=>{
     if(!intervalRef.current) await init();
@@ -1204,8 +1183,9 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
+    startConstantScroll();
     setIsPlaying(true);
-  },[init, tick]);
+  },[init, tick, startConstantScroll]);
 
   useEffect(()=>{
     bpmRef.current = bpm;
@@ -1231,8 +1211,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       setIsPaused(false);
       resumeMetronome(); setIsPlaying(true); return;
     }
-    // Scroll to top if user has scrolled away before starting
-    if(window.scrollY > 80) window.scrollTo({ top:0, behavior:'smooth' });
     await init();
     const ms = (60/bpmRef.current)*1000;
     let beat=4, beatIdx=0;
@@ -1381,121 +1359,95 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   if(songViewMode) return (
     <div style={{ width:"100%", paddingBottom:210 }}>
 
-      {/* ── Big song title ── */}
-      <div style={{ textAlign:"center", paddingTop:24, paddingBottom:16 }}>
-        <div style={{ fontSize:38, fontWeight:900, color:"#fff", letterSpacing:0.3, lineHeight:1.1, marginBottom:8 }}>
+      {/* ── Title ── */}
+      <div style={{ textAlign:"center", marginBottom:20, paddingTop:16 }}>
+        <div style={{ fontSize:30, fontWeight:900, color:"#fff", letterSpacing:0.3,
+          textShadow: isPlaying ? "0 0 20px rgba(255,190,11,0.5)" : "none",
+          transition:"text-shadow 0.4s", lineHeight:1.2, marginBottom:6 }}>
           {loadedSongName || "Song"}
         </div>
-        {capo > 0 && <div style={{ fontSize:13, color:"#FFBE0B", fontWeight:700 }}>Capo {capo}</div>}
+        {capo > 0 && <div style={{ fontSize:12, color:"#FFBE0B", fontWeight:700, opacity:0.7 }}>Capo {capo}</div>}
       </div>
 
-      {/* ── Sticky section title bar ── */}
-      <div style={{
-        position:"sticky", top:0, zIndex:50,
-        background:"rgba(6,6,5,0.97)", backdropFilter:"blur(12px)",
-        borderBottom:"1px solid #1a1a1a",
-        padding:"10px 16px", textAlign:"center",
-        marginBottom:8,
-      }}>
-        <div style={{
-          fontSize:22, fontWeight:900, lineHeight:1.2,
-          color: (isPlaying||isPaused) ? "#FFBE0B" : "#fff",
-          textShadow: (isPlaying||isPaused) ? "0 0 14px rgba(255,190,11,0.4)" : "none",
-          transition:"color 0.3s, text-shadow 0.3s",
-        }}>
-          {(isPlaying||isPaused) ? (sections[playPos.secIdx]?.name || "") : (scrollSectionTitle || sections[0]?.name || "")}
-          {(()=>{
-            const sec = sections[playPos.secIdx];
-            return sec && (sec.repeat||1) > 1
-              ? <span style={{ fontSize:14, color:"#F79200", marginLeft:8, fontWeight:700 }}>↻ {sec.repeat}×</span>
-              : null;
-          })()}
-        </div>
-        {/* Next section preview when near end */}
-        {(()=>{
-          if(!(isPlaying||isPaused)) return null;
-          const sec = sections[playPos.secIdx];
-          if(!sec) return null;
-          const curRow = sec.rows[playPos.rowIdx];
-          if(!curRow) return null;
-          const isLastRow = playPos.rowIdx === sec.rows.length - 1;
-          const isLastPass = playPos.pass >= (curRow.repeat||1) - 1;
-          const nextSec = sections[playPos.secIdx + 1];
-          if(isLastRow && isLastPass && nextSec) return (
-            <div style={{ fontSize:11, color:"#555", marginTop:4 }}>
-              Next → <span style={{ color:"#888" }}>{nextSec.name}</span>
+      {/* ── Sections (read-only) ── */}
+      {sections.map((sec, idx)=>{
+        const isActiveSection = (isPlaying||isPaused) && playPos.secIdx===idx;
+        const isIncomingSection = isPlaying && playPos.secIdx===idx-1;
+        return (
+          <div key={sec.id} ref={el=>{ rowDomRefs.current[`${sec.id}_0`]=el; }} style={{
+            width:"100%", background:"#0a0a0a", borderRadius:18, marginBottom:14,
+            border:`1px solid ${isActiveSection?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
+            boxShadow:isActiveSection?"0 0 20px rgba(255,190,11,0.12)":"none",
+            transition:"border-color 0.3s, box-shadow 0.3s",
+          }}>
+            {/* Section header */}
+            <div style={{ padding:"14px 16px 10px" }}>
+              {/* Title row — centered */}
+              <div style={{ textAlign:"center", marginBottom:8, position:"relative" }}>
+                <div style={{ fontSize:20, fontWeight:900, letterSpacing:0.3,
+                  color: isActiveSection ? "#FFBE0B" : "#fff",
+                  textShadow: isActiveSection ? "0 0 12px rgba(255,190,11,0.45)" : "none",
+                  transition:"color 0.2s, text-shadow 0.2s" }}>
+                  {sec.name}
+                  {(sec.repeat||1)>1 && (
+                    <span style={{ fontSize:13, fontWeight:700, color:"#F79200",
+                      marginLeft:8, opacity:0.8 }}>↻ {sec.repeat}×</span>
+                  )}
+                </div>
+                {/* Active dot */}
+                {(isPlaying||isPaused) && isActiveSection && (
+                  <div style={{ position:"absolute", right:0, top:"50%", transform:"translateY(-50%)",
+                    width:8, height:8, borderRadius:"50%",
+                    background: isPaused ? "#F79200" : "#FFBE0B",
+                    boxShadow: isPaused ? "0 0 8px rgba(247,146,0,0.8)" : "0 0 8px rgba(255,190,11,0.8)" }} />
+                )}
+              </div>
+              {/* Start here button */}
+              <div style={{ display:"flex", justifyContent:"flex-start" }}>
+                <button onClick={()=>startFromSection(idx)} style={{
+                  padding:"5px 12px", borderRadius:8, border:"none", cursor:"pointer",
+                  background: isActiveSection&&(isPlaying||isPaused)
+                    ? "rgba(255,190,11,0.15)"
+                    : "rgba(255,255,255,0.06)",
+                  color: isActiveSection&&(isPlaying||isPaused) ? "#FFBE0B" : "#555",
+                  fontSize:11, fontWeight:700, letterSpacing:0.3 }}>
+                  {isActiveSection&&isPlaying ? "▶ Playing" : isActiveSection&&isPaused ? "⏸ Paused here" : "▶ Start here"}
+                </button>
+              </div>
             </div>
-          );
-          return null;
-        })()}
-      </div>
-
-      {/* ── Flat row list — all sections, seamless ── */}
-      {sections.map((sec, secIdx) => (
-        <div key={sec.id}>
-          {/* Section divider — ref for scroll detection */}
-          {secIdx > 0 && (
-            <div ref={el=>{ sectionDividerRefs.current[secIdx]=el; }}
-              style={{
-                display:"flex", alignItems:"center", gap:10, padding:"12px 16px",
-                opacity: (isPlaying||isPaused) && playPos.secIdx !== secIdx ? 0.3 : 1,
-                transition:"opacity 0.4s",
-              }}>
-              <div style={{ flex:1, height:1, background:"#2a2a2a" }} />
-              <div style={{ fontSize:12, fontWeight:800, color:"#555", letterSpacing:0.5 }}>{sec.name}</div>
-              <div style={{ flex:1, height:1, background:"#2a2a2a" }} />
-            </div>
-          )}
-
-          {/* Rows */}
-          {sec.rows.map((row, rowIdx) => {
-            const isActiveSection = (isPlaying||isPaused) && playPos.secIdx === secIdx;
-            const isActiveRow = isActiveSection && playPos.rowIdx === rowIdx;
-            const isFirstRowOfSection = rowIdx === 0;
-            const rowKey = `${sec.id}_${rowIdx}`;
-            const rep = row.repeat || 1;
-            const remaining = isActiveRow ? rep - playPos.pass : rep;
-            const showCountdown = isActiveRow && (isPlaying||isPaused);
-
-            return (
-              <div key={row.id}
-                ref={el => { rowDomRefs.current[rowKey] = el; }}
-                style={{
-                  padding:"4px 12px 4px",
-                  background: isActiveRow ? "rgba(255,190,11,0.04)" : "transparent",
-                  borderLeft: isActiveRow ? "3px solid rgba(255,190,11,0.6)" : "3px solid transparent",
-                  transition:"background 0.3s, border-color 0.3s",
-                  opacity: (isPlaying||isPaused) && !isActiveSection ? 0.25 : 1,
-                  position:"relative",
-                }}>
-                <div style={{ display:"flex", alignItems:"center" }}>
-                  {/* Countdown badge */}
-                  <div style={{ width:36, flexShrink:0, textAlign:"center" }}>
-                    {showCountdown && (
-                      <span style={{ fontSize:18, fontWeight:900, color:"#fff",
-                        lineHeight:1, textShadow: isActiveRow ? "0 0 8px rgba(255,255,255,0.4)" : "none" }}>
-                        {remaining}×
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Strum blocks */}
-                  <div style={{ flex:1, overflowX:"auto", paddingTop:18, paddingBottom:10 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:3, flexWrap:"nowrap", width:"max-content", margin:"0 auto" }}>
+            {/* Rows */}
+            <div style={{ padding:"0 0 12px", display:"flex", flexDirection:"column", gap:10 }}>
+              {sec.rows.map((row, rowIdx)=>{
+                const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
+                return (
+                  <div key={row.id} style={{ width:"100%", overflowX:"auto", paddingTop:18, paddingBottom:10 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:3, flexWrap:"nowrap", width:"max-content", margin:"0 auto" }}>
+                      {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
+                      {(()=>{
+                        const rep = row.repeat||1;
+                        const remaining = rep - playPos.pass;
+                        // Show: not playing → full count at low opacity
+                        // Playing → only active row countdown (>1), never restored after hitting 1
+                        // Only show on active row, only while playing, only if counting down
+                        const displayNum = remaining;
+                        const showNum = isActiveRow && (isPlaying || isPaused);
+                        return (
+                          <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                            {showNum && (
+                              <span style={{ fontSize:22, fontWeight:900, color:"#fff",
+                                opacity: isActiveRow ? 1 : 0.35,
+                                textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.5)" : "none",
+                                transition:"all 0.15s", lineHeight:1 }}>{displayNum}×</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {Array(row.size).fill(null).map((_,colIdx)=>{
-                        const ch = row.blockChords[colIdx];
-                        const isBeat = isActiveRow && playPos.beat === colIdx;
-                        const isCountGlow = countIn>0 && rowIdx===0 && secIdx===0 && colIdx===countInBeat;
+                        const ch=row.blockChords[colIdx];
+                        const isBeat=isActiveRow&&playPos.beat===colIdx;
+                        const isCountGlow=countIn>0&&rowIdx===0&&idx===0&&colIdx===countInBeat;
                         return (
                           <div key={colIdx} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                            {/* Start here tap hint on first block of section */}
-                            {isFirstRowOfSection && colIdx===0 && !(isPlaying||isPaused) && (
-                              <div onClick={()=>startFromSection(secIdx)} style={{
-                                position:"absolute", top:-18, left:0,
-                                fontSize:9, color:"#555", fontWeight:700,
-                                letterSpacing:0.3, cursor:"pointer", whiteSpace:"nowrap",
-                                userSelect:"none" }}>▶ start here</div>
-                            )}
                             {isCountGlow
                               ? <div style={{ width:40, height:40, borderRadius:10, display:"flex",
                                   alignItems:"center", justifyContent:"center",
@@ -1513,24 +1465,26 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           </div>
                         );
                       })}
+
                     </div>
                   </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
 
-      {/* ── Save + Share + Show Builder ── */}
-      <div style={{ display:"flex", gap:8, margin:"16px 0 8px" }}>
+      {/* ── Save + Show Builder ── */}
+      <div style={{ display:"flex", gap:8, marginBottom:10 }}>
         <button onClick={()=>setSavePrompt(p=>!p)} style={{
           flex:1, padding:"10px", borderRadius:12,
           border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
           color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
         <button onClick={()=>{
           if(!loadedSongName) return;
-          doShare({ name:loadedSongName, sections:encodeSections(sections), bpm, capo, scrollSpeed });
+          const song = { name:loadedSongName, sections:encodeSections(sections), bpm, capo, scrollSpeed };
+          doShare(song);
         }} style={{
           flex:1, padding:"10px", borderRadius:12,
           border:"1px solid #4a6aff44", background:"rgba(74,106,255,0.07)",
@@ -1554,10 +1508,12 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           </div>
         </div>
       )}
+
       <button onClick={()=>setSongViewMode(false)} style={{
         width:"100%", padding:"10px", borderRadius:12, border:"1px solid #2a2a2a",
         background:"transparent", color:"#555", fontSize:11, fontWeight:700,
         cursor:"pointer", letterSpacing:1, marginBottom:8 }}>▼ SHOW BUILDER</button>
+
       <div style={{ textAlign:"center", paddingBottom:8, color:"#333", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
       </div>
@@ -1571,20 +1527,26 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         boxShadow:"0 -8px 32px rgba(0,0,0,0.6)",
       }}>
         <div style={{ maxWidth:560, margin:"0 auto" }}>
+
+          {/* Song name + BPM row */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
             <div style={{ fontSize:12, fontWeight:800, color:"#FFBE0B",
               whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:"45%" }}>
               {loadedSongName || "Song"}
-              {capo>0 && <span style={{ fontSize:10, color:"#888", marginLeft:6 }}>Capo {capo}</span>}
+              {capo>0 && <span style={{ fontSize:10, color:"#888", marginLeft:6, fontWeight:600 }}>Capo {capo}</span>}
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:6 }}>
               <span style={{ fontSize:11, color:"#555", fontWeight:700 }}>BPM</span>
               <span style={{ fontSize:15, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
             </div>
           </div>
+
+          {/* BPM slider */}
           <input type="range" min={20} max={160} value={bpm}
             onChange={e=>setBpm(Number(e.target.value))}
             style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+
+          {/* BPM presets row */}
           <div style={{ display:"flex", gap:5, marginBottom:10 }}>
             {[40,60,80,100].map(b=>(
               <button key={b} onClick={()=>setBpm(b)} style={{
@@ -1594,13 +1556,18 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
             ))}
           </div>
+
+          {/* Main controls row */}
           <div style={{ display:"flex", gap:8, alignItems:"stretch" }}>
+
+            {/* Play / Stop */}
             <button onClick={handleTogglePlay} style={{
               flex:1, padding:"12px 8px", borderRadius:14, border:"none",
               background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
                 : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
                 : "linear-gradient(135deg,#1a6b3c,#27ae60)",
-              color:"#fff", fontWeight:900, cursor:"pointer", transition:"all 0.15s",
+              color: "#fff",
+              fontWeight:900, cursor:"pointer", transition:"all 0.15s",
               fontSize: countIn>0 ? 22 : 15,
               boxShadow: countIn>0 ? "0 4px 16px rgba(255,190,11,0.3)"
                 : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
@@ -1609,6 +1576,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,opacity:0.75,marginTop:2}}>tap to skip</div></>
                 : isPlaying ? "⏹ Stop" : isPaused ? "▶ Resume" : "▶ Play Song"}
             </button>
+
+            {/* Mute */}
             <button onClick={()=>setMuteClick(m=>!m)} style={{
               padding:"12px 14px", borderRadius:12,
               border:muteClick?"2px solid #e74c3c":"1px solid #2a2a2a",
@@ -1617,6 +1586,25 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               {muteClick?"🔇":"🔔"}
             </button>
 
+            {/* Autoscroll */}
+            <div style={{ display:"flex", alignItems:"center", gap:5,
+              background: scrollSpeed>0 ? "rgba(255,190,11,0.1)" : "rgba(0,0,0,0.4)",
+              border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.45)":"#2a2a2a"}`,
+              borderRadius:12, padding:"8px 10px", transition:"all 0.2s" }}>
+              <span style={{ fontSize:20, fontWeight:900,
+                color:scrollSpeed>0?"#FFBE0B":"#555", lineHeight:1 }}>↕</span>
+              <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
+                width:24, height:24, borderRadius:7, border:"1px solid #333",
+                background:"#1a1a1a", color:"#bbb", fontSize:16, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                opacity:scrollSpeed===0?0.3:1 }}>−</button>
+              <span style={{ fontSize:14, fontWeight:900, minWidth:18, textAlign:"center",
+                color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
+              <button onClick={()=>setScrollSpeed(s=>Math.min(10,s+1))} style={{
+                width:24, height:24, borderRadius:7, border:"1px solid #333",
+                background:"#1a1a1a", color:"#bbb", fontSize:16, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
+            </div>
           </div>
         </div>
       </div>
