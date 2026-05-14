@@ -1229,6 +1229,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [saveName, setSaveName] = useState("");
   const [loadedSongName, setLoadedSongName] = useState(null);
   const [songViewMode, setSongViewMode] = useState(false);
+  const [showFullView, setShowFullView] = useState(false);
 
   // ── Encode / decode sections for URL ──
   const encodeSections = (secs) => secs.map(sec=>({
@@ -1363,22 +1364,30 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         {capo > 0 && <div style={{ fontSize:12, color:"#FFBE0B", fontWeight:700, opacity:0.7 }}>Capo {capo}</div>}
       </div>
 
-      {/* ── Sections (read-only) — 3-row window when playing ── */}
+      {/* ── Sections (read-only) — focused 3-row window or full scroll ── */}
       {(()=>{
-        // Build flat list of all rows across sections
         const flatRows = [];
-        sections.forEach((sec, si) => sec.rows.forEach((row, ri) => flatRows.push(`${si}_${ri}`)));
+        sections.forEach((sec, si) => sec.rows.forEach((_, ri) => flatRows.push(`${si}_${ri}`)));
         const currentFlatIdx = flatRows.indexOf(`${playPos.secIdx}_${playPos.rowIdx}`);
-        // Visible window: current row + 2 ahead (cross-section)
-        const visibleKeys = (isPlaying || isPaused) && currentFlatIdx >= 0
-          ? new Set(flatRows.slice(currentFlatIdx, currentFlatIdx + 3))
-          : null; // null = show all
+        const isActive = isPlaying || isPaused;
+
+        // Focused window: prev + current + next (centered on current)
+        let visibleKeys = null;    // null = show all
+        let rowOpacityMap = {};    // key → opacity
+        if(isActive && !showFullView && currentFlatIdx >= 0){
+          const prevKey = currentFlatIdx > 0 ? flatRows[currentFlatIdx - 1] : null;
+          const curKey  = flatRows[currentFlatIdx];
+          const nextKey = currentFlatIdx < flatRows.length - 1 ? flatRows[currentFlatIdx + 1] : null;
+          visibleKeys = new Set([prevKey, curKey, nextKey].filter(Boolean));
+          if(prevKey) rowOpacityMap[prevKey] = 0.8;
+          if(curKey)  rowOpacityMap[curKey]  = 1.0;
+          if(nextKey) rowOpacityMap[nextKey] = 0.8;
+        }
 
         return sections.map((sec, idx)=>{
-        const isActiveSection = (isPlaying||isPaused) && playPos.secIdx===idx;
+        const isActiveSection = isActive && playPos.secIdx===idx;
         const isIncomingSection = isPlaying && playPos.secIdx===idx-1;
 
-        // 3-row window: skip sections with no visible rows
         const sectionHasVisibleRow = !visibleKeys || sec.rows.some((_,ri)=>visibleKeys.has(`${idx}_${ri}`));
         if(!sectionHasVisibleRow) return null;
 
@@ -1388,7 +1397,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             border:`1px solid ${isActiveSection?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
             boxShadow:isActiveSection?"0 0 20px rgba(255,190,11,0.12)":"none",
             transition:"border-color 0.3s, box-shadow 0.3s",
-            opacity: (isPlaying||isPaused) && !isActiveSection && !isIncomingSection ? 0.55 : 1,
           }}>
             {/* Section header */}
             <div style={{ padding:"14px 16px 10px" }}>
@@ -1428,11 +1436,12 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             {/* Rows */}
             <div style={{ padding:"0 14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
               {sec.rows.map((row, rowIdx)=>{
-                // Skip rows outside the 3-row window when playing
-                if(visibleKeys && !visibleKeys.has(`${idx}_${rowIdx}`)) return null;
+                const rowKey = `${idx}_${rowIdx}`;
+                if(visibleKeys && !visibleKeys.has(rowKey)) return null;
+                const rowOpacity = rowOpacityMap[rowKey] ?? 1.0;
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
-                  <div key={row.id}>
+                  <div key={row.id} style={{ opacity:rowOpacity, transition:"opacity 0.35s ease" }}>
                       <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
                       {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
                       {(()=>{
@@ -1440,11 +1449,13 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                         const remaining = rep - playPos.pass;
                         // Show: not playing → full count at low opacity
                         // Playing → only active row countdown (>1), never restored after hitting 1
+                        // Non-active rows always show full count; active row counts down
+                        const displayNum = (isActiveRow && (isPlaying || isPaused)) ? remaining : rep;
                         const showNum = rep > 1 && (
-                          (!isPlaying && !isPaused) ||
-                          (isActiveRow && remaining > 1)
+                          !isActiveRow ||           // non-active: always show
+                          !isPlaying && !isPaused || // stopped: always show
+                          remaining > 1              // active+playing: only if counting
                         );
-                        const displayNum = (!isPlaying && !isPaused) ? rep : remaining;
                         return (
                           <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
                             {showNum && (
@@ -1618,6 +1629,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               background: scrollSpeed>0 ? "rgba(255,190,11,0.1)" : "rgba(0,0,0,0.4)",
               border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.45)":"#2a2a2a"}`,
               borderRadius:12, padding:"8px 10px", transition:"all 0.2s" }}>
+              <button onClick={()=>setShowFullView(v=>!v)} style={{
+                padding:"6px 10px", borderRadius:9,
+                border: showFullView?"1px solid rgba(255,190,11,0.4)":"1px solid #2a2a2a",
+                background: showFullView?"rgba(255,190,11,0.1)":"rgba(0,0,0,0.4)",
+                color: showFullView?"#FFBE0B":"#555",
+                fontSize:10, fontWeight:800, cursor:"pointer", letterSpacing:0.3,
+                whiteSpace:"nowrap" }}>
+                {showFullView?"⊡ Focus":"⊞ Full"}
+              </button>
               <span style={{ fontSize:20, fontWeight:900,
                 color:scrollSpeed>0?"#FFBE0B":"#555", lineHeight:1 }}>↕</span>
               <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
