@@ -1014,36 +1014,38 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
-  // ── Teleprompter scroll — constant velocity, no jump, non-locking ──
+  // ── Constant-velocity scroll — set once at play start, never recalculated ──
   const runScroll = useCallback(()=>{
     if(scrollVelocityRef.current === 0){ scrollRafRef.current = null; return; }
     window.scrollBy(0, scrollVelocityRef.current);
     scrollRafRef.current = requestAnimationFrame(runScroll);
   },[]);
 
-  const scrollToRow = useCallback((secId, rowIdx)=>{
-    const el = rowDomRefs.current[`${secId}_${rowIdx}`];
-    if(!el) return;
-
-    // Distance to center this row in the viewport
-    const rect = el.getBoundingClientRect();
-    const distToCenter = rect.top + rect.height/2 - window.innerHeight/2;
-
-    // Duration of this row in ms → frames at ~60fps
+  const startConstantScroll = useCallback(()=>{
     const secs = sectionsRef.current;
-    const sec = secs.find(s=>s.id===secId);
-    const row = sec?.rows[rowIdx];
-    if(!row) return;
-    const rowDurationMs = row.size * (row.repeat||1) * (60/bpmRef.current/4) * 1000;
-    const frames = Math.max(1, rowDurationMs / (1000/60));
+    if(!secs.length) return;
 
-    // Constant px per frame to arrive centered by end of row
-    scrollVelocityRef.current = distToCenter / frames;
+    // Total song duration in ms (all sections, rows, repeats)
+    const totalMs = secs.reduce((acc, sec)=>
+      acc + sec.rows.reduce((racc, row)=>
+        racc + row.size * (row.repeat||1) * (60/bpmRef.current/4) * 1000, 0), 0);
 
-    // Start loop if not running
-    if(!scrollRafRef.current)
-      scrollRafRef.current = requestAnimationFrame(runScroll);
+    // How far we can scroll from current position
+    const scrollableRemaining = Math.max(0,
+      document.body.scrollHeight - window.innerHeight - window.scrollY);
+
+    if(scrollableRemaining < 2 || totalMs <= 0){ return; }
+
+    // One velocity, set once, never touched again until stop
+    const pxPerFrame = (scrollableRemaining / totalMs) * (1000/60);
+    scrollVelocityRef.current = Math.max(0.05, pxPerFrame);
+
+    if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = requestAnimationFrame(runScroll);
   },[runScroll]);
+
+  // No-op — row changes do NOT trigger any scroll recalculation
+  const scrollToRow = useCallback(()=>{},[]);
 
   // ── Tick — 16th note per block, matching AdvancedBuildSong exactly ──
   const tick = useCallback(()=>{
@@ -1100,7 +1102,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000; // 16th note per block
     intervalRef.current = setInterval(tick, ms);
     tick(); // fire immediately — no gap after countdown
-  },[tick]);
+    startConstantScroll(); // kick off one-time constant scroll
+  },[tick, startConstantScroll]);
 
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current); intervalRef.current = null;
