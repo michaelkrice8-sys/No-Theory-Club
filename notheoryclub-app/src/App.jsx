@@ -289,7 +289,9 @@ export default function App() {
         <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5 }}>NO THEORY CLUB</div>
         <div style={{ fontSize:10, color:"#555" }}>Guitar Practice Tool</div>
       </div>
-      <BuildSongTab audio={audio} initialBuildMode="song" chordVariants={chordVariants} updateVariant={updateVariant} />
+      <div style={{ maxWidth:560, margin:"0 auto", padding:"0 16px" }}>
+        <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />
+      </div>
     </div>
   );
 
@@ -1414,7 +1416,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               </div>
             </div>
             {/* Rows */}
-            <div style={{ padding:"0 14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={{ padding:"0 0 12px", display:"flex", flexDirection:"column", gap:10 }}>
               {sec.rows.map((row, rowIdx)=>{
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
