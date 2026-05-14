@@ -1363,10 +1363,25 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         {capo > 0 && <div style={{ fontSize:12, color:"#FFBE0B", fontWeight:700, opacity:0.7 }}>Capo {capo}</div>}
       </div>
 
-      {/* ── Sections (read-only) ── */}
-      {sections.map((sec, idx)=>{
+      {/* ── Sections (read-only) — 3-row window when playing ── */}
+      {(()=>{
+        // Build flat list of all rows across sections
+        const flatRows = [];
+        sections.forEach((sec, si) => sec.rows.forEach((row, ri) => flatRows.push(`${si}_${ri}`)));
+        const currentFlatIdx = flatRows.indexOf(`${playPos.secIdx}_${playPos.rowIdx}`);
+        // Visible window: current row + 2 ahead (cross-section)
+        const visibleKeys = (isPlaying || isPaused) && currentFlatIdx >= 0
+          ? new Set(flatRows.slice(currentFlatIdx, currentFlatIdx + 3))
+          : null; // null = show all
+
+        return sections.map((sec, idx)=>{
         const isActiveSection = (isPlaying||isPaused) && playPos.secIdx===idx;
         const isIncomingSection = isPlaying && playPos.secIdx===idx-1;
+
+        // 3-row window: skip sections with no visible rows
+        const sectionHasVisibleRow = !visibleKeys || sec.rows.some((_,ri)=>visibleKeys.has(`${idx}_${ri}`));
+        if(!sectionHasVisibleRow) return null;
+
         return (
           <div key={sec.id} ref={el=>{ rowDomRefs.current[`${sec.id}_0`]=el; }} style={{
             width:"100%", background:"#0a0a0a", borderRadius:18, marginBottom:14,
@@ -1413,6 +1428,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             {/* Rows */}
             <div style={{ padding:"0 14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
               {sec.rows.map((row, rowIdx)=>{
+                // Skip rows outside the 3-row window when playing
+                if(visibleKeys && !visibleKeys.has(`${idx}_${rowIdx}`)) return null;
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
                   <div key={row.id}>
@@ -1420,14 +1437,21 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                       {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
                       {(()=>{
                         const rep = row.repeat||1;
-                        const remaining = isActiveRow ? rep - playPos.pass : rep;
+                        const remaining = rep - playPos.pass;
+                        // Show: not playing → full count at low opacity
+                        // Playing → only active row countdown (>1), never restored after hitting 1
+                        const showNum = rep > 1 && (
+                          (!isPlaying && !isPaused) ||
+                          (isActiveRow && remaining > 1)
+                        );
+                        const displayNum = (!isPlaying && !isPaused) ? rep : remaining;
                         return (
                           <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                            {rep > 1 && remaining > 1 && (
+                            {showNum && (
                               <span style={{ fontSize:22, fontWeight:900, color:"#fff",
-                                opacity: isActiveRow ? 1 : 0.45,
+                                opacity: isActiveRow ? 1 : 0.35,
                                 textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.5)" : "none",
-                                transition:"all 0.15s", lineHeight:1 }}>{remaining}×</span>
+                                transition:"all 0.15s", lineHeight:1 }}>{displayNum}×</span>
                             )}
                           </div>
                         );
@@ -1458,14 +1482,21 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                       {/* Right repeat countdown — mirrors left */}
                       {(()=>{
                         const rep = row.repeat||1;
-                        const remaining = isActiveRow ? rep - playPos.pass : rep;
+                        const remaining = rep - playPos.pass;
+                        // Show: not playing → full count at low opacity
+                        // Playing → only active row countdown (>1), never restored after hitting 1
+                        const showNum = rep > 1 && (
+                          (!isPlaying && !isPaused) ||
+                          (isActiveRow && remaining > 1)
+                        );
+                        const displayNum = (!isPlaying && !isPaused) ? rep : remaining;
                         return (
                           <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                            {rep > 1 && remaining > 1 && (
+                            {showNum && (
                               <span style={{ fontSize:22, fontWeight:900, color:"#fff",
-                                opacity: isActiveRow ? 1 : 0.45,
+                                opacity: isActiveRow ? 1 : 0.35,
                                 textShadow: isActiveRow ? "0 0 10px rgba(255,255,255,0.5)" : "none",
-                                transition:"all 0.15s", lineHeight:1 }}>{remaining}×</span>
+                                transition:"all 0.15s", lineHeight:1 }}>{displayNum}×</span>
                             )}
                           </div>
                         );
@@ -1477,7 +1508,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             </div>
           </div>
         );
-      })}
+      });})()}
 
       {/* ── Save + Show Builder ── */}
       <div style={{ display:"flex", gap:8, marginBottom:10 }}>
