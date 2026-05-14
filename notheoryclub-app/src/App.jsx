@@ -1023,7 +1023,7 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
 // ─── SONG BUILDER (sections) ─────────────────────────────────────────────────
 function makeSongRow() {
   return { id: Date.now() + Math.random(), size:8, repeat:1,
-    strumActive: [true,false,true,false,false,true,true,true], blockChords: Array(8).fill(null), text:"", textSize:25 };
+    strumActive: [true,false,true,false,false,true,true,true], blockChords: Array(8).fill(null), text:"", textSize:20, textOpen:false };
 }
 function makeSection(name) {
   return { id: Date.now() + Math.random(), name, repeat:1, rows: [makeSongRow()] };
@@ -1322,7 +1322,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       sa: r.strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; },[]),
       bc: Object.fromEntries(r.blockChords.map((v,i)=>[i,v]).filter(([,v])=>v)),
       tx: r.text||undefined,
-      ts: r.textSize!==25 ? r.textSize : undefined,
+      ts: r.textSize!==20 ? r.textSize : undefined,
     }))
   }));
 
@@ -1335,7 +1335,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       (r.sa||[]).forEach(i=>{ strumActive[i]=true; });
       const blockChords = Array(r.sz||8).fill(null);
       Object.entries(r.bc||{}).forEach(([i,v])=>{ blockChords[Number(i)]=v; });
-      return { id:Date.now()+Math.random(), size:r.sz||8, repeat:r.rp||1, strumActive, blockChords, text:r.tx||"", textSize:r.ts||25 };
+      return { id:Date.now()+Math.random(), size:r.sz||8, repeat:r.rp||1, strumActive, blockChords, text:r.tx||"", textSize:r.ts||20 };
     })
   }));
 
@@ -1515,7 +1515,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 {/* Lyrics display */}
                 {row.text && (
                   <div style={{
-                    fontSize: row.textSize||25, color:"#fff", lineHeight:1.6,
+                    fontSize: row.textSize||20, color:"#fff", lineHeight:1.6,
                     padding:"5px 0 3px 36px",
                     whiteSpace:"pre-wrap", wordBreak:"break-word",
                     opacity: isActiveRow ? 1 : 0.7,
@@ -1856,6 +1856,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                     {/* Row controls */}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:6, flexWrap:"wrap" }}>
                       <span style={{ fontSize:9, color:isActiveRow?"#FFBE0B":"#444", letterSpacing:1, fontWeight:700, minWidth:32 }}>ROW {rowIdx+1}</span>
+                      <button onClick={()=>updateRow(sec.id,rowIdx,r=>({...r,textOpen:!r.textOpen}))} style={{
+                        padding:"4px 8px", borderRadius:7,
+                        border: row.textOpen ? "1px solid rgba(255,190,11,0.4)" : "1px solid #2a2a2a",
+                        background: row.textOpen ? "rgba(255,190,11,0.1)" : "transparent",
+                        color: row.text ? "#FFBE0B" : row.textOpen ? "#FFBE0B" : "#444",
+                        fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.3 }}>
+                        {row.textOpen ? "▲ lyrics" : row.text ? "✎ lyrics" : "+ lyrics"}
+                      </button>
                       <button onClick={()=>updateRow(sec.id,rowIdx,r=>({...r,size:cycleSize(r.size),strumActive:defaultBuild(cycleSize(r.size)),blockChords:Array(cycleSize(r.size)).fill(null)}))} style={{
                         padding:"6px 12px", borderRadius:8, border:"1px solid #333",
                         background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
@@ -1876,15 +1884,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                     {/* Blocks + Lyrics wrapper — same width */}
                     <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
                       {/* Lyrics text box — matches arrow row width */}
-                      <div style={{ width: row.size * 40 + (row.size-1) * 5, maxWidth:"100%" }}>
+                      {row.textOpen && <div style={{ width: row.size * 40 + (row.size-1) * 5, maxWidth:"100%" }}>
                         {/* Font size controls */}
                         <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:3, justifyContent:"flex-end" }}>
                           <span style={{ fontSize:10, color:"#444", letterSpacing:0.5 }}>A</span>
-                          <button onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();updateRow(sec.id,rowIdx,r=>({...r,textSize:Math.max(10,( r.textSize||25)-1)}));}} style={{
+                          <button onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();updateRow(sec.id,rowIdx,r=>({...r,textSize:Math.max(10,( r.textSize||20)-1)}));}} style={{
                             width:20, height:20, borderRadius:5, border:"1px solid #333", background:"#1a1a1a",
                             color:"#888", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1 }}>−</button>
-                          <span style={{ fontSize:10, color:"#555", minWidth:18, textAlign:"center" }}>{row.textSize||25}</span>
-                          <button onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();updateRow(sec.id,rowIdx,r=>({...r,textSize:Math.min(28,(r.textSize||25)+1)}));}} style={{
+                          <span style={{ fontSize:10, color:"#555", minWidth:18, textAlign:"center" }}>{row.textSize||20}</span>
+                          <button onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();updateRow(sec.id,rowIdx,r=>({...r,textSize:Math.min(28,(r.textSize||20)+1)}));}} style={{
                             width:20, height:20, borderRadius:5, border:"1px solid #333", background:"#1a1a1a",
                             color:"#888", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1 }}>+</button>
                           <span style={{ fontSize:12, color:"#555", letterSpacing:0.5 }}>A</span>
@@ -1912,14 +1920,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                             width:"100%", marginBottom:4,
                             background:"rgba(255,255,255,0.06)",
                             border:"1px solid #383838", borderRadius:8,
-                            color:"#ddd", fontSize:row.textSize||25, lineHeight:1.55,
+                            color:"#ddd", fontSize:row.textSize||20, lineHeight:1.55,
                             padding:"6px 10px", resize:"none",
                             outline:"none", fontFamily:"inherit",
                             boxSizing:"border-box", cursor:"text",
                             userSelect:"text", WebkitUserSelect:"text",
                           }}
                         />
-                      </div>
+                      </div>}
                       <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"nowrap" }}>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
