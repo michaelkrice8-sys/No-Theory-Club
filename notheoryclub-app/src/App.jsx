@@ -1264,12 +1264,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   // ── Countdown — identical to Advanced ──
   const handleTogglePlay = async()=>{
     if(isPlaying){
-      stopMetronome(); setIsPlaying(false); setIsPaused(false); setCountIn(0); setCountInBeat(-1); return;
+      // Pause — keep position, highlight current row
+      pauseMetronome();
+      setIsPlaying(false); setIsPaused(true);
+      setCountIn(0); setCountInBeat(-1); return;
     }
     if(countIn>0){
       clearInterval(countInRef.current);
       setCountIn(0); setCountInBeat(-1);
-      // Don't reset position — keep whatever playPosRef was set to (from startFromRow or startFromSection)
       if(intervalRef.current) clearInterval(intervalRef.current);
       const ms16 = (60/bpmRef.current/4)*1000;
       intervalRef.current = setInterval(tick, ms16);
@@ -1277,8 +1279,10 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       setIsPlaying(true); return;
     }
     if(isPaused){
+      // Resume from current row with countdown
+      const { secIdx, rowIdx } = playPosRef.current;
       setIsPaused(false);
-      resumeMetronome(); setIsPlaying(true); return;
+      await startFromRow(secIdx, rowIdx); return;
     }
     await init();
     const ms = (60/bpmRef.current)*1000;
@@ -1289,7 +1293,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       if(beat<=0){
         clearInterval(countInRef.current);
         setCountIn(0); setCountInBeat(-1);
-        // startMetronome resets position — instead start fresh from top directly
         playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
         setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
         currentChordRef.current = null;
@@ -1513,10 +1516,20 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   transition:"background 0.3s, border-color 0.3s",
                   opacity:(isPlaying||isPaused) && !isActiveSection ? 0.25 : 1,
                 }}>
-                {/* Lyrics + Blocks — same container so text aligns with block 1 */}
-                <div style={{ display:"flex", alignItems:"flex-start" }}>
-                  {/* Countdown badge */}
-                  <div style={{ width:36, flexShrink:0, paddingTop:18, textAlign:"center" }}>
+                {/* Lyrics above blocks, indented to align with block 1 */}
+                {row.text && (
+                  <div style={{
+                    marginLeft:36, paddingTop:6, paddingBottom:2,
+                    fontSize: row.textSize||23, color:"#fff", lineHeight:1.5,
+                    whiteSpace:"pre", overflow:"hidden",
+                    opacity: !showLyrics ? 0 : (isPlaying||isPaused) ? (isActiveRow ? 1 : 0.45) : 1,
+                    transition:"opacity 0.3s",
+                    pointerEvents: showLyrics ? "auto" : "none",
+                  }}>{row.text}</div>
+                )}
+                {/* Countdown + blocks row */}
+                <div style={{ display:"flex", alignItems:"center" }}>
+                  <div style={{ width:36, flexShrink:0, textAlign:"center" }}>
                     {isActiveRow && (isPlaying||isPaused) && (
                       <span style={{ fontSize:18, fontWeight:900, color:"#fff",
                         textShadow:"0 0 8px rgba(255,255,255,0.4)", lineHeight:1 }}>
@@ -1524,20 +1537,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                       </span>
                     )}
                   </div>
-                  {/* Content: lyrics above blocks, same scroll container */}
-                  <div style={{ flex:1, overflowX:"auto" }}>
-                    {row.text && (
-                      <div style={{
-                        fontSize: row.textSize||23, color:"#fff", lineHeight:1.5,
-                        paddingTop:6, paddingBottom:4,
-                        whiteSpace:"pre", width:"max-content",
-                        opacity: !showLyrics ? 0 : (isPlaying||isPaused) ? (isActiveRow ? 1 : 0.45) : 1,
-                        transition:"opacity 0.3s",
-                        userSelect: showLyrics ? "text" : "none",
-                        pointerEvents: showLyrics ? "auto" : "none",
-                      }}>{row.text}</div>
-                    )}
-                    <div style={{ paddingTop: row.text ? 0 : 18, paddingBottom:10 }}>
+                  <div style={{ flex:1, overflowX:"auto", paddingTop:18, paddingBottom:10 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:3, flexWrap:"nowrap", width:"max-content" }}>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch = row.blockChords[colIdx];
@@ -1562,7 +1562,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           </div>
                         );
                       })}
-                    </div>
                     </div>
                   </div>
                 </div>
@@ -1648,7 +1647,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             <button onClick={handleTogglePlay} style={{
               flex:1, padding:"12px 8px", borderRadius:14, border:"none",
               background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
-                : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
+                : isPlaying ? "linear-gradient(135deg,#a06000,#c87800)"
                 : "linear-gradient(135deg,#1a6b3c,#27ae60)",
               color:"#fff", fontWeight:900, cursor:"pointer", transition:"all 0.15s",
               fontSize: countIn>0 ? 22 : 15,
@@ -1656,7 +1655,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)" : "none" }}>
               {countIn>0
                 ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,opacity:0.75,marginTop:2}}>tap to skip</div></>
-                : isPlaying ? "⏹ Stop" : isPaused ? "▶ Resume" : "▶ Play Song"}
+                : isPlaying ? "⏸ Pause" : isPaused ? "▶ Resume" : "▶ Play Song"}
             </button>
             <button onClick={()=>setMuteClick(m=>!m)} style={{
               padding:"12px 14px", borderRadius:12,
@@ -1769,7 +1768,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
             color:"#fff", fontSize:countIn>0?20:14, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
             boxShadow:countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 24px rgba(255,214,10,0.45)" }}>
-            {countIn>0?<><div style={{fontSize:20,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:9,opacity:0.75,marginTop:2}}>tap to skip</div></>:isPlaying?"⏹ Stop":isPaused?"▶ Resume":"▶ Play Song"}
+            {countIn>0?<><div style={{fontSize:20,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:9,opacity:0.75,marginTop:2}}>tap to skip</div></>:isPlaying?"⏸ Pause":isPaused?"▶ Resume":"▶ Play Song"}
           </button>
         </div>
       </div>
