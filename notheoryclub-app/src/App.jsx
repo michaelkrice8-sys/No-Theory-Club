@@ -1023,7 +1023,7 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
 // ─── SONG BUILDER (sections) ─────────────────────────────────────────────────
 function makeSongRow() {
   return { id: Date.now() + Math.random(), size:8, repeat:1,
-    strumActive: [true,false,true,false,false,true,true,true], blockChords: Array(8).fill(null) };
+    strumActive: [true,false,true,false,false,true,true,true], blockChords: Array(8).fill(null), text:"" };
 }
 function makeSection(name) {
   return { id: Date.now() + Math.random(), name, repeat:1, rows: [makeSongRow()] };
@@ -1321,6 +1321,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       rp: r.repeat,
       sa: r.strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; },[]),
       bc: Object.fromEntries(r.blockChords.map((v,i)=>[i,v]).filter(([,v])=>v)),
+      tx: r.text||undefined,
     }))
   }));
 
@@ -1333,7 +1334,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       (r.sa||[]).forEach(i=>{ strumActive[i]=true; });
       const blockChords = Array(r.sz||8).fill(null);
       Object.entries(r.bc||{}).forEach(([i,v])=>{ blockChords[Number(i)]=v; });
-      return { id:Date.now()+Math.random(), size:r.sz||8, repeat:r.rp||1, strumActive, blockChords };
+      return { id:Date.now()+Math.random(), size:r.sz||8, repeat:r.rp||1, strumActive, blockChords, text:r.tx||"" };
     })
   }));
 
@@ -1510,6 +1511,16 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   transition:"background 0.3s, border-color 0.3s",
                   opacity:(isPlaying||isPaused) && !isActiveSection ? 0.25 : 1,
                 }}>
+                {/* Lyrics display */}
+                {row.text && (
+                  <div style={{
+                    fontSize:13, color:"#fff", lineHeight:1.6,
+                    padding:"5px 0 3px 36px",
+                    whiteSpace:"pre-wrap", wordBreak:"break-word",
+                    opacity: isActiveRow ? 1 : 0.7,
+                    transition:"opacity 0.3s",
+                  }}>{row.text}</div>
+                )}
                 <div style={{ display:"flex", alignItems:"center" }}>
                   {/* Countdown */}
                   <div style={{ width:36, flexShrink:0, textAlign:"center" }}>
@@ -1841,6 +1852,22 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                     ref={el=>{ rowDomRefs.current[`${sec.id}_${rowIdx}`]=el; }}
                     style={{ marginBottom:rowIdx<sec.rows.length-1?14:0,
                       opacity: 1 }}>
+                    {/* Lyrics text box */}
+                    <textarea
+                      value={row.text||""}
+                      onChange={e=>updateRow(sec.id,rowIdx,r=>({...r,text:e.target.value}))}
+                      placeholder="Add lyrics or notes for this row..."
+                      rows={2}
+                      style={{
+                        width:"100%", marginBottom:6,
+                        background:"rgba(255,255,255,0.05)",
+                        border:"1px solid #333", borderRadius:8,
+                        color:"#ccc", fontSize:12, lineHeight:1.5,
+                        padding:"7px 10px", resize:"vertical",
+                        outline:"none", fontFamily:"inherit",
+                        boxSizing:"border-box",
+                      }}
+                    />
                     {/* Row controls */}
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:6, flexWrap:"wrap" }}>
                       <span style={{ fontSize:9, color:isActiveRow?"#FFBE0B":"#444", letterSpacing:1, fontWeight:700, minWidth:32 }}>ROW {rowIdx+1}</span>
