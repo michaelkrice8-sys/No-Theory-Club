@@ -1020,7 +1020,19 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
   useEffect(()=>{ muteRef.current=muteClick; },[muteClick]);
-  useEffect(()=>{ scrollSpeedRef.current=scrollSpeed; },[scrollSpeed]);
+  useEffect(()=>{
+    scrollSpeedRef.current = scrollSpeed;
+    if(!isPlaying) return;
+    if(scrollSpeed === 0){
+      scrollVelocityRef.current = 0;
+      // runScroll will stop itself next frame when velocity===0
+    } else {
+      scrollVelocityRef.current = scrollSpeed * 0.06;
+      // Restart RAF if it stopped (was at 0)
+      if(!scrollRafRef.current)
+        scrollRafRef.current = requestAnimationFrame(runScroll);
+    }
+  },[scrollSpeed, isPlaying, runScroll]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
@@ -1276,7 +1288,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   // VIEW MODE
   // ─────────────────────────────────────────────────────────────────────────
   if(songViewMode) return (
-    <div style={{ width:"100%" }}>
+    <div style={{ width:"100%", paddingBottom:210 }}>
 
       {/* ── Title ── */}
       <div style={{ textAlign:"center", marginBottom:20 }}>
@@ -1286,71 +1298,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           {loadedSongName || "Song"}
         </div>
         {capo > 0 && <div style={{ fontSize:12, color:"#FFBE0B", fontWeight:700, opacity:0.7 }}>Capo {capo}</div>}
-      </div>
-
-      {/* ── Playback Panel ── */}
-      <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
-        borderRadius:18, padding:"16px", marginBottom:16 }}>
-
-        {/* BPM */}
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
-          <span style={{ fontSize:11, color:"#888", fontWeight:700 }}>BPM</span>
-          <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
-        </div>
-        <input type="range" min={20} max={160} value={bpm} onChange={e=>setBpm(Number(e.target.value))}
-          style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
-        <div style={{ display:"flex", gap:6, marginBottom:14 }}>
-          {[40,60,80,100].map(b=>(
-            <button key={b} onClick={()=>setBpm(b)} style={{
-              flex:1, padding:"5px 0", borderRadius:8,
-              border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
-              background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
-              color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
-          ))}
-        </div>
-
-        {/* Controls row: Play + Mute + Scroll + Capo */}
-        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          <button onClick={handleTogglePlay} style={{
-            flex:1, padding:"13px", borderRadius:14, border:"none",
-            background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
-              : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
-              : "linear-gradient(135deg,#1a6b3c,#27ae60)",
-            color:"#fff", fontSize:countIn>0?22:16, fontWeight:900, cursor:"pointer", transition:"all 0.15s",
-            boxShadow: countIn>0 ? "0 4px 20px rgba(255,190,11,0.3)"
-              : isPlaying ? "0 4px 20px rgba(231,76,60,0.4)"
-              : "0 4px 20px rgba(39,174,96,0.4)" }}>
-            {countIn>0
-              ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>
-              : isPlaying ? "⏹ Stop" : "▶ Play Song"}
-          </button>
-
-          {/* Mute */}
-          <button onClick={()=>setMuteClick(m=>!m)} style={{
-            padding:"13px 14px", borderRadius:12,
-            border:muteClick?"2px solid #e74c3c":"1px solid #2a2a2a",
-            background:muteClick?"rgba(231,76,60,0.1)":"#111",
-            color:muteClick?"#e74c3c":"#666", fontSize:18, cursor:"pointer" }}>
-            {muteClick?"🔇":"🔔"}
-          </button>
-
-          {/* Autoscroll */}
-          <div style={{ display:"flex", alignItems:"center", gap:4,
-            background:"#111", border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
-            borderRadius:12, padding:"8px 10px" }}>
-            <span style={{ fontSize:12, fontWeight:900, color:"#555" }}>↕</span>
-            <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
-              width:22, height:22, borderRadius:6, border:"1px solid #333", background:"#1a1a1a",
-              color:"#aaa", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center",
-              justifyContent:"center", opacity:scrollSpeed===0?0.3:1 }}>−</button>
-            <span style={{ fontSize:13, fontWeight:900, minWidth:14, textAlign:"center",
-              color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
-            <button onClick={()=>setScrollSpeed(s=>Math.min(10,s+1))} style={{
-              width:22, height:22, borderRadius:6, border:"1px solid #333", background:"#1a1a1a",
-              color:"#aaa", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center",
-              justifyContent:"center" }}>+</button>
-          </div>
-        </div>
       </div>
 
       {/* ── Sections (read-only) ── */}
