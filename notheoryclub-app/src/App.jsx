@@ -1038,16 +1038,22 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
   // ── Constant-velocity scroll — set once at play start, never recalculated ──
   const runScrollRef = useRef(null);
+  const scrollAccRef = useRef(0); // accumulates fractional pixels
   runScrollRef.current = ()=>{
-    if(scrollVelocityRef.current === 0){ scrollRafRef.current = null; return; }
-    window.scrollBy(0, scrollVelocityRef.current);
+    if(scrollVelocityRef.current === 0){ scrollRafRef.current = null; scrollAccRef.current = 0; return; }
+    scrollAccRef.current += scrollVelocityRef.current;
+    const px = Math.trunc(scrollAccRef.current);
+    if(px !== 0){
+      window.scrollBy(0, px);
+      scrollAccRef.current -= px;
+    }
     scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
   };
   const runScroll = runScrollRef.current;
 
   const startConstantScroll = useCallback(()=>{
     if(scrollSpeedRef.current === 0) return;
-    scrollVelocityRef.current = scrollSpeedRef.current * 0.06;
+    scrollVelocityRef.current = scrollSpeedRef.current * 0.18;
     if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
   },[]);
@@ -1055,7 +1061,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   // Start scroll when playback begins (covers view mode path)
   useEffect(()=>{
     if(isPlaying && scrollSpeedRef.current > 0){
-      scrollVelocityRef.current = scrollSpeedRef.current * 0.06;
+      scrollVelocityRef.current = scrollSpeedRef.current * 0.18;
       if(!scrollRafRef.current)
         scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
     }
@@ -1340,7 +1346,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
       {/* ── Sections (read-only) ── */}
       {sections.map((sec, idx)=>{
-        const isActiveSection = isPlaying && playPos.secIdx===idx;
+        const isActiveSection = (isPlaying||isPaused) && playPos.secIdx===idx;
         const isIncomingSection = isPlaying && playPos.secIdx===idx-1;
         return (
           <div key={sec.id} ref={el=>{ rowDomRefs.current[`${sec.id}_0`]=el; }} style={{
@@ -1348,7 +1354,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             border:`1px solid ${isActiveSection?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
             boxShadow:isActiveSection?"0 0 20px rgba(255,190,11,0.12)":"none",
             transition:"border-color 0.3s, box-shadow 0.3s",
-            opacity: isPlaying && !isActiveSection && !isIncomingSection ? 0.55 : 1,
+            opacity: (isPlaying||isPaused) && !isActiveSection && !isIncomingSection ? 0.55 : 1,
           }}>
             {/* Section header */}
             <div style={{ padding:"12px 16px 8px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
@@ -1363,9 +1369,10 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                     borderRadius:20, padding:"2px 9px" }}>↻ {sec.repeat}×</div>
                 )}
               </div>
-              {isActiveSection && (
-                <div style={{ width:8, height:8, borderRadius:"50%", background:"#FFBE0B",
-                  boxShadow:"0 0 8px rgba(255,190,11,0.8)", animation:"none" }} />
+              {(isPlaying||isPaused) && isActiveSection && (
+                <div style={{ width:8, height:8, borderRadius:"50%",
+                  background: isPaused ? "#F79200" : "#FFBE0B",
+                  boxShadow: isPaused ? "0 0 8px rgba(247,146,0,0.8)" : "0 0 8px rgba(255,190,11,0.8)" }} />
               )}
             </div>
             {/* Rows */}
@@ -1502,14 +1509,13 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               flex:1, padding:"12px 8px", borderRadius:14, border:"none",
               background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
                 : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
-                : isPaused ? "linear-gradient(135deg,#FFBE0B,#F79200)"
-                : "linear-gradient(135deg,#FFD60A,#F77F00)",
-              color: isPlaying ? "#fff" : "#111",
+                : "linear-gradient(135deg,#1a6b3c,#27ae60)",
+              color: "#fff",
               fontWeight:900, cursor:"pointer", transition:"all 0.15s",
               fontSize: countIn>0 ? 22 : 15,
               boxShadow: countIn>0 ? "0 4px 16px rgba(255,190,11,0.3)"
                 : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
-                : "0 4px 24px rgba(255,214,10,0.45)" }}>
+                : "0 4px 16px rgba(39,174,96,0.4)" }}>
               {countIn>0
                 ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,opacity:0.75,marginTop:2}}>tap to skip</div></>
                 : isPlaying ? "⏹ Stop" : isPaused ? "▶ Resume" : "▶ Play Song"}
@@ -1596,8 +1602,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           </button>
           <button onClick={handleTogglePlay} style={{
             flex:1, padding:"10px", borderRadius:12, border:"none",
-            background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":isPaused?"linear-gradient(135deg,#FFBE0B,#F79200)":"linear-gradient(135deg,#FFD60A,#F77F00)",
-            color:isPlaying?"#fff":"#111", fontSize:countIn>0?20:14, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
+            background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
+            color:"#fff", fontSize:countIn>0?20:14, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
             boxShadow:countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 24px rgba(255,214,10,0.45)" }}>
             {countIn>0?<><div style={{fontSize:20,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:9,opacity:0.75,marginTop:2}}>tap to skip</div></>:isPlaying?"⏹ Stop":isPaused?"▶ Resume":"▶ Play Song"}
           </button>
@@ -1707,7 +1713,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             {/* Rows */}
             <div style={{ padding:"12px 14px" }}>
               {sec.rows.map((row,rowIdx)=>{
-                const isActiveRow = isPlaying && playPos.secIdx===idx && playPos.rowIdx===rowIdx;
+                const isActiveRow = (isPlaying||isPaused) && playPos.secIdx===idx && playPos.rowIdx===rowIdx;
                 return (
                   <div key={row.id}
                     ref={el=>{ rowDomRefs.current[`${sec.id}_${rowIdx}`]=el; }}
