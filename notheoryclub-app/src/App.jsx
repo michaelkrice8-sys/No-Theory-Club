@@ -990,6 +990,9 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [showReorderModal, setShowReorderModal] = useState(false);
+  const [modalDragIdx, setModalDragIdx] = useState(null);
+  const [modalDragOver, setModalDragOver] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState("");
 
@@ -1556,7 +1559,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   );
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ width:"100%" }}>
+    <div style={{ width:"100%", paddingBottom: assignSectionId ? 220 : 0 }}>
 
       {/* ── Global Controls ── */}
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:16, padding:"14px 16px", marginBottom:20 }}>
@@ -1613,19 +1616,12 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       {/* ── Sections ── */}
       {sections.map((sec,idx)=>{
         const isAssigning=assignSectionId===sec.id;
-        const isDragging=dragIdx===idx;
-        const isDragOver=dragOverIdx===idx&&dragIdx!==idx;
         return (
           <div key={sec.id}
-            draggable
-            onDragStart={(e)=>{ e.dataTransfer.effectAllowed="move"; setDragIdx(idx); }}
-            onDragOver={(e)=>{ e.preventDefault(); setDragOverIdx(idx); }}
-            onDrop={()=>{ reorder(dragIdx,idx); setDragIdx(null); setDragOverIdx(null); }}
-            onDragEnd={()=>{ setDragIdx(null); setDragOverIdx(null); }}
             style={{ width:"100%", background:"#0a0a0a", borderRadius:18, marginBottom:14,
-              border:`1px solid ${isDragOver?"#FFBE0B":"#2a2a2a"}`,
-              opacity:isDragging?0.45:1, transition:"opacity 0.15s, border-color 0.15s",
-              boxShadow:isDragOver?"0 0 12px rgba(255,190,11,0.3)":playPos.secIdx===idx&&isPlaying?"0 0 14px rgba(255,190,11,0.15)":"none" }}>
+              border:`1px solid ${"#2a2a2a"}`,
+              boxShadow:playPos.secIdx===idx&&(isPlaying||isPaused)?"0 0 14px rgba(255,190,11,0.15)":"none",
+              transition:"box-shadow 0.3s" }}>
 
             {/* Section header */}
             <div style={{ padding:"12px 14px 8px", display:"flex", alignItems:"flex-start", gap:8, position:"relative" }}>
@@ -1670,8 +1666,10 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   fontSize:12, fontWeight:800, cursor:"pointer", minWidth:36 }}>
                   {sec.repeat||1}× 🔁
                 </button>
-                <div style={{ fontSize:22, color:"#555", cursor:"grab", userSelect:"none",
-                  padding:"2px 4px", lineHeight:1 }} title="Drag to reorder">☰</div>
+                <button onClick={()=>setShowReorderModal(true)} title="Reorder sections" style={{
+                  padding:"5px 10px", borderRadius:8, border:"1px solid #333",
+                  background:"#1a1a1a", color:"#888", fontSize:15, cursor:"pointer",
+                  fontWeight:700 }}>↕</button>
                 <button onClick={()=>copySection(sec.id)} title="Duplicate section" style={{
                   padding:"5px 9px", borderRadius:8, border:"1px solid #333",
                   background:"#1a1a1a", color:"#888", fontSize:16, cursor:"pointer" }}>⧉</button>
@@ -1682,33 +1680,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             </div>
 
             {/* Assign chord picker */}
-            {isAssigning&&(
-              <div style={{ padding:"8px 14px 10px", borderTop:"1px solid #1a1a1a", borderBottom:"1px solid #1a1a1a", background:"#050505" }}>
-                <div style={{ display:"flex", gap:5, justifyContent:"center", marginBottom:8, flexWrap:"wrap" }}>
-                  {["all","7","sus","add","/"].map(cat=>(
-                    <button key={cat} onClick={()=>setCategoryFilter(cat)} style={{
-                      padding:"4px 10px", borderRadius:7,
-                      border:categoryFilter===cat?"2px solid #FFBE0B":"1px solid #2a2a2a",
-                      background:categoryFilter===cat?"rgba(255,190,11,0.15)":"#111",
-                      color:categoryFilter===cat?"#FFBE0B":"#555", fontSize:11, fontWeight:800, cursor:"pointer" }}>
-                      {cat==="all"?"Basic":cat}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:5 }}>
-                  {(categoryFilter==="all"?ALL_CHORDS:CHORD_CATEGORIES[categoryFilter]||[]).map(c=>(
-                    <button key={c} onClick={()=>setAssignChord(c)} style={{
-                      padding:"7px 4px", borderRadius:7, border:"none",
-                      background:assignChord===c?"linear-gradient(135deg,#FFBE0B,#F77F00)":"#1c1c1c",
-                      color:assignChord===c?"#111":"#888", fontSize:11, fontWeight:800, cursor:"pointer",
-                      boxShadow:assignChord===c?"0 0 8px rgba(255,190,11,0.4)":"none" }}>{c}</button>
-                  ))}
-                </div>
-                <div style={{ textAlign:"center", fontSize:10, color:"#555", marginTop:8 }}>
-                  Tap a block → assign <span style={{color:"#FFBE0B"}}>{assignChord}</span> · tap again → remove
-                </div>
-              </div>
-            )}
+
 
             {/* Rows */}
             <div style={{ padding:"12px 14px" }}>
@@ -1879,6 +1851,115 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       <div style={{ textAlign:"center", paddingBottom:8, color:"#333", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
       </div>
+
+      {/* ── FIXED CHORD PICKER PANEL ── */}
+      {assignSectionId && (
+        <div style={{
+          position:"fixed", bottom:0, left:0, right:0, zIndex:300,
+          background:"rgba(6,6,5,0.98)", backdropFilter:"blur(16px)",
+          borderTop:"2px solid rgba(255,190,11,0.35)",
+          padding:"10px 16px 16px",
+          boxShadow:"0 -8px 32px rgba(0,0,0,0.7)",
+        }}>
+          <div style={{ maxWidth:560, margin:"0 auto" }}>
+            {/* Header */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+              <div style={{ fontSize:11, color:"#888", letterSpacing:1 }}>
+                ASSIGNING TO <span style={{ color:"#FFBE0B", fontWeight:800 }}>
+                  {sections.find(s=>s.id===assignSectionId)?.name||""}
+                </span>
+              </div>
+              <button onClick={()=>setAssignSectionId(null)} style={{
+                background:"none", border:"none", color:"#555", fontSize:18,
+                cursor:"pointer", padding:"2px 6px" }}>✕</button>
+            </div>
+            {/* Category tabs */}
+            <div style={{ display:"flex", gap:5, marginBottom:8, flexWrap:"wrap" }}>
+              {["all","7","sus","add","/"].map(cat=>(
+                <button key={cat} onClick={()=>setCategoryFilter(cat)} style={{
+                  padding:"5px 12px", borderRadius:8,
+                  border:categoryFilter===cat?"2px solid #FFBE0B":"1px solid #2a2a2a",
+                  background:categoryFilter===cat?"rgba(255,190,11,0.15)":"rgba(0,0,0,0.4)",
+                  color:categoryFilter===cat?"#FFBE0B":"#555",
+                  fontSize:12, fontWeight:800, cursor:"pointer" }}>
+                  {cat==="all"?"Basic":cat}
+                </button>
+              ))}
+              <div style={{ marginLeft:"auto", fontSize:11, color:"#555", alignSelf:"center" }}>
+                Tap block → assign <span style={{color:"#FFBE0B"}}>{assignChord}</span>
+              </div>
+            </div>
+            {/* Chord grid */}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
+              {(categoryFilter==="all"?ALL_CHORDS:CHORD_CATEGORIES[categoryFilter]||[]).map(c=>(
+                <button key={c} onClick={()=>setAssignChord(c)} style={{
+                  padding:"9px 4px", borderRadius:8, border:"none",
+                  background:assignChord===c?"linear-gradient(135deg,#FFBE0B,#F77F00)":"rgba(28,28,28,0.9)",
+                  color:assignChord===c?"#111":"#888",
+                  fontSize:12, fontWeight:800, cursor:"pointer",
+                  boxShadow:assignChord===c?"0 0 10px rgba(255,190,11,0.5)":"none",
+                  transition:"all 0.1s" }}>{c}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── REORDER MODAL ── */}
+      {showReorderModal && (
+        <div onClick={()=>setShowReorderModal(false)} style={{
+          position:"fixed", inset:0, zIndex:400,
+          background:"rgba(0,0,0,0.85)", backdropFilter:"blur(6px)",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          padding:"24px 16px",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:"#111", border:"1px solid #2a2a2a", borderRadius:20,
+            padding:"20px 16px", width:"100%", maxWidth:400,
+            boxShadow:"0 24px 80px rgba(0,0,0,0.9)",
+            maxHeight:"80vh", overflowY:"auto",
+          }}>
+            <div style={{ textAlign:"center", marginBottom:16 }}>
+              <div style={{ fontSize:16, fontWeight:900, color:"#fff", marginBottom:4 }}>Reorder Sections</div>
+              <div style={{ fontSize:11, color:"#555" }}>Drag sections into order</div>
+            </div>
+            {sections.map((sec, i)=>(
+              <div key={sec.id}
+                draggable
+                onDragStart={()=>setModalDragIdx(i)}
+                onDragOver={(e)=>{ e.preventDefault(); setModalDragOver(i); }}
+                onDrop={()=>{
+                  reorder(modalDragIdx, i);
+                  setModalDragIdx(null); setModalDragOver(null);
+                }}
+                onDragEnd={()=>{ setModalDragIdx(null); setModalDragOver(null); }}
+                style={{
+                  display:"flex", alignItems:"center", gap:10,
+                  padding:"12px 14px", borderRadius:12, marginBottom:8, cursor:"grab",
+                  background: modalDragOver===i&&modalDragIdx!==i ? "rgba(255,190,11,0.12)" : "#1a1a1a",
+                  border:`1px solid ${modalDragOver===i&&modalDragIdx!==i?"rgba(255,190,11,0.5)":"#2a2a2a"}`,
+                  opacity: modalDragIdx===i ? 0.45 : 1,
+                  transition:"opacity 0.1s, background 0.1s, border-color 0.1s",
+                  userSelect:"none",
+                }}>
+                <span style={{ fontSize:18, color:"#555", lineHeight:1 }}>☰</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:800, color:"#fff" }}>{sec.name}</div>
+                  <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
+                    {sec.rows.length} row{sec.rows.length!==1?"s":""}
+                    {(sec.repeat||1)>1?` · ↻ ${sec.repeat}×`:""}
+                  </div>
+                </div>
+                <span style={{ fontSize:12, color:"#333", fontWeight:700 }}>{i+1}</span>
+              </div>
+            ))}
+            <button onClick={()=>setShowReorderModal(false)} style={{
+              width:"100%", marginTop:8, padding:"12px", borderRadius:12, border:"none",
+              background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+              color:"#111", fontSize:14, fontWeight:800, cursor:"pointer" }}>Done</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
