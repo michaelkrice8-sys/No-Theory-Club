@@ -1153,6 +1153,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [savePrompt, setSavePrompt] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [loadedSongName, setLoadedSongName] = useState(null);
+  const [songViewMode, setSongViewMode] = useState(false);
 
   // ── Encode / decode sections for URL ──
   const encodeSections = (secs) => secs.map(sec=>({
@@ -1193,7 +1194,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     setSections(decodeSections(song.sections));
     setBpm(song.bpm||80); setCapo(song.capo||0);
     setScrollSpeed(song.scrollSpeed||0);
-    setLoadedSongName(song.name); setShowSaved(false);
+    setLoadedSongName(song.name); setShowSaved(false); setSongViewMode(false);
   };
 
   const doDelete = (id) => {
@@ -1225,6 +1226,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       if(d.c) setCapo(d.c);
       if(d.ss !== undefined) setScrollSpeed(d.ss);
       setLoadedSongName(d.n||"Shared Song");
+      setSongViewMode(true);
       window.history.replaceState({}, "", window.location.pathname);
       window.scrollTo(0,0);
     } catch(e){}
@@ -1271,8 +1273,208 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
   const capoBtnStyle={width:22,height:22,borderRadius:6,border:"1px solid #333",background:"#1a1a1a",color:"#aaa",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
 
-  return (
+  // VIEW MODE
+  // ─────────────────────────────────────────────────────────────────────────
+  if(songViewMode) return (
     <div style={{ width:"100%" }}>
+
+      {/* ── Title ── */}
+      <div style={{ textAlign:"center", marginBottom:20 }}>
+        <div style={{ fontSize:26, fontWeight:900, color:"#fff", letterSpacing:0.3,
+          textShadow: isPlaying ? "0 0 20px rgba(255,190,11,0.5)" : "none",
+          transition:"text-shadow 0.4s", lineHeight:1.2, marginBottom:4 }}>
+          {loadedSongName || "Song"}
+        </div>
+        {capo > 0 && <div style={{ fontSize:12, color:"#FFBE0B", fontWeight:700, opacity:0.7 }}>Capo {capo}</div>}
+      </div>
+
+      {/* ── Playback Panel ── */}
+      <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
+        borderRadius:18, padding:"16px", marginBottom:16 }}>
+
+        {/* BPM */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+          <span style={{ fontSize:11, color:"#888", fontWeight:700 }}>BPM</span>
+          <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+        </div>
+        <input type="range" min={20} max={160} value={bpm} onChange={e=>setBpm(Number(e.target.value))}
+          style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+        <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+          {[40,60,80,100].map(b=>(
+            <button key={b} onClick={()=>setBpm(b)} style={{
+              flex:1, padding:"5px 0", borderRadius:8,
+              border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
+              background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
+              color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+          ))}
+        </div>
+
+        {/* Controls row: Play + Mute + Scroll + Capo */}
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <button onClick={handleTogglePlay} style={{
+            flex:1, padding:"13px", borderRadius:14, border:"none",
+            background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
+              : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
+              : "linear-gradient(135deg,#1a6b3c,#27ae60)",
+            color:"#fff", fontSize:countIn>0?22:16, fontWeight:900, cursor:"pointer", transition:"all 0.15s",
+            boxShadow: countIn>0 ? "0 4px 20px rgba(255,190,11,0.3)"
+              : isPlaying ? "0 4px 20px rgba(231,76,60,0.4)"
+              : "0 4px 20px rgba(39,174,96,0.4)" }}>
+            {countIn>0
+              ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>
+              : isPlaying ? "⏹ Stop" : "▶ Play Song"}
+          </button>
+
+          {/* Mute */}
+          <button onClick={()=>setMuteClick(m=>!m)} style={{
+            padding:"13px 14px", borderRadius:12,
+            border:muteClick?"2px solid #e74c3c":"1px solid #2a2a2a",
+            background:muteClick?"rgba(231,76,60,0.1)":"#111",
+            color:muteClick?"#e74c3c":"#666", fontSize:18, cursor:"pointer" }}>
+            {muteClick?"🔇":"🔔"}
+          </button>
+
+          {/* Autoscroll */}
+          <div style={{ display:"flex", alignItems:"center", gap:4,
+            background:"#111", border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
+            borderRadius:12, padding:"8px 10px" }}>
+            <span style={{ fontSize:12, fontWeight:900, color:"#555" }}>↕</span>
+            <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
+              width:22, height:22, borderRadius:6, border:"1px solid #333", background:"#1a1a1a",
+              color:"#aaa", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center",
+              justifyContent:"center", opacity:scrollSpeed===0?0.3:1 }}>−</button>
+            <span style={{ fontSize:13, fontWeight:900, minWidth:14, textAlign:"center",
+              color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
+            <button onClick={()=>setScrollSpeed(s=>Math.min(10,s+1))} style={{
+              width:22, height:22, borderRadius:6, border:"1px solid #333", background:"#1a1a1a",
+              color:"#aaa", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center",
+              justifyContent:"center" }}>+</button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Sections (read-only) ── */}
+      {sections.map((sec, idx)=>{
+        const isActiveSection = isPlaying && playPos.secIdx===idx;
+        const isIncomingSection = isPlaying && playPos.secIdx===idx-1;
+        return (
+          <div key={sec.id} ref={el=>{ rowDomRefs.current[`${sec.id}_0`]=el; }} style={{
+            width:"100%", background:"#0a0a0a", borderRadius:18, marginBottom:14,
+            border:`1px solid ${isActiveSection?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
+            boxShadow:isActiveSection?"0 0 20px rgba(255,190,11,0.12)":"none",
+            transition:"border-color 0.3s, box-shadow 0.3s",
+            opacity: isPlaying && !isActiveSection && !isIncomingSection ? 0.55 : 1,
+          }}>
+            {/* Section header */}
+            <div style={{ padding:"12px 16px 8px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div style={{ fontSize:17, fontWeight:900,
+                  color: isActiveSection ? "#FFBE0B" : "#fff",
+                  textShadow: isActiveSection ? "0 0 10px rgba(255,190,11,0.4)" : "none",
+                  transition:"color 0.2s, text-shadow 0.2s" }}>{sec.name}</div>
+                {(sec.repeat||1)>1 && (
+                  <div style={{ fontSize:11, fontWeight:800, color:"#FFBE0B",
+                    background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.3)",
+                    borderRadius:20, padding:"2px 9px" }}>↻ {sec.repeat}×</div>
+                )}
+              </div>
+              {isActiveSection && (
+                <div style={{ width:8, height:8, borderRadius:"50%", background:"#FFBE0B",
+                  boxShadow:"0 0 8px rgba(255,190,11,0.8)", animation:"none" }} />
+              )}
+            </div>
+            {/* Rows */}
+            <div style={{ padding:"0 14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
+              {sec.rows.map((row, rowIdx)=>{
+                const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
+                return (
+                  <div key={row.id}>
+                    {/* Row repeat pill */}
+                    {(row.repeat||1)>1 && (
+                      <div style={{ textAlign:"center", marginBottom:4 }}>
+                        <span style={{ fontSize:10, fontWeight:800, color:"#F79200",
+                          background:"rgba(247,146,0,0.1)", borderRadius:20,
+                          padding:"2px 8px", border:"1px solid rgba(247,146,0,0.25)" }}>↻ {row.repeat}×</span>
+                      </div>
+                    )}
+                    <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                      <div style={{ width:28, height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize:isActiveRow?16:13, fontWeight:900,
+                        color:isActiveRow?"#FFBE0B":"#F79200",
+                        textShadow:isActiveRow?"0 0 8px rgba(255,190,11,0.7)":"none",
+                        transition:"all 0.2s" }}>{row.repeat||1}×</div>
+                      {Array(row.size).fill(null).map((_,colIdx)=>{
+                        const ch=row.blockChords[colIdx];
+                        const isBeat=isActiveRow&&playPos.beat===colIdx;
+                        const isCountGlow=countIn>0&&rowIdx===0&&idx===0&&colIdx===countInBeat;
+                        return (
+                          <div key={colIdx} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            {isCountGlow
+                              ? <div style={{ width:40, height:40, borderRadius:10, display:"flex",
+                                  alignItems:"center", justifyContent:"center",
+                                  background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                  boxShadow:"0 0 12px rgba(220,50,50,0.4)" }}>
+                                  <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
+                                </div>
+                              : <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
+                                  beat={isBeat} assigned={!!ch} onClick={()=>{}} />
+                            }
+                            <div style={{ fontSize:13, fontWeight:900, height:18, lineHeight:"18px",
+                              color:ch?"#FFBE0B":"transparent",
+                              textShadow:ch&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none",
+                              transition:"text-shadow 0.2s" }}>{ch||"·"}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* ── Save + Show Builder ── */}
+      <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+        <button onClick={()=>setSavePrompt(p=>!p)} style={{
+          flex:1, padding:"10px", borderRadius:12,
+          border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
+          color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save to My Songs</button>
+      </div>
+      {savePrompt && (
+        <div style={{ marginBottom:10, background:"#111", border:"1px solid #FFBE0B33", borderRadius:14, padding:"14px" }}>
+          <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this song</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&doSave()}
+              placeholder="e.g. Country Roads..."
+              style={{ flex:1, padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                background:"#0a0a0a", color:"#fff", fontSize:13, outline:"none" }} />
+            <button onClick={doSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+              background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+              color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+            <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
+              padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+              background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      <button onClick={()=>setSongViewMode(false)} style={{
+        width:"100%", padding:"10px", borderRadius:12, border:"1px solid #2a2a2a",
+        background:"transparent", color:"#555", fontSize:11, fontWeight:700,
+        cursor:"pointer", letterSpacing:1, marginBottom:8 }}>▼ SHOW BUILDER</button>
+
+      <div style={{ textAlign:"center", paddingBottom:8, color:"#333", fontSize:11 }}>
+        © {new Date().getFullYear()} No Theory Club · All rights reserved.
+      </div>
+    </div>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // BUILDER MODE
+  // ─────────────────────────────────────────────────────────────────────────
 
       {/* ── Global Controls ── */}
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:16, padding:"14px 16px", marginBottom:20 }}>
@@ -1502,6 +1704,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           </div>
         );
       })}
+
+      {/* ── Hide builder (back to view) ── */}
+      {loadedSongName && (
+        <button onClick={()=>setSongViewMode(true)} style={{
+          width:"100%", padding:"10px", borderRadius:12, border:"1px solid #2a2a2a",
+          background:"transparent", color:"#555", fontSize:11, fontWeight:700,
+          cursor:"pointer", letterSpacing:1, marginBottom:12 }}>▲ BACK TO VIEW</button>
+      )}
 
       <button onClick={addSection} style={{
         width:"100%", padding:"12px", borderRadius:14,
