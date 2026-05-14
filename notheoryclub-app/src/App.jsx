@@ -1079,7 +1079,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const scrollToRow = useCallback((secId, rowIdx)=>{
     const el = rowDomRefs.current[`${secId}_${rowIdx}`];
     if(!el) return;
-    el.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    el.scrollIntoView({ behavior:'smooth', block:'center' });
   },[]);
 
   // ── Tick — 16th note per block, matching AdvancedBuildSong exactly ──
