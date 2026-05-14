@@ -243,14 +243,21 @@ export default function App() {
     new URLSearchParams(window.location.search).has("strum");
   const hasSharedStrumProg = typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("strumprog");
+  const hasSharedSong = typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("song");
 
   const [tab, setTab] = useState(
     hasSharedDrill ? "chords"
     : (hasSharedPattern||hasSharedStrumProg) ? "song"
+    : hasSharedSong ? "song"
     : hasSharedStrum ? "strum"
     : "strum"
   );
-  const [buildMode, setBuildMode] = useState(hasSharedPattern ? "advanced" : "simple");
+  const [buildMode, setBuildMode] = useState(
+    hasSharedPattern ? "advanced"
+    : hasSharedSong ? "song"
+    : "simple"
+  );
   const audio = useAudio();
   const [chordVariants, setChordVariants] = useState({G:"G",C:"C",Em:"Em",D:"D",Am:"Am",A:"A",E:"E",Dm:"Dm",Bm:"Bm","Fmaj7":"Fmaj7"});
   const updateVariant = (chord, variant) => setChordVariants(p=>({...p,[chord]:variant}));
@@ -970,7 +977,7 @@ function makeSongRow() {
     strumActive: [true,false,true,false,false,true,true,true], blockChords: Array(8).fill(null) };
 }
 function makeSection(name) {
-  return { id: Date.now() + Math.random(), name, rows: [makeSongRow()] };
+  return { id: Date.now() + Math.random(), name, repeat:1, rows: [makeSongRow()] };
 }
 
 function SongBuilder({ audio, chordVariants, updateVariant }) {
@@ -1026,7 +1033,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
   const startConstantScroll = useCallback(()=>{
     if(scrollSpeedRef.current === 0) return; // autoscroll off
-    scrollVelocityRef.current = scrollSpeedRef.current * 0.25; // px per frame
+    scrollVelocityRef.current = scrollSpeedRef.current * 0.06; // px per frame
     if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(runScroll);
   },[runScroll]);
@@ -1050,10 +1057,20 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
 
     if(beat >= row.size){
       beat = 0; pass++;
-      if(pass >= row.repeat){
+      if(pass >= (row.repeat||1)){
         pass = 0; rowIdx++;
-        if(rowIdx >= sec.rows.length){ rowIdx = 0; secIdx++; }
-        if(secIdx >= secs.length) secIdx = 0;
+        if(rowIdx >= sec.rows.length){
+          rowIdx = 0;
+          // Section repeat logic
+          const secRepeat = sec.repeat||1;
+          if(!playPosRef.current._secPass) playPosRef.current._secPass = 0;
+          playPosRef.current._secPass++;
+          if(playPosRef.current._secPass >= secRepeat){
+            playPosRef.current._secPass = 0;
+            secIdx++;
+          }
+        }
+        if(secIdx >= secs.length){ secIdx = 0; playPosRef.current._secPass = 0; }
       }
     }
 
@@ -1140,6 +1157,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   // ── Encode / decode sections for URL ──
   const encodeSections = (secs) => secs.map(sec=>({
     n: sec.name,
+    rp: sec.repeat||1,
     rows: sec.rows.map(r=>({
       sz: r.size,
       rp: r.repeat,
@@ -1151,6 +1169,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const decodeSections = (encoded) => encoded.map(sec=>({
     id: Date.now()+Math.random(),
     name: sec.n||"Section",
+    repeat: sec.rp||1,
     rows: sec.rows.map(r=>{
       const strumActive = Array(r.sz||8).fill(false);
       (r.sa||[]).forEach(i=>{ strumActive[i]=true; });
@@ -1223,6 +1242,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     });
   };
   const renameSection=(id,name)=>setSections(s=>s.map(x=>x.id!==id?x:{...x,name}));
+  const repeatSection=(id)=>setSections(s=>s.map(x=>x.id!==id?x:{...x,repeat:((x.repeat||1)%8)+1}));
   const reorder=(from,to)=>{
     if(from===to||from===null||to===null) return;
     setSections(s=>{const n=[...s];const[item]=n.splice(from,1);n.splice(to,0,item);return n;});
@@ -1283,7 +1303,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           <div style={{ display:"flex", alignItems:"center", gap:5,
             background:"#111", border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
             borderRadius:10, padding:"6px 10px", transition:"border-color 0.2s" }}>
-            <span style={{ fontSize:14 }}>📜</span>
+            <span style={{ fontSize:13, fontWeight:900, color:"#555" }}>↕</span>
             <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{...capoBtnStyle, opacity:scrollSpeed===0?0.3:1}}>−</button>
             <span style={{ fontSize:13, fontWeight:900, minWidth:16, textAlign:"center",
               color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
@@ -1356,8 +1376,16 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                 }
               </div>
 
-              {/* RIGHT: Move + Copy + Delete */}
+              {/* RIGHT: Repeat + Move + Copy + Delete */}
               <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                <button onClick={()=>repeatSection(sec.id)} style={{
+                  padding:"5px 9px", borderRadius:8,
+                  border:(sec.repeat||1)>1?"1px solid rgba(255,190,11,0.5)":"1px solid #333",
+                  background:(sec.repeat||1)>1?"rgba(255,190,11,0.12)":"#1a1a1a",
+                  color:(sec.repeat||1)>1?"#FFBE0B":"#555",
+                  fontSize:12, fontWeight:800, cursor:"pointer", minWidth:36 }}>
+                  {sec.repeat||1}× 🔁
+                </button>
                 <div style={{ fontSize:22, color:"#555", cursor:"grab", userSelect:"none",
                   padding:"2px 4px", lineHeight:1 }} title="Drag to reorder">☰</div>
                 <button onClick={()=>copySection(sec.id)} title="Duplicate section" style={{
