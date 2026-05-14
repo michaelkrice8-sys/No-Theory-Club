@@ -1229,7 +1229,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [saveName, setSaveName] = useState("");
   const [loadedSongName, setLoadedSongName] = useState(null);
   const [songViewMode, setSongViewMode] = useState(false);
-  const [showFullView, setShowFullView] = useState(false);
 
   // ── Encode / decode sections for URL ──
   const encodeSections = (secs) => secs.map(sec=>({
@@ -1364,33 +1363,10 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         {capo > 0 && <div style={{ fontSize:12, color:"#FFBE0B", fontWeight:700, opacity:0.7 }}>Capo {capo}</div>}
       </div>
 
-      {/* ── Sections (read-only) — focused 3-row window or full scroll ── */}
-      {(()=>{
-        const flatRows = [];
-        sections.forEach((sec, si) => sec.rows.forEach((_, ri) => flatRows.push(`${si}_${ri}`)));
-        const currentFlatIdx = flatRows.indexOf(`${playPos.secIdx}_${playPos.rowIdx}`);
-        const isActive = isPlaying || isPaused;
-
-        // Focused window: prev + current + next (centered on current)
-        let visibleKeys = null;    // null = show all
-        let rowOpacityMap = {};    // key → opacity
-        if(isActive && !showFullView && currentFlatIdx >= 0){
-          const prevKey = currentFlatIdx > 0 ? flatRows[currentFlatIdx - 1] : null;
-          const curKey  = flatRows[currentFlatIdx];
-          const nextKey = currentFlatIdx < flatRows.length - 1 ? flatRows[currentFlatIdx + 1] : null;
-          visibleKeys = new Set([prevKey, curKey, nextKey].filter(Boolean));
-          if(prevKey) rowOpacityMap[prevKey] = 0.8;
-          if(curKey)  rowOpacityMap[curKey]  = 1.0;
-          if(nextKey) rowOpacityMap[nextKey] = 0.8;
-        }
-
-        return sections.map((sec, idx)=>{
-        const isActiveSection = isActive && playPos.secIdx===idx;
+      {/* ── Sections (read-only) ── */}
+      {sections.map((sec, idx)=>{
+        const isActiveSection = (isPlaying||isPaused) && playPos.secIdx===idx;
         const isIncomingSection = isPlaying && playPos.secIdx===idx-1;
-
-        const sectionHasVisibleRow = !visibleKeys || sec.rows.some((_,ri)=>visibleKeys.has(`${idx}_${ri}`));
-        if(!sectionHasVisibleRow) return null;
-
         return (
           <div key={sec.id} ref={el=>{ rowDomRefs.current[`${sec.id}_0`]=el; }} style={{
             width:"100%", background:"#0a0a0a", borderRadius:18, marginBottom:14,
@@ -1436,12 +1412,9 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             {/* Rows */}
             <div style={{ padding:"0 14px 12px", display:"flex", flexDirection:"column", gap:10 }}>
               {sec.rows.map((row, rowIdx)=>{
-                const rowKey = `${idx}_${rowIdx}`;
-                if(visibleKeys && !visibleKeys.has(rowKey)) return null;
-                const rowOpacity = rowOpacityMap[rowKey] ?? 1.0;
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
-                  <div key={row.id} style={{ opacity:rowOpacity, transition:"opacity 0.35s ease" }}>
+                  <div key={row.id}>
                       <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
                       {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
                       {(()=>{
@@ -1629,15 +1602,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               background: scrollSpeed>0 ? "rgba(255,190,11,0.1)" : "rgba(0,0,0,0.4)",
               border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.45)":"#2a2a2a"}`,
               borderRadius:12, padding:"8px 10px", transition:"all 0.2s" }}>
-              <button onClick={()=>setShowFullView(v=>!v)} style={{
-                padding:"6px 10px", borderRadius:9,
-                border: showFullView?"1px solid rgba(255,190,11,0.4)":"1px solid #2a2a2a",
-                background: showFullView?"rgba(255,190,11,0.1)":"rgba(0,0,0,0.4)",
-                color: showFullView?"#FFBE0B":"#555",
-                fontSize:10, fontWeight:800, cursor:"pointer", letterSpacing:0.3,
-                whiteSpace:"nowrap" }}>
-                {showFullView?"⊡ Focus":"⊞ Full"}
-              </button>
               <span style={{ fontSize:20, fontWeight:900,
                 color:scrollSpeed>0?"#FFBE0B":"#555", lineHeight:1 }}>↕</span>
               <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
