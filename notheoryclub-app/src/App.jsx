@@ -1512,15 +1512,20 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   transition:"background 0.3s, border-color 0.3s",
                   opacity:(isPlaying||isPaused) && !isActiveSection ? 0.25 : 1,
                 }}>
-                {/* Lyrics display */}
+                {/* Lyrics display — aligned with blocks, same width */}
                 {row.text && (
-                  <div style={{
-                    fontSize: row.textSize||23, color:"#fff", lineHeight:1.6,
-                    padding:"5px 0 3px 36px",
-                    whiteSpace:"pre-wrap", wordBreak:"break-word",
-                    opacity: isActiveRow ? 1 : 0.7,
-                    transition:"opacity 0.3s",
-                  }}>{row.text}</div>
+                  <div style={{ display:"flex", alignItems:"flex-start" }}>
+                    {/* Spacer to match countdown badge width */}
+                    <div style={{ width:36, flexShrink:0 }} />
+                    <div style={{
+                      width: row.size * 40 + (row.size-1) * 3,
+                      fontSize: row.textSize||23, color:"#fff", lineHeight:1.5,
+                      padding:"5px 0 3px 0",
+                      whiteSpace:"pre-wrap", wordBreak:"break-word",
+                      opacity: (isPlaying||isPaused) ? (isActiveRow ? 1 : 0.45) : 1,
+                      transition:"opacity 0.3s",
+                    }}>{row.text}</div>
+                  </div>
                 )}
                 <div style={{ display:"flex", alignItems:"center" }}>
                   {/* Countdown */}
