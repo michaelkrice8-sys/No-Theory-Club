@@ -1311,6 +1311,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [saveName, setSaveName] = useState("");
   const [loadedSongName, setLoadedSongName] = useState(null);
   const [songViewMode, setSongViewMode] = useState(false);
+  const [showLyrics, setShowLyrics] = useState(true);
 
   // ── Encode / decode sections for URL ──
   const encodeSections = (secs) => secs.map(sec=>({
@@ -1525,7 +1526,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   </div>
                   {/* Content: lyrics above blocks, same scroll container */}
                   <div style={{ flex:1, overflowX:"auto" }}>
-                    {row.text && (
+                    {row.text && showLyrics && (
                       <div style={{
                         fontSize: row.textSize||23, color:"#fff", lineHeight:1.5,
                         paddingTop:6, paddingBottom:4,
@@ -1661,6 +1662,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               background:muteClick?"rgba(231,76,60,0.12)":"rgba(0,0,0,0.4)",
               color:muteClick?"#e74c3c":"#666", fontSize:20, cursor:"pointer" }}>
               {muteClick?"🔇":"🔔"}
+            </button>
+            <button onClick={()=>setShowLyrics(l=>!l)} style={{
+              padding:"12px 14px", borderRadius:12,
+              border:showLyrics?"1px solid rgba(255,190,11,0.4)":"1px solid #2a2a2a",
+              background:showLyrics?"rgba(255,190,11,0.1)":"rgba(0,0,0,0.4)",
+              color:showLyrics?"#FFBE0B":"#555", fontSize:13, fontWeight:800,
+              cursor:"pointer", letterSpacing:0.3 }}>
+              {showLyrics ? "lyrics on" : "lyrics off"}
             </button>
           </div>
         </div>
