@@ -1188,6 +1188,34 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     setIsPlaying(true);
   },[init, tick]);
 
+  const startFromRow = useCallback(async(secIdx, rowIdx)=>{
+    await init();
+    clearInterval(intervalRef.current); intervalRef.current = null;
+    clearInterval(countInRef.current);
+    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
+    currentChordRef.current = null;
+    playPosRef.current = { secIdx, rowIdx, beat:-1, pass:0, _secPass:0 };
+    setPlayPos({ secIdx, rowIdx, beat:-1, pass:0 });
+    setIsPlaying(false); setIsPaused(false);
+    // 4-beat countdown then start
+    const ms = (60/bpmRef.current)*1000;
+    let beat = 4, beatIdx = 0;
+    setCountIn(beat); setCountInBeat(beatIdx); playChordClick(true);
+    countInRef.current = setInterval(()=>{
+      beat--; beatIdx += 2;
+      if(beat <= 0){
+        clearInterval(countInRef.current);
+        setCountIn(0); setCountInBeat(-1);
+        const ms16 = (60/bpmRef.current/4)*1000;
+        intervalRef.current = setInterval(tick, ms16);
+        tick();
+        setIsPlaying(true);
+      } else {
+        setCountIn(beat); setCountInBeat(beatIdx%8); playChordClick(false);
+      }
+    }, ms);
+  },[init, tick, playChordClick]);
+
   useEffect(()=>{
     bpmRef.current = bpm;
     if(isPlaying){
@@ -1440,7 +1468,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                                   <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
                                 </div>
                               : <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
-                                  beat={isBeat} assigned={!!ch} onClick={()=>startFromSection(secIdx)} />
+                                  beat={isBeat} assigned={!!ch} onClick={()=>startFromRow(secIdx, rowIdx)} />
                             }
                             <div style={{ fontSize:13, fontWeight:900, height:18, lineHeight:"18px",
                               color:ch?"#FFBE0B":"transparent",
