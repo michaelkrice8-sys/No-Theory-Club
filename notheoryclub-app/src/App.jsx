@@ -1492,7 +1492,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             </div>
           </div>
         );
-      });})()}
+      })}
 
       {/* ── Save + Show Builder ── */}
       <div style={{ display:"flex", gap:8, marginBottom:10 }}>
