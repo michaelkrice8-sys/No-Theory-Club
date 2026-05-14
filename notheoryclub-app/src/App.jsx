@@ -29,7 +29,7 @@ const STRUM_PATTERNS = {
 };
 
 const SUPABASE_URL = "https://midwiwtywipemlyxcvau.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZ3dpdHl3aXBlbWx5eGN2YXUiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc0NzIzMTI4OCwiZXhwIjoyMDYyODA3Mjg4fQ.t1MkQoNSm5i8Y8p22hEJaRhbsQK8ydAFRb1VfZmhGKI";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZHdpd3R5d2lwZW1seXhjdmF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3NzQ4NDQsImV4cCI6MjA5NDM1MDg0NH0.S68BZdL37HxQHKyZCNu1pOJIJkTqkxZJznyvhjHntK8";
 
 async function supabaseInsert(name, data) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/songs`, {
