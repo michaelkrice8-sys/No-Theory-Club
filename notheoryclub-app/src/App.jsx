@@ -1025,30 +1025,31 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     if(!isPlaying) return;
     if(scrollSpeed === 0){
       scrollVelocityRef.current = 0;
-      // runScroll will stop itself next frame when velocity===0
+      // runScroll checks velocity each frame and stops itself
     } else {
       scrollVelocityRef.current = scrollSpeed * 0.06;
-      // Restart RAF if it stopped (was at 0)
       if(!scrollRafRef.current)
-        scrollRafRef.current = requestAnimationFrame(runScroll);
+        scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
     }
-  },[scrollSpeed, isPlaying, runScroll]);
+  },[scrollSpeed, isPlaying]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
   // ── Constant-velocity scroll — set once at play start, never recalculated ──
-  const runScroll = useCallback(()=>{
+  const runScrollRef = useRef(null);
+  runScrollRef.current = ()=>{
     if(scrollVelocityRef.current === 0){ scrollRafRef.current = null; return; }
     window.scrollBy(0, scrollVelocityRef.current);
-    scrollRafRef.current = requestAnimationFrame(runScroll);
-  },[]);
+    scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
+  };
+  const runScroll = runScrollRef.current;
 
   const startConstantScroll = useCallback(()=>{
-    if(scrollSpeedRef.current === 0) return; // autoscroll off
-    scrollVelocityRef.current = scrollSpeedRef.current * 0.06; // px per frame
+    if(scrollSpeedRef.current === 0) return;
+    scrollVelocityRef.current = scrollSpeedRef.current * 0.06;
     if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-    scrollRafRef.current = requestAnimationFrame(runScroll);
-  },[runScroll]);
+    scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
+  },[]);
 
   // No-op — row changes do NOT trigger any scroll recalculation
   const scrollToRow = useCallback(()=>{},[]);
@@ -1416,11 +1417,98 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       <div style={{ textAlign:"center", paddingBottom:8, color:"#333", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
       </div>
+
+      {/* ── FIXED BOTTOM CONTROL BAR ── */}
+      <div style={{
+        position:"fixed", bottom:0, left:0, right:0, zIndex:200,
+        background:"rgba(6,6,5,0.97)", backdropFilter:"blur(16px)",
+        borderTop:"1px solid rgba(255,190,11,0.18)",
+        padding:"10px 16px 14px",
+        boxShadow:"0 -8px 32px rgba(0,0,0,0.6)",
+      }}>
+        <div style={{ maxWidth:560, margin:"0 auto" }}>
+
+          {/* Song name + BPM row */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"#FFBE0B",
+              whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:"45%" }}>
+              {loadedSongName || "Song"}
+              {capo>0 && <span style={{ fontSize:10, color:"#888", marginLeft:6, fontWeight:600 }}>Capo {capo}</span>}
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:11, color:"#555", fontWeight:700 }}>BPM</span>
+              <span style={{ fontSize:15, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+            </div>
+          </div>
+
+          {/* BPM slider */}
+          <input type="range" min={20} max={160} value={bpm}
+            onChange={e=>setBpm(Number(e.target.value))}
+            style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
+
+          {/* BPM presets row */}
+          <div style={{ display:"flex", gap:5, marginBottom:10 }}>
+            {[40,60,80,100].map(b=>(
+              <button key={b} onClick={()=>setBpm(b)} style={{
+                flex:1, padding:"5px 0", borderRadius:8,
+                border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
+                background:bpm===b?"rgba(255,190,11,0.15)":"rgba(0,0,0,0.4)",
+                color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+            ))}
+          </div>
+
+          {/* Main controls row */}
+          <div style={{ display:"flex", gap:8, alignItems:"stretch" }}>
+
+            {/* Play / Stop */}
+            <button onClick={handleTogglePlay} style={{
+              flex:1, padding:"12px 8px", borderRadius:14, border:"none",
+              background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
+                : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
+                : "linear-gradient(135deg,#1a6b3c,#27ae60)",
+              color:"#fff", fontWeight:900, cursor:"pointer", transition:"all 0.15s",
+              fontSize: countIn>0 ? 22 : 15,
+              boxShadow: countIn>0 ? "0 4px 16px rgba(255,190,11,0.3)"
+                : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
+                : "0 4px 16px rgba(39,174,96,0.4)" }}>
+              {countIn>0
+                ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,opacity:0.75,marginTop:2}}>tap to skip</div></>
+                : isPlaying ? "⏹ Stop" : "▶ Play Song"}
+            </button>
+
+            {/* Mute */}
+            <button onClick={()=>setMuteClick(m=>!m)} style={{
+              padding:"12px 14px", borderRadius:12,
+              border:muteClick?"2px solid #e74c3c":"1px solid #2a2a2a",
+              background:muteClick?"rgba(231,76,60,0.12)":"rgba(0,0,0,0.4)",
+              color:muteClick?"#e74c3c":"#666", fontSize:20, cursor:"pointer" }}>
+              {muteClick?"🔇":"🔔"}
+            </button>
+
+            {/* Autoscroll */}
+            <div style={{ display:"flex", alignItems:"center", gap:5,
+              background: scrollSpeed>0 ? "rgba(255,190,11,0.1)" : "rgba(0,0,0,0.4)",
+              border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.45)":"#2a2a2a"}`,
+              borderRadius:12, padding:"8px 10px", transition:"all 0.2s" }}>
+              <span style={{ fontSize:13, fontWeight:900,
+                color:scrollSpeed>0?"#FFBE0B":"#555" }}>↕</span>
+              <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
+                width:24, height:24, borderRadius:7, border:"1px solid #333",
+                background:"#1a1a1a", color:"#bbb", fontSize:16, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                opacity:scrollSpeed===0?0.3:1 }}>−</button>
+              <span style={{ fontSize:14, fontWeight:900, minWidth:18, textAlign:"center",
+                color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
+              <button onClick={()=>setScrollSpeed(s=>Math.min(10,s+1))} style={{
+                width:24, height:24, borderRadius:7, border:"1px solid #333",
+                background:"#1a1a1a", color:"#bbb", fontSize:16, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // BUILDER MODE
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ width:"100%" }}>
