@@ -990,6 +990,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [bpm, setBpm] = useState(80);
   const [capo, setCapo] = useState(0);
   const [muteClick, setMuteClick] = useState(false);
+  const [scrollSpeed, setScrollSpeed] = useState(0);
+  const scrollSpeedRef = useRef(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [countIn, setCountIn] = useState(0);
   const [countInBeat, setCountInBeat] = useState(-1);
@@ -1011,6 +1013,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
   useEffect(()=>{ muteRef.current=muteClick; },[muteClick]);
+  useEffect(()=>{ scrollSpeedRef.current=scrollSpeed; },[scrollSpeed]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
@@ -1022,24 +1025,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   },[]);
 
   const startConstantScroll = useCallback(()=>{
-    const secs = sectionsRef.current;
-    if(!secs.length) return;
-
-    // Total song duration in ms (all sections, rows, repeats)
-    const totalMs = secs.reduce((acc, sec)=>
-      acc + sec.rows.reduce((racc, row)=>
-        racc + row.size * (row.repeat||1) * (60/bpmRef.current/4) * 1000, 0), 0);
-
-    // How far we can scroll from current position
-    const scrollableRemaining = Math.max(0,
-      document.body.scrollHeight - window.innerHeight - window.scrollY);
-
-    if(scrollableRemaining < 2 || totalMs <= 0){ return; }
-
-    // One velocity, set once, never touched again until stop
-    const pxPerFrame = (scrollableRemaining / totalMs) * (1000/60);
-    scrollVelocityRef.current = Math.max(0.05, pxPerFrame);
-
+    if(scrollSpeedRef.current === 0) return; // autoscroll off
+    scrollVelocityRef.current = scrollSpeedRef.current * 0.25; // px per frame
     if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(runScroll);
   },[runScroll]);
@@ -1143,6 +1130,87 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     }, ms);
   };
 
+  // ── Save / Load / Share state ──
+  const [savedSongs, setSavedSongs] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("ntc_songs")||"[]"); } catch{ return []; } });
+  const [showSaved, setShowSaved] = useState(false);
+  const [savePrompt, setSavePrompt] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [loadedSongName, setLoadedSongName] = useState(null);
+
+  // ── Encode / decode sections for URL ──
+  const encodeSections = (secs) => secs.map(sec=>({
+    n: sec.name,
+    rows: sec.rows.map(r=>({
+      sz: r.size,
+      rp: r.repeat,
+      sa: r.strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; },[]),
+      bc: Object.fromEntries(r.blockChords.map((v,i)=>[i,v]).filter(([,v])=>v)),
+    }))
+  }));
+
+  const decodeSections = (encoded) => encoded.map(sec=>({
+    id: Date.now()+Math.random(),
+    name: sec.n||"Section",
+    rows: sec.rows.map(r=>{
+      const strumActive = Array(r.sz||8).fill(false);
+      (r.sa||[]).forEach(i=>{ strumActive[i]=true; });
+      const blockChords = Array(r.sz||8).fill(null);
+      Object.entries(r.bc||{}).forEach(([i,v])=>{ blockChords[Number(i)]=v; });
+      return { id:Date.now()+Math.random(), size:r.sz||8, repeat:r.rp||1, strumActive, blockChords };
+    })
+  }));
+
+  const doSave = () => {
+    if(!saveName.trim()) return;
+    const song = { id:Date.now(), name:saveName.trim(), sections:encodeSections(sections), bpm, capo, scrollSpeed, savedAt:new Date().toLocaleDateString() };
+    const updated = [...savedSongs, song];
+    setSavedSongs(updated);
+    try{ localStorage.setItem("ntc_songs", JSON.stringify(updated)); } catch(e){}
+    setSavePrompt(false); setSaveName(""); setShowSaved(true); setLoadedSongName(song.name);
+  };
+
+  const doLoad = (song) => {
+    if(isPlaying){ stopMetronome(); setIsPlaying(false); }
+    setSections(decodeSections(song.sections));
+    setBpm(song.bpm||80); setCapo(song.capo||0);
+    setScrollSpeed(song.scrollSpeed||0);
+    setLoadedSongName(song.name); setShowSaved(false);
+  };
+
+  const doDelete = (id) => {
+    const updated = savedSongs.filter(s=>s.id!==id);
+    setSavedSongs(updated);
+    try{ localStorage.setItem("ntc_songs", JSON.stringify(updated)); } catch(e){}
+  };
+
+  const doShare = (song) => {
+    try {
+      const payload = { n:song.name, secs:song.sections, b:song.bpm, c:song.capo||0, ss:song.scrollSpeed||0 };
+      const encoded = btoa(JSON.stringify(payload));
+      const url = `${window.location.origin}${window.location.pathname}?song=${encoded}`;
+      navigator.clipboard.writeText(url)
+        .then(()=>alert(`✅ Link copied!\n\nShare with anyone — they'll open directly into "${song.name}".`))
+        .catch(()=>prompt("Copy this link:", url));
+    } catch(e){ alert("Couldn't generate share link."); }
+  };
+
+  // ── Load from URL on mount ──
+  useEffect(()=>{
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const encoded = params.get("song");
+      if(!encoded) return;
+      const d = JSON.parse(atob(encoded));
+      if(d.secs) setSections(decodeSections(d.secs));
+      if(d.b) setBpm(d.b);
+      if(d.c) setCapo(d.c);
+      if(d.ss !== undefined) setScrollSpeed(d.ss);
+      setLoadedSongName(d.n||"Shared Song");
+      window.history.replaceState({}, "", window.location.pathname);
+      window.scrollTo(0,0);
+    } catch(e){}
+  },[]);
+
   // ── Section ops ──
   const addSection = ()=>setSections(s=>[...s,makeSection(`Section ${s.length+1}`)]);
   const deleteSection = (id)=>setSections(s=>s.filter(x=>x.id!==id));
@@ -1210,6 +1278,16 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             <button onClick={()=>setCapo(c=>Math.max(0,c-1))} style={capoBtnStyle}>−</button>
             <span style={{ fontSize:14, fontWeight:900, color:capo>0?"#FFBE0B":"#444", minWidth:14, textAlign:"center" }}>{capo}</span>
             <button onClick={()=>setCapo(c=>Math.min(7,c+1))} style={capoBtnStyle}>+</button>
+          </div>
+          {/* Autoscroll speed control */}
+          <div style={{ display:"flex", alignItems:"center", gap:5,
+            background:"#111", border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
+            borderRadius:10, padding:"6px 10px", transition:"border-color 0.2s" }}>
+            <span style={{ fontSize:14 }}>📜</span>
+            <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{...capoBtnStyle, opacity:scrollSpeed===0?0.3:1}}>−</button>
+            <span style={{ fontSize:13, fontWeight:900, minWidth:16, textAlign:"center",
+              color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
+            <button onClick={()=>setScrollSpeed(s=>Math.min(10,s+1))} style={capoBtnStyle}>+</button>
           </div>
           <button onClick={()=>setMuteClick(m=>!m)} style={{
             padding:"8px 12px", borderRadius:10,
@@ -1400,9 +1478,84 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       <button onClick={addSection} style={{
         width:"100%", padding:"12px", borderRadius:14,
         border:"1px dashed #FFBE0B", background:"rgba(255,190,11,0.06)",
-        color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:24 }}>
+        color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:16 }}>
         + Add Section
       </button>
+
+      {/* ── Save / Load / Share ── */}
+      {loadedSongName && (
+        <div style={{ textAlign:"center", marginBottom:10 }}>
+          <span style={{ fontSize:11, color:"#555" }}>Editing: </span>
+          <span style={{ fontSize:13, fontWeight:800, color:"#FFBE0B" }}>{loadedSongName}</span>
+        </div>
+      )}
+      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+        <button onClick={()=>setSavePrompt(p=>!p)} style={{
+          flex:1, padding:"10px", borderRadius:12,
+          border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
+          color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save Song</button>
+        <button onClick={()=>setShowSaved(s=>!s)} style={{
+          flex:1, padding:"10px", borderRadius:12,
+          border:"1px solid #2a2a2a", background:"#111",
+          color:"#888", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          📂 My Songs ({savedSongs.length})
+        </button>
+      </div>
+
+      {savePrompt && (
+        <div style={{ marginBottom:10, background:"#111", border:"1px solid #FFBE0B33", borderRadius:14, padding:"14px" }}>
+          <div style={{ fontSize:12, color:"#888", marginBottom:8, textAlign:"center" }}>Name this song</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <input autoFocus value={saveName} onChange={e=>setSaveName(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&doSave()}
+              placeholder="e.g. Country Roads, Chorus Draft..."
+              style={{ flex:1, padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+                background:"#0a0a0a", color:"#fff", fontSize:13, outline:"none" }} />
+            <button onClick={doSave} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+              background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+              color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Save</button>
+            <button onClick={()=>{setSavePrompt(false);setSaveName("");}} style={{
+              padding:"9px 12px", borderRadius:10, border:"1px solid #333",
+              background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {showSaved && (
+        <div style={{ marginBottom:16, display:"flex", flexDirection:"column", gap:8 }}>
+          {savedSongs.length===0 && (
+            <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"16px 0" }}>
+              No saved songs yet — build something and hit 💾
+            </div>
+          )}
+          {savedSongs.map(s=>(
+            <div key={s.id} style={{ background:"#111", border:"1px solid #2a2a2a",
+              borderRadius:14, padding:"12px 14px",
+              display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:800, color:"#fff",
+                  whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{s.name}</div>
+                <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
+                  {s.sections?.length||0} sections · {s.bpm} BPM{s.capo>0?` · Capo ${s.capo}`:""} · {s.savedAt}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                <button onClick={()=>doLoad(s)} style={{
+                  padding:"6px 12px", borderRadius:8, border:"none",
+                  background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
+                  color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
+                <button onClick={()=>doShare(s)} style={{
+                  padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                  background:"transparent", color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗</button>
+                <button onClick={()=>doDelete(s.id)} style={{
+                  padding:"6px 10px", borderRadius:8, border:"1px solid #333",
+                  background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ textAlign:"center", paddingBottom:8, color:"#333", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
       </div>
