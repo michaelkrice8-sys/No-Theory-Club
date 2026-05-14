@@ -1051,6 +1051,22 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     }
   },[scrollSpeed]);
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
+  // Update sticky header title based on scroll position (when not playing)
+  useEffect(()=>{
+    if(!songViewMode) return;
+    const onScroll = ()=>{
+      if(isPlaying||isPaused) return;
+      let activeIdx = 0;
+      Object.entries(sectionDividerRefs.current).forEach(([idx,el])=>{
+        if(!el) return;
+        const rect = el.getBoundingClientRect();
+        if(rect.top < window.innerHeight * 0.5) activeIdx = Number(idx);
+      });
+      setScrollSectionTitle(sections[activeIdx]?.name || "");
+    };
+    window.addEventListener('scroll', onScroll, { passive:true });
+    return ()=>window.removeEventListener('scroll', onScroll);
+  },[songViewMode, isPlaying, isPaused, sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
   // ── Constant-velocity scroll — set once at play start, never recalculated ──
@@ -1080,7 +1096,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const key = `${secId}_${rowIdx}`;
     const el = rowDomRefs.current[key];
     if(!el) return;
-    el.scrollIntoView({ behavior:'smooth', block:'center' });
+    el.scrollIntoView({ behavior:'smooth', block:'nearest' });
   },[]);
 
   // ── Tick — 16th note per block, matching AdvancedBuildSong exactly ──
@@ -1213,6 +1229,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       setIsPaused(false);
       resumeMetronome(); setIsPlaying(true); return;
     }
+    // Scroll to top if user has scrolled away before starting
+    if(window.scrollY > 80) window.scrollTo({ top:0, behavior:'smooth' });
     await init();
     const ms = (60/bpmRef.current)*1000;
     let beat=4, beatIdx=0;
@@ -1236,6 +1254,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [saveName, setSaveName] = useState("");
   const [loadedSongName, setLoadedSongName] = useState(null);
   const [songViewMode, setSongViewMode] = useState(false);
+  const [scrollSectionTitle, setScrollSectionTitle] = useState("");
+  const sectionDividerRefs = useRef({});
 
   // ── Encode / decode sections for URL ──
   const encodeSections = (secs) => secs.map(sec=>({
@@ -1361,12 +1381,12 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   if(songViewMode) return (
     <div style={{ width:"100%", paddingBottom:210 }}>
 
-      {/* ── Small song title ── */}
-      <div style={{ textAlign:"center", paddingTop:16, paddingBottom:8 }}>
-        <div style={{ fontSize:13, fontWeight:700, color:"#888", letterSpacing:1, marginBottom:2 }}>
+      {/* ── Big song title ── */}
+      <div style={{ textAlign:"center", paddingTop:24, paddingBottom:16 }}>
+        <div style={{ fontSize:38, fontWeight:900, color:"#fff", letterSpacing:0.3, lineHeight:1.1, marginBottom:8 }}>
           {loadedSongName || "Song"}
         </div>
-        {capo > 0 && <div style={{ fontSize:11, color:"#FFBE0B", fontWeight:700 }}>Capo {capo}</div>}
+        {capo > 0 && <div style={{ fontSize:13, color:"#FFBE0B", fontWeight:700 }}>Capo {capo}</div>}
       </div>
 
       {/* ── Sticky section title bar ── */}
@@ -1383,7 +1403,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           textShadow: (isPlaying||isPaused) ? "0 0 14px rgba(255,190,11,0.4)" : "none",
           transition:"color 0.3s, text-shadow 0.3s",
         }}>
-          {sections[playPos.secIdx]?.name || sections[0]?.name || ""}
+          {(isPlaying||isPaused) ? (sections[playPos.secIdx]?.name || "") : (scrollSectionTitle || sections[0]?.name || "")}
           {(()=>{
             const sec = sections[playPos.secIdx];
             return sec && (sec.repeat||1) > 1
@@ -1413,13 +1433,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       {/* ── Flat row list — all sections, seamless ── */}
       {sections.map((sec, secIdx) => (
         <div key={sec.id}>
-          {/* Section divider (not first) */}
+          {/* Section divider — ref for scroll detection */}
           {secIdx > 0 && (
-            <div style={{
-              display:"flex", alignItems:"center", gap:10, padding:"12px 16px",
-              opacity: (isPlaying||isPaused) && playPos.secIdx !== secIdx ? 0.3 : 1,
-              transition:"opacity 0.4s",
-            }}>
+            <div ref={el=>{ sectionDividerRefs.current[secIdx]=el; }}
+              style={{
+                display:"flex", alignItems:"center", gap:10, padding:"12px 16px",
+                opacity: (isPlaying||isPaused) && playPos.secIdx !== secIdx ? 0.3 : 1,
+                transition:"opacity 0.4s",
+              }}>
               <div style={{ flex:1, height:1, background:"#2a2a2a" }} />
               <div style={{ fontSize:12, fontWeight:800, color:"#555", letterSpacing:0.5 }}>{sec.name}</div>
               <div style={{ flex:1, height:1, background:"#2a2a2a" }} />
@@ -1430,6 +1451,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           {sec.rows.map((row, rowIdx) => {
             const isActiveSection = (isPlaying||isPaused) && playPos.secIdx === secIdx;
             const isActiveRow = isActiveSection && playPos.rowIdx === rowIdx;
+            const isFirstRowOfSection = rowIdx === 0;
             const rowKey = `${sec.id}_${rowIdx}`;
             const rep = row.repeat || 1;
             const remaining = isActiveRow ? rep - playPos.pass : rep;
@@ -1444,6 +1466,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   borderLeft: isActiveRow ? "3px solid rgba(255,190,11,0.6)" : "3px solid transparent",
                   transition:"background 0.3s, border-color 0.3s",
                   opacity: (isPlaying||isPaused) && !isActiveSection ? 0.25 : 1,
+                  position:"relative",
                 }}>
                 <div style={{ display:"flex", alignItems:"center" }}>
                   {/* Countdown badge */}
@@ -1465,6 +1488,14 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                         const isCountGlow = countIn>0 && rowIdx===0 && secIdx===0 && colIdx===countInBeat;
                         return (
                           <div key={colIdx} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            {/* Start here tap hint on first block of section */}
+                            {isFirstRowOfSection && colIdx===0 && !(isPlaying||isPaused) && (
+                              <div onClick={()=>startFromSection(secIdx)} style={{
+                                position:"absolute", top:-18, left:0,
+                                fontSize:9, color:"#555", fontWeight:700,
+                                letterSpacing:0.3, cursor:"pointer", whiteSpace:"nowrap",
+                                userSelect:"none" }}>▶ start here</div>
+                            )}
                             {isCountGlow
                               ? <div style={{ width:40, height:40, borderRadius:10, display:"flex",
                                   alignItems:"center", justifyContent:"center",
