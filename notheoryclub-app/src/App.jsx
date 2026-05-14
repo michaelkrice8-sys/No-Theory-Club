@@ -1234,7 +1234,12 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     if(countIn>0){
       clearInterval(countInRef.current);
       setCountIn(0); setCountInBeat(-1);
-      startMetronome(); setIsPlaying(true); return;
+      // Don't reset position — keep whatever playPosRef was set to (from startFromRow or startFromSection)
+      if(intervalRef.current) clearInterval(intervalRef.current);
+      const ms16 = (60/bpmRef.current/4)*1000;
+      intervalRef.current = setInterval(tick, ms16);
+      tick();
+      setIsPlaying(true); return;
     }
     if(isPaused){
       setIsPaused(false);
@@ -1249,7 +1254,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       if(beat<=0){
         clearInterval(countInRef.current);
         setCountIn(0); setCountInBeat(-1);
-        startMetronome(); setIsPlaying(true);
+        // startMetronome resets position — instead start fresh from top directly
+        playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
+        setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
+        currentChordRef.current = null;
+        if(intervalRef.current) clearInterval(intervalRef.current);
+        const ms16 = (60/bpmRef.current/4)*1000;
+        intervalRef.current = setInterval(tick, ms16);
+        tick();
+        setIsPlaying(true);
       } else {
         setCountIn(beat); setCountInBeat(beatIdx%8); playChordClick(false);
       }
