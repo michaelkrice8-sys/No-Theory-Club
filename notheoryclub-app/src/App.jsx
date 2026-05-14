@@ -1002,6 +1002,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [countIn, setCountIn] = useState(0);
   const [countInBeat, setCountInBeat] = useState(-1);
+  const [isPaused, setIsPaused] = useState(false);
   const [playPos, setPlayPos] = useState({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
 
   // ── Refs ──
@@ -1050,6 +1051,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
   },[]);
+
+  // Start scroll when playback begins (covers view mode path)
+  useEffect(()=>{
+    if(isPlaying && scrollSpeedRef.current > 0){
+      scrollVelocityRef.current = scrollSpeedRef.current * 0.06;
+      if(!scrollRafRef.current)
+        scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
+    }
+  },[isPlaying]);
 
   // No-op — row changes do NOT trigger any scroll recalculation
   const scrollToRow = useCallback(()=>{},[]);
@@ -1131,18 +1141,45 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
   },[]);
 
-  useEffect(()=>{ if(isPlaying){ stopMetronome(); startMetronome(); } },[bpm]);
+  const pauseMetronome = useCallback(()=>{
+    // Pause without resetting position
+    clearInterval(intervalRef.current); intervalRef.current = null;
+    scrollVelocityRef.current = 0;
+    if(scrollRafRef.current){ cancelAnimationFrame(scrollRafRef.current); scrollRafRef.current = null; }
+  },[]);
+
+  const resumeMetronome = useCallback(()=>{
+    // Resume from current position
+    if(intervalRef.current) clearInterval(intervalRef.current);
+    const ms = (60/bpmRef.current/4)*1000;
+    intervalRef.current = setInterval(tick, ms);
+    tick();
+    startConstantScroll();
+  },[tick, startConstantScroll]);
+
+  useEffect(()=>{
+    bpmRef.current = bpm;
+    if(isPlaying){
+      pauseMetronome();
+      setIsPlaying(false);
+      setIsPaused(true);
+    }
+  },[bpm]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
   // ── Countdown — identical to Advanced ──
   const handleTogglePlay = async()=>{
     if(isPlaying){
-      stopMetronome(); setIsPlaying(false); setCountIn(0); setCountInBeat(-1); return;
+      stopMetronome(); setIsPlaying(false); setIsPaused(false); setCountIn(0); setCountInBeat(-1); return;
     }
     if(countIn>0){
       clearInterval(countInRef.current);
       setCountIn(0); setCountInBeat(-1);
       startMetronome(); setIsPlaying(true); return;
+    }
+    if(isPaused){
+      setIsPaused(false);
+      resumeMetronome(); setIsPlaying(true); return;
     }
     await init();
     const ms = (60/bpmRef.current)*1000;
@@ -1465,15 +1502,17 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               flex:1, padding:"12px 8px", borderRadius:14, border:"none",
               background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
                 : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
-                : "linear-gradient(135deg,#1a6b3c,#27ae60)",
-              color:"#fff", fontWeight:900, cursor:"pointer", transition:"all 0.15s",
+                : isPaused ? "linear-gradient(135deg,#FFBE0B,#F79200)"
+                : "linear-gradient(135deg,#FFD60A,#F77F00)",
+              color: isPlaying ? "#fff" : "#111",
+              fontWeight:900, cursor:"pointer", transition:"all 0.15s",
               fontSize: countIn>0 ? 22 : 15,
               boxShadow: countIn>0 ? "0 4px 16px rgba(255,190,11,0.3)"
                 : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
-                : "0 4px 16px rgba(39,174,96,0.4)" }}>
+                : "0 4px 24px rgba(255,214,10,0.45)" }}>
               {countIn>0
                 ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,opacity:0.75,marginTop:2}}>tap to skip</div></>
-                : isPlaying ? "⏹ Stop" : "▶ Play Song"}
+                : isPlaying ? "⏹ Stop" : isPaused ? "▶ Resume" : "▶ Play Song"}
             </button>
 
             {/* Mute */}
@@ -1490,8 +1529,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               background: scrollSpeed>0 ? "rgba(255,190,11,0.1)" : "rgba(0,0,0,0.4)",
               border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.45)":"#2a2a2a"}`,
               borderRadius:12, padding:"8px 10px", transition:"all 0.2s" }}>
-              <span style={{ fontSize:13, fontWeight:900,
-                color:scrollSpeed>0?"#FFBE0B":"#555" }}>↕</span>
+              <span style={{ fontSize:20, fontWeight:900,
+                color:scrollSpeed>0?"#FFBE0B":"#555", lineHeight:1 }}>↕</span>
               <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
                 width:24, height:24, borderRadius:7, border:"1px solid #333",
                 background:"#1a1a1a", color:"#bbb", fontSize:16, cursor:"pointer",
@@ -1542,7 +1581,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           <div style={{ display:"flex", alignItems:"center", gap:5,
             background:"#111", border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.4)":"#2a2a2a"}`,
             borderRadius:10, padding:"6px 10px", transition:"border-color 0.2s" }}>
-            <span style={{ fontSize:13, fontWeight:900, color:"#555" }}>↕</span>
+            <span style={{ fontSize:18, fontWeight:900, color:scrollSpeed>0?"#FFBE0B":"#555", lineHeight:1 }}>↕</span>
             <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{...capoBtnStyle, opacity:scrollSpeed===0?0.3:1}}>−</button>
             <span style={{ fontSize:13, fontWeight:900, minWidth:16, textAlign:"center",
               color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
@@ -1557,10 +1596,10 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
           </button>
           <button onClick={handleTogglePlay} style={{
             flex:1, padding:"10px", borderRadius:12, border:"none",
-            background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
-            color:"#fff", fontSize:countIn>0?20:14, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
-            boxShadow:countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)" }}>
-            {countIn>0?<><div style={{fontSize:20,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:9,opacity:0.75,marginTop:2}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Play Song"}
+            background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":isPaused?"linear-gradient(135deg,#FFBE0B,#F79200)":"linear-gradient(135deg,#FFD60A,#F77F00)",
+            color:isPlaying?"#fff":"#111", fontSize:countIn>0?20:14, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
+            boxShadow:countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 24px rgba(255,214,10,0.45)" }}>
+            {countIn>0?<><div style={{fontSize:20,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:9,opacity:0.75,marginTop:2}}>tap to skip</div></>:isPlaying?"⏹ Stop":isPaused?"▶ Resume":"▶ Play Song"}
           </button>
         </div>
       </div>
