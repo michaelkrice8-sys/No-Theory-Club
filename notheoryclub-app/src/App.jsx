@@ -1075,8 +1075,13 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     scrollRafRef.current = requestAnimationFrame(runScrollRef.current);
   },[]);
 
-  // No-op — row changes do NOT trigger any scroll recalculation
-  const scrollToRow = useCallback(()=>{},[]);
+  // Smooth scroll to active row on each row change
+  const scrollToRow = useCallback((secId, rowIdx)=>{
+    const key = `${secId}_${rowIdx}`;
+    const el = rowDomRefs.current[key];
+    if(!el) return;
+    el.scrollIntoView({ behavior:'smooth', block:'center' });
+  },[]);
 
   // ── Tick — 16th note per block, matching AdvancedBuildSong exactly ──
   const tick = useCallback(()=>{
@@ -1143,8 +1148,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000; // 16th note per block
     intervalRef.current = setInterval(tick, ms);
     tick(); // fire immediately — no gap after countdown
-    startConstantScroll(); // kick off one-time constant scroll
-  },[tick, startConstantScroll]);
+  },[tick]);
 
   const stopMetronome = useCallback(()=>{
     clearInterval(intervalRef.current); intervalRef.current = null;
@@ -1168,8 +1172,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
-    startConstantScroll();
-  },[tick, startConstantScroll]);
+  },[tick]);
 
   const startFromSection = useCallback(async(secIdx)=>{
     if(!intervalRef.current) await init();
@@ -1183,9 +1186,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const ms = (60/bpmRef.current/4)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
-    startConstantScroll();
     setIsPlaying(true);
-  },[init, tick, startConstantScroll]);
+  },[init, tick]);
 
   useEffect(()=>{
     bpmRef.current = bpm;
@@ -1583,24 +1585,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               color:muteClick?"#e74c3c":"#666", fontSize:20, cursor:"pointer" }}>
               {muteClick?"🔇":"🔔"}
             </button>
-            <div style={{ display:"flex", alignItems:"center", gap:5,
-              background: scrollSpeed>0 ? "rgba(255,190,11,0.1)" : "rgba(0,0,0,0.4)",
-              border:`1px solid ${scrollSpeed>0?"rgba(255,190,11,0.45)":"#2a2a2a"}`,
-              borderRadius:12, padding:"8px 10px", transition:"all 0.2s" }}>
-              <span style={{ fontSize:20, fontWeight:900,
-                color:scrollSpeed>0?"#FFBE0B":"#555", lineHeight:1 }}>↕</span>
-              <button onClick={()=>setScrollSpeed(s=>Math.max(0,s-1))} style={{
-                width:24, height:24, borderRadius:7, border:"1px solid #333",
-                background:"#1a1a1a", color:"#bbb", fontSize:16, cursor:"pointer",
-                display:"flex", alignItems:"center", justifyContent:"center",
-                opacity:scrollSpeed===0?0.3:1 }}>−</button>
-              <span style={{ fontSize:14, fontWeight:900, minWidth:18, textAlign:"center",
-                color:scrollSpeed>0?"#FFBE0B":"#444" }}>{scrollSpeed}</span>
-              <button onClick={()=>setScrollSpeed(s=>Math.min(10,s+1))} style={{
-                width:24, height:24, borderRadius:7, border:"1px solid #333",
-                background:"#1a1a1a", color:"#bbb", fontSize:16, cursor:"pointer",
-                display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
-            </div>
+
           </div>
         </div>
       </div>
