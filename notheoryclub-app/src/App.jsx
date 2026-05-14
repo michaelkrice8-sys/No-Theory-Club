@@ -1526,13 +1526,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                   </div>
                   {/* Content: lyrics above blocks, same scroll container */}
                   <div style={{ flex:1, overflowX:"auto" }}>
-                    {row.text && showLyrics && (
+                    {row.text && (
                       <div style={{
                         fontSize: row.textSize||23, color:"#fff", lineHeight:1.5,
                         paddingTop:6, paddingBottom:4,
                         whiteSpace:"pre", width:"max-content",
-                        opacity: (isPlaying||isPaused) ? (isActiveRow ? 1 : 0.45) : 1,
+                        opacity: !showLyrics ? 0 : (isPlaying||isPaused) ? (isActiveRow ? 1 : 0.45) : 1,
                         transition:"opacity 0.3s",
+                        userSelect: showLyrics ? "text" : "none",
+                        pointerEvents: showLyrics ? "auto" : "none",
                       }}>{row.text}</div>
                     )}
                     <div style={{ paddingTop: row.text ? 0 : 18, paddingBottom:10 }}>
