@@ -1034,6 +1034,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const playPosRef = useRef({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
   const rowDomRefs = useRef({});
   const currentChordRef = useRef(null);
+  const countdownTargetRef = useRef({ secIdx:0, rowIdx:0 }); // tracks which row countdown shows on
   const scrollVelocityRef = useRef(0);   // px per RAF frame
   const scrollRafRef = useRef(null);
 
@@ -1189,6 +1190,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   },[init, tick]);
 
   const startFromRow = useCallback(async(secIdx, rowIdx)=>{
+    countdownTargetRef.current = { secIdx, rowIdx }; // set immediately, no async delay
     await init();
     clearInterval(intervalRef.current); intervalRef.current = null;
     clearInterval(countInRef.current);
@@ -1470,7 +1472,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch = row.blockChords[colIdx];
                         const isBeat = isActiveRow && playPos.beat === colIdx;
-                        const isCountGlow = countIn>0 && rowIdx===0 && secIdx===0 && colIdx===countInBeat;
+                        const isCountGlow = countIn>0 && secIdx===countdownTargetRef.current.secIdx && rowIdx===countdownTargetRef.current.rowIdx && colIdx===countInBeat;
                         return (
                           <div key={colIdx} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
                             {isCountGlow
