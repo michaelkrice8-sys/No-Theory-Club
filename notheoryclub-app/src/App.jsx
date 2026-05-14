@@ -1360,10 +1360,10 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     <div style={{ width:"100%", paddingBottom:210 }}>
 
       {/* ── Title ── */}
-      <div style={{ textAlign:"center", marginBottom:20 }}>
-        <div style={{ fontSize:26, fontWeight:900, color:"#fff", letterSpacing:0.3,
+      <div style={{ textAlign:"center", marginBottom:20, paddingTop:16 }}>
+        <div style={{ fontSize:30, fontWeight:900, color:"#fff", letterSpacing:0.3,
           textShadow: isPlaying ? "0 0 20px rgba(255,190,11,0.5)" : "none",
-          transition:"text-shadow 0.4s", lineHeight:1.2, marginBottom:4 }}>
+          transition:"text-shadow 0.4s", lineHeight:1.2, marginBottom:6 }}>
           {loadedSongName || "Song"}
         </div>
         {capo > 0 && <div style={{ fontSize:12, color:"#FFBE0B", fontWeight:700, opacity:0.7 }}>Capo {capo}</div>}
@@ -1420,7 +1420,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
               {sec.rows.map((row, rowIdx)=>{
                 const isActiveRow = isActiveSection && playPos.rowIdx===rowIdx;
                 return (
-                  <div key={row.id} style={{ width:"100%", overflowX:"auto", paddingTop:6, paddingBottom:6 }}>
+                  <div key={row.id} style={{ width:"100%", overflowX:"auto", paddingTop:18, paddingBottom:10 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:3, flexWrap:"nowrap", width:"max-content", margin:"0 auto" }}>
                       {/* Left repeat countdown — shows remaining passes, disappears at 1 */}
                       {(()=>{
@@ -1480,7 +1480,15 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         <button onClick={()=>setSavePrompt(p=>!p)} style={{
           flex:1, padding:"10px", borderRadius:12,
           border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
-          color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save to My Songs</button>
+          color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+        <button onClick={()=>{
+          if(!loadedSongName) return;
+          const song = { name:loadedSongName, sections:encodeSections(sections), bpm, capo, scrollSpeed };
+          doShare(song);
+        }} style={{
+          flex:1, padding:"10px", borderRadius:12,
+          border:"1px solid #4a6aff44", background:"rgba(74,106,255,0.07)",
+          color:"#6b9fff", fontSize:13, fontWeight:700, cursor:"pointer" }}>🔗 Share</button>
       </div>
       {savePrompt && (
         <div style={{ marginBottom:10, background:"#111", border:"1px solid #FFBE0B33", borderRadius:14, padding:"14px" }}>
