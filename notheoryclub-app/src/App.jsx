@@ -2276,7 +2276,9 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
     // Map nextRaw to strumActive index (row2 starts at index 8)
     const strumIdx = nextRaw < r1 ? nextRaw : 8 + (nextRaw - r1);
     setCurrentStrum(strumIdx);
-    if(nextRaw===0 && !firstTickRef.current){
+    // Bar boundary = start of row 1 OR start of row 2 (each row = 1 bar)
+    const isBarStart = nextRaw===0 || (has2 && nextRaw===r1);
+    if(isBarStart && !firstTickRef.current){
       const nextChordBeat=(chordBeatRef.current+1)%bpc;
       chordBeatRef.current=nextChordBeat;
       setBeatCount(nextChordBeat);
@@ -2339,7 +2341,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
 
   const canPlay = songChords.length>=1;
   const nextChordIndex = songChords.length>0?(chordIndex+1)%songChords.length:0;
-  const isLastBeat = isPlaying&&beatsPerChord>1&&beatCount===beatsPerChord-1;
+  const isLastBeat = isPlaying&&beatCount===beatsPerChord-1;
 
   const handleTogglePlay = async()=>{
     if(isPlaying){ stopMetronome(); setIsPlaying(false); return; }
