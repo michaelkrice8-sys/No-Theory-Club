@@ -473,6 +473,7 @@ function StrummingTab({ audio }) {
         setBuildActive(d.strumActive);
         setHasSecondRow(d.hasSecondRow);
         setRow1Size(d.row1Size); setRow2Size(d.row2Size);
+        if(d.bpm) setBpm(d.bpm);
         setMode("build");
         setSharedViewName(d.name||"Shared Pattern");
         setStrumSaveName(d.name||"Shared Pattern");
@@ -576,6 +577,7 @@ function StrummingTab({ audio }) {
           hasSecondRow={hasSecondRow} setHasSecondRow={setHasSecondRow}
           row1Size={row1Size} setRow1Size={setRow1Size}
           row2Size={row2Size} setRow2Size={setRow2Size}
+          bpm={bpm} setBpm={setBpm}
           currentBeat={currentBeat} isPlaying={isPlaying}
           stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
           savedStrums={savedStrums} setSavedStrums={setSavedStrums}
@@ -4184,6 +4186,7 @@ function ChordCard({ chord, isActive, accentColor }) {
 
 function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSecondRow,
   row1Size, setRow1Size, row2Size, setRow2Size,
+  bpm, setBpm,
   currentBeat, isPlaying, stopMetronome, setIsPlaying,
   savedStrums, setSavedStrums, showSavedStrums, setShowSavedStrums,
   strumSavePrompt, setStrumSavePrompt, strumSaveName, setStrumSaveName,
@@ -4195,7 +4198,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSeco
   const doSave = () => {
     if(!strumSaveName.trim()) return;
     const pattern = { id:Date.now(), name:strumSaveName.trim(),
-      buildActive, hasSecondRow, row1Size, row2Size,
+      buildActive, hasSecondRow, row1Size, row2Size, bpm,
       savedAt:new Date().toLocaleDateString() };
     const updated = [...savedStrums, pattern];
     setSavedStrums(updated);
@@ -4209,13 +4212,14 @@ function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSeco
     setHasSecondRow(p.hasSecondRow||false);
     setRow1Size(p.row1Size||8);
     setRow2Size(p.row2Size||8);
+    if(p.bpm) setBpm(p.bpm);
     setShowSavedStrums(false);
   };
 
   const doShare = (p) => {
     try {
       const encoded = encodeStrumDrill(p.name, p.buildActive, p.hasSecondRow||false,
-        p.row1Size||8, p.row2Size||8, [], 60, 2, {});
+        p.row1Size||8, p.row2Size||8, [], p.bpm||bpm, 2, {});
       const url = `${window.location.origin}${window.location.pathname}?strum=${encoded}`;
       if(navigator.clipboard && navigator.clipboard.writeText){
         navigator.clipboard.writeText(url)
