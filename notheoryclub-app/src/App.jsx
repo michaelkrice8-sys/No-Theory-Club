@@ -4443,7 +4443,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSeco
                 <div style={{ fontSize:13, fontWeight:800, color:"#fff",
                   whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
                 <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
-                  {p.hasSecondRow?"2 rows":"1 row"} · {p.savedAt}
+                  {p.bpm ? `${p.bpm} BPM · ` : ""}{p.hasSecondRow?"2 rows":"1 row"} · {p.savedAt}
                 </div>
               </div>
               <div style={{ display:"flex", gap:6, marginLeft:10 }}>
