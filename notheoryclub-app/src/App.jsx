@@ -315,7 +315,8 @@ export default function App() {
   ];
 
   // Share view — clean layout, no tabs
-  if(hasSharedSong) return (
+  const anyShared = hasSharedSong || hasSharedDrill || hasSharedStrum || hasSharedStrumProg || hasSharedPattern;
+  if(anyShared) return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
       <div style={{ textAlign:"center", padding:"14px 16px 6px", background:"rgba(10,10,8,0.98)" }}>
@@ -323,7 +324,12 @@ export default function App() {
         <div style={{ fontSize:10, color:"#555" }}>Guitar Practice Tool</div>
       </div>
       <div style={{ maxWidth:560, margin:"0 auto", padding:"0 16px" }}>
-        <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />
+        {hasSharedSong && <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
+        {hasSharedDrill && <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} />}
+        {hasSharedStrum && <StrummingTab audio={audio} sharedView={true} />}
+        {(hasSharedStrumProg || hasSharedPattern) && (
+          <BuildSongTab audio={audio} initialBuildMode={buildMode} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} />
+        )}
       </div>
     </div>
   );
@@ -385,7 +391,7 @@ export default function App() {
 }
 
 // ─── STRUMMING TAB ──────────────────────────────────────────────────────────
-function StrummingTab({ audio }) {
+function StrummingTab({ audio, sharedView=false }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState("practice");
   const [pattern, setPattern] = useState(null);
@@ -496,11 +502,15 @@ function StrummingTab({ audio }) {
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
-      <SectionHeader title="Foundations of Strumming"
-        sub="Every pattern uses the same motion — ghost strokes keep the rhythm, they just miss the strings." />
+      {!sharedView && (
+        <>
+          <SectionHeader title="Foundations of Strumming"
+            sub="Every pattern uses the same motion — ghost strokes keep the rhythm, they just miss the strings." />
 
-      <ModeTabs options={[["practice","🎸 Practice"],["build","🛠 Build"]]}
-        value={mode} onChange={m=>{ setMode(m); stopMetronome(); setIsPlaying(false); }} />
+          <ModeTabs options={[["practice","🎸 Practice"],["build","🛠 Build"]]}
+            value={mode} onChange={m=>{ setMode(m); stopMetronome(); setIsPlaying(false); }} />
+        </>
+      )}
 
       {/* Chord selector bar */}
       <div style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a",
@@ -601,7 +611,7 @@ function StrummingTab({ audio }) {
 }
 
 // ─── CHORDS TAB ─────────────────────────────────────────────────────────────
-function ChordsTab({ audio, chordVariants, updateVariant }) {
+function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [viewMode, setViewMode] = useState("presets");
   const [selectedPack, setSelectedPack] = useState(null);
@@ -744,14 +754,18 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
-      <SectionHeader title="Chord Switching"
-        sub={<>The goal is a clean chord <em style={{color:"#666"}}>before</em> the beat hits.</>} />
+      {!sharedView && (
+        <>
+          <SectionHeader title="Chord Switching"
+            sub={<>The goal is a clean chord <em style={{color:"#666"}}>before</em> the beat hits.</>} />
 
-      <ModeTabs options={[["presets","🎵 Presets"],["build","🛠 Build Your Own"]]}
-        value={viewMode} onChange={m=>{ setViewMode(m); stopMetronome(); setIsPlaying(false);
-          setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }} />
+          <ModeTabs options={[["presets","🎵 Presets"],["build","🛠 Build Your Own"]]}
+            value={viewMode} onChange={m=>{ setViewMode(m); stopMetronome(); setIsPlaying(false);
+              setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }} />
+        </>
+      )}
 
-      {viewMode==="presets" && (
+      {!sharedView && viewMode==="presets" && (
         <div style={{ width:"100%", marginBottom:20 }}>
           <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>CHOOSE A PACK</div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -806,15 +820,17 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
               chordVariants={chordVariants} updateVariant={updateVariant}
               allowDuplicates={true} />
           )}
-          <button onClick={()=>setPickerOpen(o=>!o)} style={{
-            width:"100%", marginBottom:12, padding:"8px",
-            borderRadius:10, border:"1px solid #2a2a2a",
-            background:"transparent",
-            color:"#555", fontSize:11, fontWeight:700,
-            cursor:"pointer", letterSpacing:1,
-          }}>
-            {pickerOpen ? "▲  HIDE BUILDER" : "▼  SHOW BUILDER"}
-          </button>
+          {!sharedView && (
+            <button onClick={()=>setPickerOpen(o=>!o)} style={{
+              width:"100%", marginBottom:12, padding:"8px",
+              borderRadius:10, border:"1px solid #2a2a2a",
+              background:"transparent",
+              color:"#555", fontSize:11, fontWeight:700,
+              cursor:"pointer", letterSpacing:1,
+            }}>
+              {pickerOpen ? "▲  HIDE BUILDER" : "▼  SHOW BUILDER"}
+            </button>
+          )}
         </>
       )}
 
@@ -879,7 +895,7 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
         onToggle={handleTogglePlay} canPlay={canPlay}
         disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"} />
 
-      {viewMode==="build" && (
+      {!sharedView && viewMode==="build" && (
         <div style={{ width:"100%", marginBottom:8 }}>
           {/* Save / Load row */}
           <div style={{ display:"flex", gap:8, marginBottom:8 }}>
@@ -1002,21 +1018,25 @@ function ChordsTab({ audio, chordVariants, updateVariant }) {
 }
 
 // ─── BUILD A SONG TAB ────────────────────────────────────────────────────────
-function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant }) {
+function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant, sharedView=false }) {
   const [buildMode, setBuildMode] = useState(initialBuildMode);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
-      <SectionHeader title="🎵 Build a Song"
-        sub="Build chords and strumming patterns together." />
+      {!sharedView && (
+        <>
+          <SectionHeader title="🎵 Build a Song"
+            sub="Build chords and strumming patterns together." />
 
-      <ModeTabs options={[["simple","🎸 Simple"],["advanced","⚡ Advanced"],["song","📋 Song"]]}
-        value={buildMode} onChange={setBuildMode} />
+          <ModeTabs options={[["simple","🎸 Simple"],["advanced","⚡ Advanced"],["song","📋 Song"]]}
+            value={buildMode} onChange={setBuildMode} />
+        </>
+      )}
 
-      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
-      {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
+      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} />}
+      {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} />}
       {buildMode === "song" && <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
     </div>
   );
@@ -2195,7 +2215,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   );
 }
 
-function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
+function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [songChords, setSongChords] = useState([]);
   const [strumActive, setStrumActive] = useState(defaultBuild(8).concat(Array(8).fill(false)));
@@ -2812,7 +2832,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant }) {
 
 
 // ─── ADVANCED BUILD A SONG ───────────────────────────────────────────────────
-function AdvancedBuildSong({ audio, chordVariants, updateVariant }) {
+function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [rowSizes, setRowSizes] = useState([8]);
   const [rowRepeats, setRowRepeats] = useState([1]); // repeat count per row
