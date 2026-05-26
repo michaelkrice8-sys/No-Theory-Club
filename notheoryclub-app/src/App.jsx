@@ -1996,25 +1996,28 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           }}
                         />
                       </div>}
-                      <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"nowrap" }}>
+                      <div style={{ display:"flex", gap:3, justifyContent:"center", flexWrap:"nowrap" }}>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
                         const isBeat=isActiveRow&&playPos.beat===colIdx;
                         const isCountGlow=countIn>0&&rowIdx===0&&idx===0&&colIdx===countInBeat;
                         return (
-                          <div key={colIdx} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                            {isCountGlow
-                              ? <div style={{ width:40, height:40, borderRadius:10,
-                                  display:"flex", alignItems:"center", justifyContent:"center",
-                                  background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
-                                  boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
-                                  <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
-                                </div>
-                              : <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
-                                  beat={isBeat} assigned={!!ch}
-                                  onClick={()=>handleBlockClick(sec.id,rowIdx,colIdx,isAssigning)} />
-                            }
-                            <div style={{ fontSize:13, fontWeight:900, height:18, lineHeight:"18px",
+                          <div key={colIdx} style={{ flex:"1 1 0", minWidth:0, maxWidth:40,
+                            display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            <div style={{ width:"100%", aspectRatio:"1/1", display:"flex" }}>
+                              {isCountGlow
+                                ? <div style={{ width:"100%", height:"100%", borderRadius:10,
+                                    display:"flex", alignItems:"center", justifyContent:"center",
+                                    background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                    boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                    <span style={{ color:"#fff", fontWeight:900, fontSize:"min(18px, 4.5vw)" }}>{countIn}</span>
+                                  </div>
+                                : <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
+                                    beat={isBeat} assigned={!!ch} fluid
+                                    onClick={()=>handleBlockClick(sec.id,rowIdx,colIdx,isAssigning)} />
+                              }
+                            </div>
+                            <div style={{ fontSize:"min(13px, 3.2vw)", fontWeight:900, height:18, lineHeight:"18px",
                               color:ch?"#FFBE0B":"transparent",
                               textShadow:ch&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none" }}>{ch||"·"}</div>
                           </div>
@@ -2734,11 +2737,13 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                   {sizeLabel(row1Size)} ↻
                 </button>
               </div>
-              <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+              <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap" }}>
                 {Array(row1Size).fill(null).map((_,i)=>(
-                  <BuildBlock key={i} dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying}
-                    onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                      setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v)); setStrumPatternBtn(null); }} />
+                  <div key={i} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+                    <BuildBlock dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying} fluid
+                      onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                        setStrumActive(p=>p.map((v,idx)=>idx===i?!v:v)); setStrumPatternBtn(null); }} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -2756,11 +2761,13 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                     {sizeLabel(row2Size)} ↻
                   </button>
                 </div>
-                <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap" }}>
                   {Array(row2Size).fill(null).map((_,i)=>(
-                    <BuildBlock key={i+8} dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying}
-                      onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                        setStrumActive(p=>p.map((v,idx)=>idx===i+8?!v:v)); setStrumPatternBtn(null); }} />
+                    <div key={i+8} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+                      <BuildBlock dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying} fluid
+                        onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                          setStrumActive(p=>p.map((v,idx)=>idx===i+8?!v:v)); setStrumPatternBtn(null); }} />
+                    </div>
                   ))}
                 </div>
               </div>
@@ -3371,11 +3378,12 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                     <div key={rowIdx}
                       ref={el => { viewRowRefs.current[rowIdx] = el; }}
                       style={{ marginBottom:10, opacity:rowOpacity, transition:"opacity 0.5s ease" }}>
-                      <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:3, justifyContent:"center", flexWrap:"nowrap" }}>
                         {/* Repeat label — height 40 + flex-start keeps it aligned with block center */}
                         <div style={{
-                          width:38, height:40, display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize: isActiveRow ? 22 : 17, fontWeight:900,
+                          flex:"0 0 auto",
+                          width:"min(38px, 9vw)", height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize: isActiveRow ? "min(22px, 5.5vw)" : "min(17px, 4.5vw)", fontWeight:900,
                           color: isActiveRow ? "#FFBE0B" : "#F79200",
                           textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
                           letterSpacing:0.5, transition:"all 0.3s",
@@ -3384,18 +3392,21 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                           const i = offset+colIdx;
                           const isCountInGlow = countIn > 0 && rowIdx === 0 && colIdx === countInBeat;
                           return (
-                            <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                              {isCountInGlow
-                                ? <div style={{ width:40, height:40, borderRadius:10,
-                                    display:"flex", alignItems:"center", justifyContent:"center",
-                                    background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
-                                    boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
-                                    <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
-                                  </div>
-                                : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
-                                    beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
-                              }
-                              <div style={{ fontSize:20, fontWeight:900, height:22,
+                            <div key={i} style={{ flex:"1 1 0", minWidth:0, maxWidth:40,
+                              display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                              <div style={{ width:"100%", aspectRatio:"1/1", display:"flex" }}>
+                                {isCountInGlow
+                                  ? <div style={{ width:"100%", height:"100%", borderRadius:10,
+                                      display:"flex", alignItems:"center", justifyContent:"center",
+                                      background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                      boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                      <span style={{ color:"#fff", fontWeight:900, fontSize:"min(18px, 4.5vw)" }}>{countIn}</span>
+                                    </div>
+                                  : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                                      beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} fluid onClick={()=>{}} />
+                                }
+                              </div>
+                              <div style={{ fontSize:"min(20px, 4.8vw)", fontWeight:900, height:22,
                                 color:blockChords[i]?"#FFBE0B":"transparent",
                                 opacity: blockChords[i] ? 0.9 : 0,
                                 textShadow:blockChords[i]&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none",
@@ -3435,10 +3446,11 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                   const isActiveRow = activeRowIdx === rowIdx;
                   return (
                     <div key={rowIdx} style={{ marginBottom:10 }}>
-                      <div style={{ display:"flex", alignItems:"flex-start", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:3, justifyContent:"center", flexWrap:"nowrap" }}>
                         <div style={{
-                          width:38, height:40, display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize: isActiveRow ? 22 : 17, fontWeight:900,
+                          flex:"0 0 auto",
+                          width:"min(38px, 9vw)", height:40, display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize: isActiveRow ? "min(22px, 5.5vw)" : "min(17px, 4.5vw)", fontWeight:900,
                           color: isActiveRow ? "#FFBE0B" : "#F79200",
                           textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
                           letterSpacing:0.5, transition:"all 0.3s",
@@ -3447,18 +3459,21 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                           const i = offset+colIdx;
                           const isCountInGlow = countIn > 0 && rowIdx === 0 && colIdx === countInBeat;
                           return (
-                            <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                              {isCountInGlow
-                                ? <div style={{ width:40, height:40, borderRadius:10,
-                                    display:"flex", alignItems:"center", justifyContent:"center",
-                                    background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
-                                    boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
-                                    <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
-                                  </div>
-                                : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
-                                    beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} onClick={()=>{}} />
-                              }
-                              <div style={{ fontSize:20, fontWeight:900, height:22,
+                            <div key={i} style={{ flex:"1 1 0", minWidth:0, maxWidth:40,
+                              display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                              <div style={{ width:"100%", aspectRatio:"1/1", display:"flex" }}>
+                                {isCountInGlow
+                                  ? <div style={{ width:"100%", height:"100%", borderRadius:10,
+                                      display:"flex", alignItems:"center", justifyContent:"center",
+                                      background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                      boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                      <span style={{ color:"#fff", fontWeight:900, fontSize:"min(18px, 4.5vw)" }}>{countIn}</span>
+                                    </div>
+                                  : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                                      beat={currentFlatIdx===i&&isPlaying} assigned={!!blockChords[i]} fluid onClick={()=>{}} />
+                                }
+                              </div>
+                              <div style={{ fontSize:"min(20px, 4.8vw)", fontWeight:900, height:22,
                                 color:blockChords[i]?"#FFBE0B":"transparent",
                                 textShadow:blockChords[i]&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none",
                               }}>{blockChords[i]||"·"}</div>
@@ -3731,7 +3746,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                     fontSize:12, fontWeight:700, cursor:"pointer", minWidth:54,
                   }}>{repeat}× 🔁</button>
                 </div>
-                <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap" }}>
+                <div style={{ display:"flex", gap:3, justifyContent:"center", flexWrap:"nowrap" }}>
                   {Array(rowSize).fill(null).map((_,colIdx)=>{
                     const i = offset+colIdx;
                     const assignedChord=blockChords[i];
@@ -3743,19 +3758,22 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                     const chordGlow = isActive ? "0 0 10px rgba(255,190,11,0.7)"
                       : isIncoming ? "0 0 8px rgba(247,146,0,0.45)" : "none";
                     return (
-                      <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                        {isCountInGlow
-                          ? <div style={{ width:40, height:40, borderRadius:10,
-                              display:"flex", alignItems:"center", justifyContent:"center",
-                              background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
-                              boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
-                              <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
-                            </div>
-                          : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
-                              beat={currentFlatIdx===i&&isPlaying}
-                              assigned={!!assignedChord} onClick={()=>handleBlockClick(i)} />
-                        }
-                        <div style={{ fontSize:20, fontWeight:900, height:22,
+                      <div key={i} style={{ flex:"1 1 0", minWidth:0, maxWidth:40,
+                        display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                        <div style={{ width:"100%", aspectRatio:"1/1", display:"flex" }}>
+                          {isCountInGlow
+                            ? <div style={{ width:"100%", height:"100%", borderRadius:10,
+                                display:"flex", alignItems:"center", justifyContent:"center",
+                                background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                <span style={{ color:"#fff", fontWeight:900, fontSize:"min(18px, 4.5vw)" }}>{countIn}</span>
+                              </div>
+                            : <BuildBlock dir={DIRS16[colIdx%8]} active={strumActive[i]}
+                                beat={currentFlatIdx===i&&isPlaying} fluid
+                                assigned={!!assignedChord} onClick={()=>handleBlockClick(i)} />
+                          }
+                        </div>
+                        <div style={{ fontSize:"min(20px, 4.8vw)", fontWeight:900, height:22,
                           color: assignedChord ? chordColor : "transparent",
                           opacity: assignedChord ? chordOpacity : 0,
                           textShadow: assignedChord ? chordGlow : "none",
