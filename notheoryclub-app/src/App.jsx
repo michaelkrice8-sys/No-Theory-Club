@@ -500,7 +500,7 @@ function StrummingTab({ audio, sharedView=false }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-      padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
+      padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
       {!sharedView && (
         <>
@@ -752,7 +752,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-      padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
+      padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
       {!sharedView && (
         <>
@@ -1023,7 +1023,7 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
-      padding:"24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
+      padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
       {!sharedView && (
         <>
@@ -2427,17 +2427,21 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
           {/* Strum pattern */}
           <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
-            borderRadius:20, padding:"16px", marginBottom:16 }}>
+            borderRadius:20, padding:"14px 10px", marginBottom:16 }}>
             <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
-            <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap", marginBottom: hasSecondRow ? 10 : 0 }}>
+            <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap", marginBottom: hasSecondRow ? 10 : 0 }}>
               {Array(row1Size).fill(null).map((_,i)=>(
-                <BuildBlock key={i} dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying} onClick={()=>{}} />
+                <div key={i} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+                  <BuildBlock dir={DIRS16[i%8]} active={strumActive[i]} beat={currentStrum===i&&isPlaying} onClick={()=>{}} fluid />
+                </div>
               ))}
             </div>
             {hasSecondRow && (
-              <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap", marginTop:8 }}>
+              <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap", marginTop:8 }}>
                 {Array(row2Size).fill(null).map((_,i)=>(
-                  <BuildBlock key={i+8} dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying} onClick={()=>{}} />
+                  <div key={i+8} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+                    <BuildBlock dir={DIRS16[i%8]} active={strumActive[i+8]} beat={currentStrum===i+8&&isPlaying} onClick={()=>{}} fluid />
+                  </div>
                 ))}
               </div>
             )}
@@ -4264,17 +4268,21 @@ function BuildStrumPanel({ buildActive, setBuildActive, hasSecondRow, setHasSeco
 
       {/* Read-only pattern display */}
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
-        borderRadius:20, padding:"16px", marginBottom:12 }}>
+        borderRadius:20, padding:"14px 10px", marginBottom:12 }}>
         <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
-        <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap", marginBottom: hasSecondRow?10:0 }}>
+        <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap", marginBottom: hasSecondRow?10:0 }}>
           {Array(row1Size).fill(null).map((_,i)=>(
-            <BuildBlock key={i} dir={DIRS16[i%8]} active={buildActive[i]} beat={currentBeat===i&&isPlaying} onClick={()=>{}} />
+            <div key={i} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+              <BuildBlock dir={DIRS16[i%8]} active={buildActive[i]} beat={currentBeat===i&&isPlaying} onClick={()=>{}} fluid />
+            </div>
           ))}
         </div>
         {hasSecondRow && (
-          <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"wrap", marginTop:8 }}>
+          <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap", marginTop:8 }}>
             {Array(row2Size).fill(null).map((_,i)=>(
-              <BuildBlock key={i+8} dir={DIRS16[i%8]} active={buildActive[i+8]} beat={currentBeat===i+8&&isPlaying} onClick={()=>{}} />
+              <div key={i+8} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+                <BuildBlock dir={DIRS16[i%8]} active={buildActive[i+8]} beat={currentBeat===i+8&&isPlaying} onClick={()=>{}} fluid />
+              </div>
             ))}
           </div>
         )}
@@ -4567,10 +4575,14 @@ function Arrow({ dir, active, dim, beat }) {
   );
 }
 
-function BuildBlock({ dir, active, beat, onClick, assigned }) {
+function BuildBlock({ dir, active, beat, onClick, assigned, fluid }) {
   return (
-    <div onClick={onClick} style={{ width:40, height:40, borderRadius:10,
-      display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, cursor:"pointer",
+    <div onClick={onClick} style={{
+      width: fluid ? "100%" : 40,
+      height: fluid ? "100%" : 40,
+      borderRadius:10,
+      display:"flex", alignItems:"center", justifyContent:"center",
+      fontSize: fluid ? "min(20px, 4.5vw)" : 20, cursor:"pointer",
       background: beat ? "linear-gradient(135deg,#FFBE0B,#F77F00)"
         : active ? "#1c1c1c"
         : "#111",
