@@ -2483,6 +2483,20 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
             </div>
           )}
 
+          {/* Capo badge */}
+          {capo>0 && (
+            <div style={{ width:"100%", display:"flex", justifyContent:"center", marginBottom:14 }}>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:6,
+                padding:"6px 14px", borderRadius:20,
+                background:"rgba(255,190,11,0.12)", border:"1px solid rgba(255,190,11,0.4)" }}>
+                <span style={{ fontSize:14 }}>🎸</span>
+                <span style={{ fontSize:13, fontWeight:800, color:"#FFBE0B", letterSpacing:0.5 }}>
+                  CAPO ON FRET {capo}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Chord carousel */}
           {songChords.length>=1 && (
             <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
