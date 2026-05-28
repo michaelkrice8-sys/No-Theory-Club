@@ -138,14 +138,14 @@ function decodeChordDrill(str) {
 // ─── STRUM PATTERN URL ENCODING ─────────────────────────────────────────────
 // rowSizes: array of 1-8 entries, each 4/6/8. Each row occupies 8 slots in strumActive
 // (row N = indices [N*8, N*8+rowSizes[N])). strumActive total length should be 64.
-function encodeStrumDrill(name, strumActive, rowSizes, songChords, bpm, beatsPerChord, chordVariants) {
+function encodeStrumDrill(name, strumActive, rowSizes, songChords, bpm, beatsPerChord, chordVariants, capo) {
   const sa = strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; },[]);
   const rs = Array.isArray(rowSizes) ? rowSizes : [8];
   // Keep old fields for backward compat with older client versions
   const r2 = rs.length>=2 ? 1 : 0;
   const s1 = rs[0]||8;
   const s2 = rs[1]||8;
-  return btoa(JSON.stringify({ n:name, sa, rs, r2, s1, s2, c:songChords, b:bpm, p:beatsPerChord, v:chordVariants||{} }));
+  return btoa(JSON.stringify({ n:name, sa, rs, r2, s1, s2, c:songChords, b:bpm, p:beatsPerChord, v:chordVariants||{}, cp:capo||0 }));
 }
 function decodeStrumDrill(str) {
   try {
@@ -171,6 +171,7 @@ function decodeStrumDrill(str) {
       bpm: Number(obj.b)||60,
       beatsPerChord: Number(obj.p)||2,
       chordVariants: obj.v || {},
+      capo: Number(obj.cp)||0,
     };
   } catch { return null; }
 }
@@ -206,6 +207,33 @@ function getChordImg(chord, variants) {
   return ALL_CHORD_IMAGES[key] || ALL_CHORD_IMAGES[normalizeKey(chord)] || null;
 }
 function getAudioKey(chord, variants) { return resolveKey(chord, variants); }
+
+// ─── PER-SLOT VARIANT HELPERS (Chord Switching builder) ──────────────────────
+// In the chord-switching builder each slot stores its own value: either a base
+// chord ("C") or a variant key ("C/B", "Am/G", "C_anchor"). These helpers let a
+// slot be self-contained without relying on the global chordVariants map.
+
+// Map a variant key back to its base chord (for key detection, grid highlight)
+const VARIANT_KEY_TO_BASE = (() => {
+  const m = {};
+  Object.entries(CHORD_VARIATION_MAP).forEach(([base, opts]) => {
+    opts.forEach(o => { m[o.key] = base; });
+  });
+  return m;
+})();
+function slotBase(slot) { return VARIANT_KEY_TO_BASE[slot] || slot; }
+// Display label for a slot (e.g. "C_anchor" -> "Cadd9", "C/B" -> "C/B", "C" -> "C")
+function slotLabel(slot) {
+  const base = slotBase(slot);
+  const opt = (CHORD_VARIATION_MAP[base] || []).find(o => o.key === slot);
+  return opt ? opt.label : slot;
+}
+// Resolve a slot directly to image/audio key (slot is already the variant key)
+function slotImg(slot) {
+  const key = normalizeKey(slot);
+  return ALL_CHORD_IMAGES[key] || ALL_CHORD_IMAGES[normalizeKey(slotBase(slot))] || null;
+}
+function slotAudioKey(slot) { return normalizeKey(slot); }
 
 function hexToRgb(hex) {
   const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -733,7 +761,19 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     firstTickRef.current=false;
     playChordClick(isFirst);
     // Play chord-specific strum on beat 1 (the accent beat)
-    if(isFirst) { const pk=packRef.current?CHORD_PACKS[packRef.current]:null; const eff=pk?.useAnchors?{...chordVariants,...Object.fromEntries(["G","C","Em","D"].map(c=>[c,c+"_anchor"]))}:chordVariants; playChordStrum(getAudioKey(chords[chordRef.current], eff), true); }
+    if(isFirst) {
+      const slot = chords[chordRef.current];
+      let audioKey;
+      if(vmRef.current==="build"){
+        // Build mode: slot is self-contained (base chord or variant key)
+        audioKey = slotAudioKey(slot);
+      } else {
+        const pk=packRef.current?CHORD_PACKS[packRef.current]:null;
+        const eff=pk?.useAnchors?{...chordVariants,...Object.fromEntries(["G","C","Em","D"].map(c=>[c,c+"_anchor"]))}:chordVariants;
+        audioKey = getAudioKey(slot, eff);
+      }
+      playChordStrum(audioKey, true);
+    }
     setBeatCount(cur);
     beatRef.current=(cur+1)%bpc;
   },[playChordClick, playChordStrum]);
@@ -872,7 +912,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
         <ChordGrid chords={chords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
           isPlaying={isPlaying} accentColor={accentColor} isLastBeat={isLastBeat}
           bpm={bpm} beatsPerChord={beatsPerChord}
-          chordVariants={effectiveVariants} updateVariant={updateVariant} />
+          chordVariants={effectiveVariants} updateVariant={updateVariant}
+          perSlot={viewMode==="build"} setCustomChords={setCustomChords} chordIndexVal={chordIndex} />
       )}
 
       {chords.length>=2 && (
@@ -2313,7 +2354,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       if(d){
         setSongChords(d.songChords); setStrumActive(d.strumActive);
         setHasSecondRow(d.hasSecondRow); setRow1Size(d.row1Size); setRow2Size(d.row2Size);
-        setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
+        setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord); setCapo(d.capo||0);
         setLoadedName(d.name); setSaveName(d.name);
         setPickerOpen(false);
         if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
@@ -2375,7 +2416,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     if(!saveName.trim()) return;
     const pattern = { id:Date.now(), name:saveName.trim(),
       strumActive, hasSecondRow, row1Size, row2Size,
-      songChords, bpm, beatsPerChord,
+      songChords, bpm, beatsPerChord, capo,
       chordVariants: {...chordVariants},
       savedAt:new Date().toLocaleDateString() };
     const updated = [...savedPatterns, pattern];
@@ -2387,7 +2428,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const doShare = (p) => {
     try {
       const sizes = p.hasSecondRow ? [p.row1Size||8, p.row2Size||8] : [p.row1Size||8];
-      const encoded = encodeStrumDrill(p.name, p.strumActive, sizes, p.songChords, p.bpm, p.beatsPerChord, p.chordVariants||{});
+      const encoded = encodeStrumDrill(p.name, p.strumActive, sizes, p.songChords, p.bpm, p.beatsPerChord, p.chordVariants||{}, p.capo||0);
       const url = `${window.location.origin}${window.location.pathname}?strumprog=${encoded}`;
       if(navigator.clipboard && navigator.clipboard.writeText){
         navigator.clipboard.writeText(url)
@@ -2565,7 +2606,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:13, fontWeight:800, color:"#fff",
                       whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
-                    <div style={{ fontSize:11, color:"#555", marginTop:2 }}>{p.bpm} BPM · {p.savedAt}</div>
+                    <div style={{ fontSize:11, color:"#555", marginTop:2 }}>{p.bpm} BPM{p.capo>0?` · Capo ${p.capo}`:""} · {p.savedAt}</div>
                   </div>
                   <div style={{ display:"flex", gap:6, marginLeft:10 }}>
                     <button onClick={()=>{
@@ -2573,7 +2614,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                       setSongChords(p.songChords||[]); setStrumActive(p.strumActive);
                       setHasSecondRow(p.hasSecondRow||false);
                       setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
-                      setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
+                      setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2); setCapo(p.capo||0);
                       setLoadedName(p.name); setShowSaved(false);
                     }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
                       background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
@@ -3980,8 +4021,10 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   const [variantPickerChord, setVariantPickerChord] = useState(null);
   const [outsideKeyChord, setOutsideKeyChord] = useState(null);
 
-  // For duplicate mode — unique set for key detection
-  const uniqueChords = allowDuplicates ? [...new Set(customChords)] : customChords;
+  // In duplicate mode slots may be variant keys (e.g. "C/B"); reduce to base
+  // chords for key detection and allowed-chord logic.
+  const baseChords = allowDuplicates ? customChords.map(slotBase) : customChords;
+  const uniqueChords = allowDuplicates ? [...new Set(baseChords)] : customChords;
   const possibleKeys = getPossibleKeys(uniqueChords);
   const allowedChords = getAllowedChords(uniqueChords);
   const noKeyFits = customChords.length > 0 && possibleKeys.length === 0;
@@ -4001,12 +4044,12 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
       </div>
       <div style={{ fontSize:12, color:"#555", textAlign:"center", marginBottom:14 }}>
         {customChords.length}/{maxChords} {allowDuplicates ? "slots used" : "selected"}
-        {customChords.length>=1 && <span style={{ color:"#FFD166", marginLeft:8 }}>→ {customChords.join(" → ")}</span>}
+        {customChords.length>=1 && <span style={{ color:"#FFD166", marginLeft:8 }}>→ {(allowDuplicates?customChords.map(slotLabel):customChords).join(" → ")}</span>}
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6 }}>
         {ALL_CHORDS.map(chord=>{
-          const isSel=customChords.includes(chord);
-          const positions = allowDuplicates ? customChords.reduce((a,c,i)=>c===chord?[...a,i+1]:a,[]) : [];
+          const isSel = allowDuplicates ? baseChords.includes(chord) : customChords.includes(chord);
+          const positions = allowDuplicates ? baseChords.reduce((a,c,i)=>c===chord?[...a,i+1]:a,[]) : [];
           const isDis = allowDuplicates ? customChords.length>=maxChords : !isSel&&customChords.length>=maxChords;
           return (
             <button key={chord} disabled={isDis}
@@ -4047,11 +4090,11 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
               filter: (allowedChords && !allowedChords.has(chord) && positions.length===0) ? "grayscale(60%)" : "none",
               boxShadow:isSel?`0 0 10px rgba(${hexToRgb(accentColor)},0.3)`:"none",
             }}>
-              {getChordImg(chord, chordVariants)
+              {(allowDuplicates ? slotImg(chord) : getChordImg(chord, chordVariants))
                 ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center", position:"relative" }}>
-                    <img src={getChordImg(chord, chordVariants)} alt={chord}
+                    <img src={allowDuplicates ? slotImg(chord) : getChordImg(chord, chordVariants)} alt={chord}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                    {HAS_VARIATIONS.has(chord) && (
+                    {!allowDuplicates && HAS_VARIATIONS.has(chord) && (
                       <div onClick={e=>{e.stopPropagation();setVariantPickerChord(chord);}}
                         style={{ position:"absolute", top:3, right:3, width:18, height:18,
                           borderRadius:"50%", background:"rgba(0,0,0,0.75)",
@@ -4077,27 +4120,37 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           );
         })}
       </div>
-      {/* Sequence chips — tap × to remove individual slot */}
+      {/* Sequence chips — tap ⚙ to change voicing, × to remove */}
       {allowDuplicates && customChords.length > 0 && (
         <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:10, marginTop:2 }}>
-          {customChords.map((c,i)=>(
-            <div key={i} style={{
-              display:"flex", alignItems:"center", gap:4, padding:"4px 8px 4px 10px",
-              borderRadius:20, background:"rgba(255,190,11,0.1)",
-              border:"1px solid rgba(255,190,11,0.3)", fontSize:12, fontWeight:800,
-              color:"#FFBE0B",
-            }}>
-              <span style={{ fontSize:9, color:"#888", marginRight:1 }}>{i+1}</span>
-              {c}
-              <button onClick={()=>{
-                if(isPlaying){stopMetronome();setIsPlaying(false);}
-                const next=[...customChords]; next.splice(i,1);
-                setCustomChords(next); setChordIndex(0); setBeatCount(0);
-                if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0;
-              }} style={{ background:"none", border:"none", color:"#666",
-                fontSize:12, cursor:"pointer", padding:"0 0 0 2px", lineHeight:1 }}>×</button>
-            </div>
-          ))}
+          {customChords.map((c,i)=>{
+            const base = slotBase(c);
+            const isVar = base !== c;
+            return (
+              <div key={i} style={{
+                display:"flex", alignItems:"center", gap:4, padding:"4px 6px 4px 10px",
+                borderRadius:20, background:"rgba(255,190,11,0.1)",
+                border:"1px solid rgba(255,190,11,0.3)", fontSize:12, fontWeight:800,
+                color:"#FFBE0B",
+              }}>
+                <span style={{ fontSize:9, color:"#888", marginRight:1 }}>{i+1}</span>
+                {slotLabel(c)}
+                {HAS_VARIATIONS.has(base) && (
+                  <button onClick={()=>setVariantPickerChord({ idx:i, base, current:c })}
+                    style={{ background:"none", border:"none",
+                      color:isVar?"#FFBE0B":"#888", fontSize:11, cursor:"pointer",
+                      padding:"0 1px", lineHeight:1 }}>⚙</button>
+                )}
+                <button onClick={()=>{
+                  if(isPlaying){stopMetronome();setIsPlaying(false);}
+                  const next=[...customChords]; next.splice(i,1);
+                  setCustomChords(next); setChordIndex(0); setBeatCount(0);
+                  if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0;
+                }} style={{ background:"none", border:"none", color:"#666",
+                  fontSize:12, cursor:"pointer", padding:"0 0 0 2px", lineHeight:1 }}>×</button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -4144,9 +4197,19 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
       )}
       {variantPickerChord && (
         <VariantPickerModal
-          chord={variantPickerChord}
-          currentVariant={chordVariants?.[variantPickerChord]||"standard"}
-          onSelect={v=>{ updateVariant(variantPickerChord,v); setVariantPickerChord(null); }}
+          chord={typeof variantPickerChord==="object" ? variantPickerChord.base : variantPickerChord}
+          currentVariant={typeof variantPickerChord==="object"
+            ? variantPickerChord.current
+            : (chordVariants?.[variantPickerChord]||"standard")}
+          onSelect={v=>{
+            if(typeof variantPickerChord==="object"){
+              // Per-slot: replace that slot with the chosen variant key
+              setCustomChords(prev=>prev.map((c,k)=>k===variantPickerChord.idx ? v : c));
+            } else {
+              updateVariant(variantPickerChord,v);
+            }
+            setVariantPickerChord(null);
+          }}
           onClose={()=>setVariantPickerChord(null)}
         />
       )}
@@ -4154,14 +4217,19 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   );
 }
 
-function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, chordVariants, updateVariant }) {
-  const [variantPickerChord, setVariantPickerChord] = useState(null);
+function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
+  const [variantPickerSlot, setVariantPickerSlot] = useState(null); // {idx, base, current}
   const prevIdx = (chordIndex - 1 + chords.length) % chords.length;
 
+  // In perSlot mode each chords[i] is self-contained; resolve via slot helpers.
+  const imgFor = (slot) => perSlot ? slotImg(slot) : getChordImg(slot, chordVariants);
+  const labelFor = (slot) => perSlot ? slotLabel(slot) : slot;
+  const baseFor = (slot) => perSlot ? slotBase(slot) : slot;
+
   const cards = [
-    { chord: chords[prevIdx],        type: "side" },
-    { chord: chords[chordIndex],     type: "active" },
-    { chord: chords[nextChordIndex], type: "side" },
+    { chord: chords[prevIdx],        type: "side", idx: prevIdx },
+    { chord: chords[chordIndex],     type: "active", idx: chordIndex },
+    { chord: chords[nextChordIndex], type: "side", idx: nextChordIndex },
   ];
 
   return (
@@ -4180,10 +4248,17 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
 
       {/* Three cards — equal treatment, active just brighter */}
       <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-        {cards.map(({ chord, type }, i) => {
+        {cards.map(({ chord, type, idx }, i) => {
           const isActive = type === "active";
           const isNext = i === 2; // right card is always next
           const highlight = isNext && isLastBeat;
+          const base = baseFor(chord);
+          const hasVar = HAS_VARIATIONS.has(base);
+          const chosenLabel = perSlot
+            ? (slotBase(chord)!==chord ? slotLabel(chord) : "standard")
+            : ((chordVariants?.[chord]&&chordVariants[chord]!==chord)
+                ? (CHORD_VARIATION_MAP[chord]?.find(v=>v.key===chordVariants[chord])?.label||chordVariants[chord])
+                : "standard");
           return (
             <div key={chord + i} style={{
               flex: isActive ? "0 0 46%" : "0 0 27%",
@@ -4205,40 +4280,50 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
                     : "none",
                 transition:"border 0.2s ease, box-shadow 0.2s ease",
               }}>
-                {getChordImg(chord, chordVariants)
+                {imgFor(chord)
                   ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center", position:"relative" }}>
-                    <img src={getChordImg(chord, chordVariants)} alt={chord}
+                    <img src={imgFor(chord)} alt={labelFor(chord)}
                       style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                    {isActive && HAS_VARIATIONS.has(chord) && (
-                      <div onClick={e=>{e.stopPropagation();setVariantPickerChord(chord);}}
+                    {isActive && hasVar && (
+                      <div onClick={e=>{e.stopPropagation();
+                        if(perSlot) setVariantPickerSlot({ idx, base, current: chord });
+                        else setVariantPickerSlot({ idx:-1, base:chord, current: chordVariants?.[chord]||chord });
+                      }}
                         style={{ position:"absolute", top:4, right:4, padding:"2px 7px",
                           borderRadius:8, background:"rgba(0,0,0,0.8)",
                           border:"1px solid rgba(255,190,11,0.5)",
                           fontSize:10, fontWeight:700,
-                          color: (chordVariants?.[chord]&&chordVariants[chord]!==chord)?"#FFBE0B":"#888",
+                          color: chosenLabel!=="standard"?"#FFBE0B":"#888",
                           cursor:"pointer", zIndex:2, whiteSpace:"nowrap" }}>
-                        {(chordVariants?.[chord]&&chordVariants[chord]!==chord) ? (CHORD_VARIATION_MAP[chord]?.find(v=>v.key===chordVariants[chord])?.label||chordVariants[chord]) : "standard"} ⚙
+                        {chosenLabel} ⚙
                       </div>
                     )}
                   </div>
                   : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
                       justifyContent:"center", fontSize:isActive?32:20, fontWeight:900,
-                      color:isActive?accentColor:"#555" }}>{chord}</div>
+                      color:isActive?accentColor:"#555" }}>{labelFor(chord)}</div>
                 }
               </div>
               <div style={{ marginTop:4, fontSize:isActive?15:11, fontWeight:900,
                 color: isActive ? accentColor : highlight ? accentColor+"88" : "#555",
-                transition:"all 0.2s" }}>{chord}</div>
+                transition:"all 0.2s" }}>{labelFor(chord)}</div>
             </div>
           );
         })}
       </div>
-      {variantPickerChord && (
+      {variantPickerSlot && (
         <VariantPickerModal
-          chord={variantPickerChord}
-          currentVariant={chordVariants?.[variantPickerChord]||"standard"}
-          onSelect={v=>{ updateVariant(variantPickerChord,v); setVariantPickerChord(null); }}
-          onClose={()=>setVariantPickerChord(null)}
+          chord={variantPickerSlot.base}
+          currentVariant={variantPickerSlot.current||"standard"}
+          onSelect={v=>{
+            if(perSlot && variantPickerSlot.idx>=0){
+              setCustomChords(prev=>prev.map((c,k)=>k===variantPickerSlot.idx ? v : c));
+            } else {
+              updateVariant(variantPickerSlot.base, v);
+            }
+            setVariantPickerSlot(null);
+          }}
+          onClose={()=>setVariantPickerSlot(null)}
         />
       )}
     </div>
