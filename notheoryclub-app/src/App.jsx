@@ -4431,7 +4431,10 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
       {/* Read-only pattern display */}
       <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
         borderRadius:20, padding:"14px 10px", marginBottom:12 }}>
-        <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+        <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:4 }}>STRUMMING PATTERN</div>
+        <div style={{ fontSize:11, color:"#888", textAlign:"center", marginBottom:12, fontStyle:"italic" }}>
+          Keep your hand moving, no matter what
+        </div>
         {rowSizes.map((rs, rIdx) => {
           // Sequential beat offset for this row = sum of all prior row sizes
           let beatOffset = 0;
