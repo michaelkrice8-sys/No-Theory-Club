@@ -2037,28 +2037,25 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
                           }}
                         />
                       </div>}
-                      <div style={{ display:"flex", gap:3, justifyContent:"center", flexWrap:"nowrap" }}>
+                      <div style={{ display:"flex", gap:5, justifyContent:"center", flexWrap:"nowrap" }}>
                       {Array(row.size).fill(null).map((_,colIdx)=>{
                         const ch=row.blockChords[colIdx];
                         const isBeat=isActiveRow&&playPos.beat===colIdx;
                         const isCountGlow=countIn>0&&rowIdx===0&&idx===0&&colIdx===countInBeat;
                         return (
-                          <div key={colIdx} style={{ flex:"1 1 0", minWidth:0, maxWidth:40,
-                            display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                            <div style={{ width:"100%", aspectRatio:"1/1", display:"flex" }}>
-                              {isCountGlow
-                                ? <div style={{ width:"100%", height:"100%", borderRadius:10,
-                                    display:"flex", alignItems:"center", justifyContent:"center",
-                                    background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
-                                    boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
-                                    <span style={{ color:"#fff", fontWeight:900, fontSize:"min(18px, 4.5vw)" }}>{countIn}</span>
-                                  </div>
-                                : <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
-                                    beat={isBeat} assigned={!!ch} fluid
-                                    onClick={()=>handleBlockClick(sec.id,rowIdx,colIdx,isAssigning)} />
-                              }
-                            </div>
-                            <div style={{ fontSize:"min(13px, 3.2vw)", fontWeight:900, height:18, lineHeight:"18px",
+                          <div key={colIdx} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                            {isCountGlow
+                              ? <div style={{ width:40, height:40, borderRadius:10,
+                                  display:"flex", alignItems:"center", justifyContent:"center",
+                                  background:"rgba(200,30,30,0.35)", border:"2px solid rgba(220,50,50,0.6)",
+                                  boxShadow:"0 0 12px rgba(220,50,50,0.4)", transition:"all 0.05s" }}>
+                                  <span style={{ color:"#fff", fontWeight:900, fontSize:18 }}>{countIn}</span>
+                                </div>
+                              : <BuildBlock dir={DIRS16[colIdx%8]} active={row.strumActive[colIdx]}
+                                  beat={isBeat} assigned={!!ch}
+                                  onClick={()=>handleBlockClick(sec.id,rowIdx,colIdx,isAssigning)} />
+                            }
+                            <div style={{ fontSize:13, fontWeight:900, height:18, lineHeight:"18px",
                               color:ch?"#FFBE0B":"transparent",
                               textShadow:ch&&isActiveRow?"0 0 8px rgba(255,190,11,0.6)":"none" }}>{ch||"·"}</div>
                           </div>
