@@ -367,6 +367,11 @@ export default function App() {
 
   // Share view — clean layout, no tabs
   const anyShared = hasSharedSong || hasSharedDrill || hasSharedStrum || hasSharedStrumProg || hasSharedPattern;
+
+  // SongBuilder controls its OWN full-page layout (sticky header, fixed bottom bar).
+  // Render it bare so we don't constrain it inside a maxWidth wrapper.
+  if(hasSharedSong) return <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />;
+
   if(anyShared) return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
@@ -375,7 +380,6 @@ export default function App() {
         <div style={{ fontSize:10, color:"#555" }}>Guitar Practice Tool</div>
       </div>
       <div style={{ maxWidth:560, margin:"0 auto", padding:"0 16px" }}>
-        {hasSharedSong && <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
         {hasSharedDrill && <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} />}
         {hasSharedStrum && <StrummingTab audio={audio} sharedView={true} />}
         {(hasSharedStrumProg || hasSharedPattern) && (
@@ -3420,6 +3424,16 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                   const repeat = rowRepeats[rowIdx]||1;
                   const isActiveRow   = activeRowIdx === rowIdx;
                   const isIncomingRow = incomingRowIdx === rowIdx;
+                  // Compute current pass within this row (0-indexed) when active
+                  let currentPass = 0;
+                  if(isActiveRow && isPlaying){
+                    // Find how many beats into the row's repeated sequence we are
+                    let cumBeats = 0;
+                    for(let r=0;r<rowIdx;r++) cumBeats += rowSizes[r]*(rowRepeats[r]||1);
+                    const beatsIntoRow = currentStrum - cumBeats;
+                    if(beatsIntoRow>=0) currentPass = Math.floor(beatsIntoRow / rowSize);
+                  }
+                  const displayCount = isActiveRow && isPlaying ? (repeat - currentPass) : repeat;
                   const rowOpacity = (!isPlaying && countIn === 0)
                     ? 0.55
                     : rowIdx === activeRowIdx ? 1
@@ -3431,7 +3445,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                       ref={el => { viewRowRefs.current[rowIdx] = el; }}
                       style={{ marginBottom:10, opacity:rowOpacity, transition:"opacity 0.5s ease" }}>
                       <div style={{ display:"flex", alignItems:"flex-start", gap:3, justifyContent:"center", flexWrap:"nowrap" }}>
-                        {/* Repeat label — height 40 + flex-start keeps it aligned with block center */}
+                        {/* Repeat label — counts down 4×→1× while row is active */}
                         <div style={{
                           flex:"0 0 auto",
                           width:"min(38px, 9vw)", height:40, display:"flex", alignItems:"center", justifyContent:"center",
@@ -3439,7 +3453,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                           color: isActiveRow ? "#FFBE0B" : "#F79200",
                           textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
                           letterSpacing:0.5, transition:"all 0.3s",
-                        }}>{repeat}×</div>
+                        }}>{displayCount}×</div>
                         {Array(rowSize).fill(null).map((_,colIdx)=>{
                           const i = offset+colIdx;
                           const isCountInGlow = countIn > 0 && rowIdx === 0 && colIdx === countInBeat;
@@ -3496,6 +3510,15 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                     }
                   }
                   const isActiveRow = activeRowIdx === rowIdx;
+                  // Compute current pass (0-indexed) within this row when active
+                  let currentPass = 0;
+                  if(isActiveRow && isPlaying){
+                    let cumBeats = 0;
+                    for(let r=0;r<rowIdx;r++) cumBeats += rowSizes[r]*(rowRepeats[r]||1);
+                    const beatsIntoRow = currentStrum - cumBeats;
+                    if(beatsIntoRow>=0) currentPass = Math.floor(beatsIntoRow / rowSize);
+                  }
+                  const displayCount = isActiveRow && isPlaying ? (repeat - currentPass) : repeat;
                   return (
                     <div key={rowIdx} style={{ marginBottom:10 }}>
                       <div style={{ display:"flex", alignItems:"flex-start", gap:3, justifyContent:"center", flexWrap:"nowrap" }}>
@@ -3506,7 +3529,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                           color: isActiveRow ? "#FFBE0B" : "#F79200",
                           textShadow: isActiveRow ? "0 0 10px rgba(255,190,11,0.8)" : "none",
                           letterSpacing:0.5, transition:"all 0.3s",
-                        }}>{repeat}×</div>
+                        }}>{displayCount}×</div>
                         {Array(rowSize).fill(null).map((_,colIdx)=>{
                           const i = offset+colIdx;
                           const isCountInGlow = countIn > 0 && rowIdx === 0 && colIdx === countInBeat;
