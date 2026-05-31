@@ -707,7 +707,20 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
       const decoded = decodeChordDrill(drill);
       if(decoded && decoded.chords.length >= 2){
         setViewMode("build");
-        setCustomChords(decoded.chords);
+        // Migrate legacy drills: if chords are base names + a global variants map,
+        // bake the variant choice into each slot so per-slot rendering shows it.
+        const v = decoded.chordVariants || {};
+        const hasLegacyVariants = Object.values(v).some(x => x && x !== "" && Object.keys(VARIANT_KEY_TO_BASE).includes(x));
+        const migratedChords = hasLegacyVariants
+          ? decoded.chords.map(c => {
+              const variantKey = v[c];
+              // Only swap if it's a real variant key (e.g. "Em7", "C_anchor", "C/B")
+              // — skip identity mappings like {Em: "Em"}.
+              return (variantKey && variantKey !== c && Object.keys(VARIANT_KEY_TO_BASE).includes(variantKey))
+                ? variantKey : c;
+            })
+          : decoded.chords;
+        setCustomChords(migratedChords);
         setBpm(decoded.bpm);
         setBeatsPerChord(decoded.beatsPerChord);
         const drillName = decoded.name || "Shared Drill";
@@ -1051,13 +1064,23 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
                     <div style={{ fontSize:13, fontWeight:800, color:"#fff",
                       whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{d.name}</div>
                     <div style={{ fontSize:11, color:"#555", marginTop:2 }}>
-                      {d.chords.join(" → ")} · {d.bpm} BPM · {d.beatsPerChord} beat{d.beatsPerChord!==1?"s":""}
+                      {d.chords.map(slotLabel).join(" → ")} · {d.bpm} BPM · {d.beatsPerChord} beat{d.beatsPerChord!==1?"s":""}
                     </div>
                   </div>
                   <div style={{ display:"flex", gap:6, marginLeft:10 }}>
                     <button onClick={()=>{
                       if(isPlaying){stopMetronome();setIsPlaying(false);}
-                      setCustomChords(d.chords); setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
+                      // Migrate legacy drills (base chords + global variants map)
+                      const v = d.chordVariants || {};
+                      const hasLegacyVariants = Object.values(v).some(x => x && x !== "" && Object.keys(VARIANT_KEY_TO_BASE).includes(x));
+                      const migratedChords = hasLegacyVariants
+                        ? d.chords.map(c => {
+                            const variantKey = v[c];
+                            return (variantKey && variantKey !== c && Object.keys(VARIANT_KEY_TO_BASE).includes(variantKey))
+                              ? variantKey : c;
+                          })
+                        : d.chords;
+                      setCustomChords(migratedChords); setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord);
                       if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
                       setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0;
                       setLoadedDrillName(d.name);
@@ -1066,7 +1089,17 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
                       background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
                       color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
                     <button onClick={()=>{
-                      const encoded = encodeChordDrill(d.chords, d.bpm, d.beatsPerChord, d.name, d.chordVariants||{});
+                      // Migrate legacy drills before encoding so share links carry variants
+                      const v = d.chordVariants || {};
+                      const hasLegacyVariants = Object.values(v).some(x => x && x !== "" && Object.keys(VARIANT_KEY_TO_BASE).includes(x));
+                      const migratedChords = hasLegacyVariants
+                        ? d.chords.map(c => {
+                            const variantKey = v[c];
+                            return (variantKey && variantKey !== c && Object.keys(VARIANT_KEY_TO_BASE).includes(variantKey))
+                              ? variantKey : c;
+                          })
+                        : d.chords;
+                      const encoded = encodeChordDrill(migratedChords, d.bpm, d.beatsPerChord, d.name, d.chordVariants||{});
                       const url = `${window.location.origin}${window.location.pathname}?drill=${encoded}`;
                       navigator.clipboard?.writeText(url)
                         .then(()=>alert(`✅ Link copied!\n\nShare "${d.name}" with your members.`))
