@@ -694,18 +694,14 @@ function ChordCarousel({ chords, value, onChange }) {
             const img = ALL_CHORD_IMAGES[c];
             return (
               <div key={c} data-cidx={i} ref={el=>cardRefs.current[i]=el}
-                style={{ flex:"0 0 auto", width:CAROUSEL_CARD_W, height:210,
+                style={{ flex:"0 0 auto", width:CAROUSEL_CARD_W, height:200,
                   margin:`0 ${CAROUSEL_CARD_MARGIN}px`, borderRadius:16, border:"1px solid #2a2417",
-                  overflow:"hidden", background:"#0a0805", display:"flex", flexDirection:"column",
+                  overflow:"hidden", background:"#000", display:"flex",
                   transition:"border-color 0.25s, box-shadow 0.25s" }}>
-                <div style={{ flex:1, minHeight:0, display:"flex", alignItems:"center", justifyContent:"center", padding:"6px 6px 0",
-                  background:"radial-gradient(120% 120% at 50% 0%, rgba(255,170,30,0.08), rgba(0,0,0,0) 60%), #0a0805" }}>
-                  {img
-                    ? <img src={img} alt={c} draggable={false} style={{ maxWidth:"100%", maxHeight:"100%", width:"auto", height:"auto", display:"block", objectFit:"contain", pointerEvents:"none" }} />
-                    : <span style={{ fontSize:58, fontWeight:900, color:"#FFBE0B" }}>{c}</span>}
-                </div>
-                <div style={{ textAlign:"center", padding:"8px 0 10px", fontSize:14, fontWeight:900,
-                  color: i===activeIdx ? "#FFD60A" : "#9a8d6a" }}>{c}</div>
+                {img
+                  ? <img src={img} alt={c} draggable={false}
+                      style={{ width:"100%", height:"100%", display:"block", objectFit:"cover", pointerEvents:"none" }} />
+                  : <span style={{ margin:"auto", fontSize:58, fontWeight:900, color:"#FFBE0B" }}>{c}</span>}
               </div>
             );
           })}
