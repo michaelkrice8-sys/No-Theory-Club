@@ -414,6 +414,16 @@ function App() {
   const goHome = () => { setView("landing"); setDest(null); };
   const pickFromLanding = (id) => { setDest(id); setView("app"); };
 
+  // Fade the tab content in when entering the app and on each tab switch.
+  // Declared up here (before any early return) so hook order stays stable.
+  const [fadeOn, setFadeOn] = useState(false);
+  const fadeKey = view + "/" + (dest || "strum");
+  useEffect(() => {
+    setFadeOn(false);
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setFadeOn(true)));
+    return () => cancelAnimationFrame(id);
+  }, [fadeKey]);
+
   const handleTabChange = (newTab) => {
     // Suspend audio context to immediately silence everything
     try {
@@ -487,14 +497,6 @@ function App() {
 
   // ── Main app: 3-tab shell (Strumming / Chords / Tracker) ──
   const activeTab = dest || "strum";
-  // Fade the content in each time the active tab changes (the three tabs stay
-  // mounted via display toggle, so this animates opacity without remounting).
-  const [fadeOn, setFadeOn] = useState(false);
-  useEffect(() => {
-    setFadeOn(false);
-    const id = requestAnimationFrame(() => requestAnimationFrame(() => setFadeOn(true)));
-    return () => cancelAnimationFrame(id);
-  }, [activeTab]);
   return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
