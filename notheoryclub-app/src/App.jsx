@@ -416,12 +416,17 @@ function App() {
 
   // Fade the tab content in when entering the app and on each tab switch.
   // Declared up here (before any early return) so hook order stays stable.
-  const [fadeOn, setFadeOn] = useState(false);
+  // Uses a keyframe animation re-triggered via forced reflow so it always runs
+  // without remounting the (state-holding) tab components.
+  const fadeRef = useRef(null);
   const fadeKey = view + "/" + (dest || "strum");
   useEffect(() => {
-    setFadeOn(false);
-    const id = requestAnimationFrame(() => requestAnimationFrame(() => setFadeOn(true)));
-    return () => cancelAnimationFrame(id);
+    const el = fadeRef.current;
+    if (!el) return;
+    el.style.animation = "none";
+    // force reflow so the browser registers the removal before re-adding
+    void el.offsetWidth;
+    el.style.animation = "ntcFadeIn 0.4s ease both";
   }, [fadeKey]);
 
   const handleTabChange = (newTab) => {
@@ -541,9 +546,9 @@ function App() {
       </div>
 
       {/* Tab Content — kept mounted via display toggle so state persists.
-          The visible tab fades in (opacity) on each switch. */}
-      <div style={{ opacity: fadeOn ? 1 : 0, transform: fadeOn ? "translateY(0)" : "translateY(8px)",
-        transition:"opacity 0.4s ease, transform 0.4s ease" }}>
+          The visible tab fades in via the ntcFadeIn keyframe on each switch. */}
+      <style>{`@keyframes ntcFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }`}</style>
+      <div ref={fadeRef} style={{ animation:"ntcFadeIn 0.4s ease both" }}>
         <div style={{ display: activeTab==="strum" ? "block" : "none" }}>
           <StrummingTab audio={audio} />
         </div>
