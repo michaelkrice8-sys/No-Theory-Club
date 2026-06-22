@@ -909,7 +909,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
               setChordIndex={setChordIndex} setBeatCount={setBeatCount}
               beatRef={beatRef} chordRef={chordRef}
               chordVariants={chordVariants} updateVariant={updateVariant}
-              allowDuplicates={true} />
+              allowDuplicates={true} onReset={()=>setLoadedDrillName(null)} />
           )}
           {!sharedView && (
             <button onClick={()=>setPickerOpen(o=>!o)} style={{
@@ -2708,7 +2708,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
             setChordIndex={setChordIndex} setBeatCount={setBeatCount}
             beatRef={chordIdxRef} chordRef={chordIdxRef}
             chordVariants={chordVariants} updateVariant={updateVariant}
-            allowDuplicates={true} />
+            allowDuplicates={true} onReset={()=>setLoadedName(null)} />
 
           <button onClick={()=>setPickerOpen(false)} style={{
             width:"100%", marginBottom:12, padding:"8px",
@@ -4084,7 +4084,7 @@ function ModeTabs({ options, value, onChange }) {
 
 function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColor,
   isPlaying, stopMetronome, setIsPlaying, setChordIndex, setBeatCount, beatRef, chordRef,
-  chordVariants, updateVariant, allowDuplicates=false }) {
+  chordVariants, updateVariant, allowDuplicates=false, onReset }) {
   const [variantPickerChord, setVariantPickerChord] = useState(null);
   const [outsideKeyChord, setOutsideKeyChord] = useState(null);
 
@@ -4105,7 +4105,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           {allowDuplicates ? "BUILD YOUR CHORD SET" : maxChords===6 ? "PICK YOUR CHORDS" : "BUILD YOUR CHORD SET"}
         </div>
         {customChords.length > 0
-          ? <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setCustomChords([]); setChordIndex(0); setBeatCount(0); if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0; setLoadedDrillName(null); }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.5 }}>Reset</button>
+          ? <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setCustomChords([]); setChordIndex(0); setBeatCount(0); if(beatRef)beatRef.current=0; if(chordRef)chordRef.current=0; onReset?.(); }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.5 }}>Reset</button>
           : <div style={{ width:32 }} />
         }
       </div>
