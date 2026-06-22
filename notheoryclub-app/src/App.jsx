@@ -1042,10 +1042,11 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   const firstTickRef = useRef(true);
   const randomOrderRef = useRef(false);
   const randomNextRef = useRef(0);
-  // Pre-shuffled play order for random mode (so the slide always knows the real
-  // next + next-next). Re-shuffled on each full pass.
-  const shuffleRef = useRef([]);
-  const shufflePosRef = useRef(0);
+  // Pre-built queue of upcoming chord indices for random mode. We always keep
+  // plenty queued ahead and refill from the END (off-screen), so a chord is
+  // finalized long before it slides into view — the user never sees it change.
+  const queueRef = useRef([]);
+  const [randomNext2, setRandomNext2] = useState(0); // the chord after next (for the peek)
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -1055,12 +1056,22 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   useEffect(()=>{ randomOrderRef.current=randomOrder; },[randomOrder]);
 
   // Fisher–Yates shuffle of [0..len-1]. If `avoidFirst` is given, ensures the
-  // first element differs from it (so no repeat across a re-shuffle seam).
+  // first element differs from it (so no repeat across a block seam).
   const makeShuffle = (len, avoidFirst=null) => {
     const a = Array.from({length:len},(_,i)=>i);
     for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
     if(avoidFirst!=null && len>1 && a[0]===avoidFirst){ [a[0],a[1]]=[a[1],a[0]]; }
     return a;
+  };
+  // Append one fresh shuffled block to the queue, avoiding a repeat at the seam.
+  const refillQueue = (len) => {
+    const q = queueRef.current;
+    const last = q.length ? q[q.length-1] : null;
+    queueRef.current = q.concat(makeShuffle(len, last));
+  };
+  // Ensure at least `min` items are queued ahead.
+  const ensureQueue = (len, min=8) => {
+    while(queueRef.current.length < min) refillQueue(len);
   };
 
   const tick = useCallback(()=>{
@@ -1070,26 +1081,17 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     const bpc=bpcRef.current, cur=beatRef.current, isFirst=cur===0;
     if(isFirst && !firstTickRef.current){
       if(randomOrderRef.current && chords.length>1){
-        // Advance through the pre-shuffled order.
         const len = chords.length;
-        let order = shuffleRef.current;
-        let pos = shufflePosRef.current + 1;
-        if(pos >= order.length){
-          // Completed a full pass — re-shuffle a fresh order (no repeat at seam).
-          const lastChord = order[order.length-1];
-          order = makeShuffle(len, lastChord);
-          shuffleRef.current = order;
-          pos = 0;
-        }
-        shufflePosRef.current = pos;
-        const incoming = order[pos];
+        // Pull the next chord off the front of the pre-built queue.
+        ensureQueue(len, 8);
+        const incoming = queueRef.current.shift();
         chordRef.current = incoming;
         setChordIndex(incoming);
-        // Real next from the known order (peek the upcoming, even across the seam).
-        const nextPos = pos + 1;
-        const upcoming = nextPos < order.length ? order[nextPos] : order[0];
-        randomNextRef.current = upcoming;
-        setRandomNextDisplay(upcoming);
+        // The next two are already decided (off-screen) — expose for the slide.
+        ensureQueue(len, 8);
+        randomNextRef.current = queueRef.current[0];
+        setRandomNextDisplay(queueRef.current[0]);
+        setRandomNext2(queueRef.current[1]);
       } else {
         const next=(chordRef.current+1)%chords.length;
         chordRef.current=next; setChordIndex(next);
@@ -1119,19 +1121,20 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     if(intervalRef.current) clearInterval(intervalRef.current);
     beatRef.current=0; chordRef.current=0; firstTickRef.current=true;
     setChordIndex(0); setBeatCount(0);
-    // Random mode: build a fresh shuffled order and start at its first chord.
+    // Random mode: pre-build a queue and settle the first chord + its next two
+    // BEFORE play starts, so nothing visibly changes as the slide begins.
     if(randomOrderRef.current) {
       const total = vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1);
       if(total > 1) {
-        const order = makeShuffle(total);
-        shuffleRef.current = order;
-        shufflePosRef.current = 0;
-        const curr = order[0];
-        const nxt = order[1];
+        queueRef.current = [];
+        ensureQueue(total, 12);
+        const curr = queueRef.current.shift();
+        ensureQueue(total, 12);
         chordRef.current = curr;
         setChordIndex(curr);
-        randomNextRef.current = nxt;
-        setRandomNextDisplay(nxt);
+        randomNextRef.current = queueRef.current[0];
+        setRandomNextDisplay(queueRef.current[0]);
+        setRandomNext2(queueRef.current[1]);
       }
     }
     const ms=(60/bpmRef.current)*1000;
@@ -1276,6 +1279,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
 
       {chords.length>=2 && (
         <ChordGrid chords={chords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
+          afterChordIndex={randomOrder ? randomNext2 : null}
           isPlaying={isPlaying} accentColor={accentColor} isLastBeat={isLastBeat}
           bpm={bpm} beatsPerChord={beatsPerChord} countdown={countdown}
           chordVariants={effectiveVariants} updateVariant={updateVariant}
@@ -4555,7 +4559,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   );
 }
 
-function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, countdown=0, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
+function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, countdown=0, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
   const [variantPickerSlot, setVariantPickerSlot] = useState(null); // {idx, base, current}
 
   // In perSlot mode each chords[i] is self-contained; resolve via slot helpers.
@@ -4603,8 +4607,9 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
   // peek (sequential from next) — in random mode the true after isn't known yet,
   // but it only ever peeks at the edge and slides off, so it's purely cosmetic.
   const nextIdx = (typeof nextChordIndex === "number" ? nextChordIndex : (chordIndex+1)%n);
+  const afterIdx = (typeof afterChordIndex === "number" ? afterChordIndex : (nextIdx+1)%n);
   const windowIdx = n > 0
-    ? [ (chordIndex-1+n)%n, chordIndex%n, nextIdx%n, (nextIdx+1)%n ]
+    ? [ (chordIndex-1+n)%n, chordIndex%n, nextIdx%n, afterIdx%n ]
     : [];
   // Strip is laid out as [prev, cur, next, after]; index 1 is "current".
   const CUR_SLOT = 1;
