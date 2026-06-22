@@ -4479,98 +4479,165 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
 
 function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
   const [variantPickerSlot, setVariantPickerSlot] = useState(null); // {idx, base, current}
-  const prevIdx = (chordIndex - 1 + chords.length) % chords.length;
 
   // In perSlot mode each chords[i] is self-contained; resolve via slot helpers.
   const imgFor = (slot) => perSlot ? slotImg(slot) : getChordImg(slot, chordVariants);
   const labelFor = (slot) => perSlot ? slotLabel(slot) : slot;
   const baseFor = (slot) => perSlot ? slotBase(slot) : slot;
 
-  const cards = [
-    { chord: chords[prevIdx],        type: "side", idx: prevIdx },
-    { chord: chords[chordIndex],     type: "active", idx: chordIndex },
-    { chord: chords[nextChordIndex], type: "side", idx: nextChordIndex },
-  ];
+  // ── Sliding strip animation ──
+  // Decoupled from audio: this only READS timing to position the strip. The
+  // metronome runs on its own timer, so the slide can never affect tempo.
+  // Curve: dwell (chord held in focus) → accelerate → settle on the next chord.
+  const DWELL = 0.60, SHARP = 1.8, DRIFT = 0.10;
+  const VIEW_H = 250, CARD_W = 150, CARD_MARGIN = 10, STEP = CARD_W + CARD_MARGIN * 2;
+
+  const viewportRef = useRef(null);
+  const stripRef = useRef(null);
+  const cardElRefs = useRef([]);
+  const rafRef = useRef(null);
+  const chordStartRef = useRef(performance.now());
+  const lastIdxRef = useRef(chordIndex);
+
+  // Stamp the moment the active chord changes (animation interpolates from here).
+  useEffect(() => {
+    if (chordIndex !== lastIdxRef.current) {
+      lastIdxRef.current = chordIndex;
+      chordStartRef.current = performance.now();
+    }
+  }, [chordIndex]);
+
+  const n = chords.length;
+  // Render window: prev, current, next, next+1 so neighbors always exist.
+  const windowIdx = n > 0
+    ? [ (chordIndex-1+n)%n, chordIndex%n, (chordIndex+1)%n, (chordIndex+2)%n ]
+    : [];
+  // Strip is laid out as [prev, cur, next, next+1]; index 1 is "current".
+  const CUR_SLOT = 1;
+
+  const vw = () => (viewportRef.current ? viewportRef.current.clientWidth : 0);
+  const centerForSlot = (slot) => vw() / 2 - (slot * STEP + STEP / 2);
+
+  const curve = (p) => {
+    if (p <= DWELL) return DRIFT * (p / DWELL);
+    const t = (p - DWELL) / (1 - DWELL);
+    const eased = Math.pow(t, SHARP) / (Math.pow(t, SHARP) + Math.pow(1 - t, SHARP));
+    return DRIFT + (1 - DRIFT) * eased;
+  };
+
+  const paint = (pos) => {
+    const strip = stripRef.current; if (!strip) return;
+    strip.style.transform = `translateX(${pos}px)`;
+    const center = vw() / 2;
+    cardElRefs.current.forEach((el) => {
+      if (!el) return;
+      const cardCenter = Number(el.dataset.slot) * STEP + STEP / 2 + pos;
+      const dist = Math.abs(cardCenter - center);
+      const t = Math.min(1, dist / STEP);
+      el.style.transform = `scale(${(1 - 0.16 * t).toFixed(3)})`;
+      el.style.opacity = (1 - 0.5 * t).toFixed(3);
+      el.style.border = t < 0.4 ? `2px solid ${accentColor}` : "1px solid #222";
+      el.style.boxShadow = t < 0.4 ? `0 0 22px rgba(${hexToRgb(accentColor)},0.26)` : "none";
+    });
+  };
+
+  // Static (paused) position: current chord centered.
+  useEffect(() => {
+    if (!isPlaying) {
+      cancelAnimationFrame(rafRef.current);
+      paint(centerForSlot(CUR_SLOT));
+    }
+  }); // eslint-disable-line
+
+  // Playing: animate via rAF using elapsed time vs chord duration.
+  useEffect(() => {
+    if (!isPlaying || n === 0) return;
+    const tick = (now) => {
+      const beatMs = 60000 / (bpm || 60);
+      const cycleMs = beatMs * (beatsPerChord || 1);
+      let p = (now - chordStartRef.current) / cycleMs;
+      if (p < 0) p = 0;
+      if (p > 1) p = 1;
+      const travel = curve(p);
+      const from = centerForSlot(CUR_SLOT);
+      const to = centerForSlot(CUR_SLOT + 1);
+      paint(from + (to - from) * travel);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [isPlaying, bpm, beatsPerChord, chordIndex, n]); // eslint-disable-line
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  const activeChord = n > 0 ? chords[chordIndex % n] : null;
+  const activeBase = activeChord != null ? baseFor(activeChord) : null;
+  const activeHasVar = activeBase != null && HAS_VARIATIONS.has(activeBase);
+  const activeChosenLabel = activeChord == null ? "standard" : (perSlot
+    ? (slotBase(activeChord)!==activeChord ? slotLabel(activeChord) : "standard")
+    : ((chordVariants?.[activeChord]&&chordVariants[activeChord]!==activeChord)
+        ? (CHORD_VARIATION_MAP[activeChord]?.find(v=>v.key===chordVariants[activeChord])?.label||chordVariants[activeChord])
+        : "standard"));
 
   return (
     <div style={{ width:"100%", marginBottom:10 }}>
 
       {/* Position dots */}
-      <div style={{ display:"flex", justifyContent:"center", gap:5, marginBottom:8 }}>
+      <div style={{ display:"flex", justifyContent:"center", gap:5, marginBottom:10 }}>
         {chords.map((_, i) => (
           <div key={i} style={{
-            width: i===chordIndex ? 18 : 6, height:6, borderRadius:3,
-            background: i===chordIndex ? accentColor : "#2a1f00",
+            width: i===chordIndex%n ? 18 : 6, height:6, borderRadius:3,
+            background: i===chordIndex%n ? accentColor : "#2a1f00",
             transition:"all 0.25s ease",
           }} />
         ))}
       </div>
 
-      {/* Three cards — equal treatment, active just brighter */}
-      <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-        {cards.map(({ chord, type, idx }, i) => {
-          const isActive = type === "active";
-          const isNext = i === 2; // right card is always next
-          const highlight = isNext && isLastBeat;
-          const base = baseFor(chord);
-          const hasVar = HAS_VARIATIONS.has(base);
-          const chosenLabel = perSlot
-            ? (slotBase(chord)!==chord ? slotLabel(chord) : "standard")
-            : ((chordVariants?.[chord]&&chordVariants[chord]!==chord)
-                ? (CHORD_VARIATION_MAP[chord]?.find(v=>v.key===chordVariants[chord])?.label||chordVariants[chord])
-                : "standard");
-          return (
-            <div key={chord + i} style={{
-              flex: isActive ? "0 0 46%" : "0 0 27%",
-              display:"flex", flexDirection:"column", alignItems:"center",
-              opacity: isActive ? 1 : highlight ? 1 : 0.35,
-              transition:"opacity 0.2s ease",
-            }}>
-              <div style={{
-                width:"100%", borderRadius:10, overflow:"hidden", background:"#000",
-                border: isActive
-                  ? `2px solid ${accentColor}`
-                  : highlight
-                    ? `2px solid ${accentColor}66`
-                    : "1px solid #222",
-                boxShadow: isActive
-                  ? `0 0 16px rgba(${hexToRgb(accentColor)},0.4)`
-                  : highlight
-                    ? `0 0 10px rgba(${hexToRgb(accentColor)},0.2)`
-                    : "none",
-                transition:"border 0.2s ease, box-shadow 0.2s ease",
-              }}>
+      {/* Sliding strip */}
+      <div ref={viewportRef} style={{ position:"relative", width:"100%", height:VIEW_H, overflow:"hidden", marginBottom:6 }}>
+        <div style={{ position:"absolute", top:0, bottom:0, left:0, width:50, zIndex:5, pointerEvents:"none",
+          background:"linear-gradient(90deg, #0d0d0a, rgba(13,13,10,0))" }} />
+        <div style={{ position:"absolute", top:0, bottom:0, right:0, width:50, zIndex:5, pointerEvents:"none",
+          background:"linear-gradient(270deg, #0d0d0a, rgba(13,13,10,0))" }} />
+        <div ref={stripRef} style={{ position:"absolute", top:0, left:0, height:"100%",
+          display:"flex", alignItems:"center", willChange:"transform" }}>
+          {windowIdx.map((ci, slot) => {
+            const chord = chords[ci];
+            const isActiveSlot = slot === CUR_SLOT;
+            return (
+              <div key={`${ci}-${slot}`} data-slot={slot}
+                ref={el=>cardElRefs.current[slot]=el}
+                style={{ flex:"0 0 auto", width:CARD_W, height:210, margin:`0 ${CARD_MARGIN}px`,
+                  borderRadius:14, overflow:"hidden", background:"#000", border:"1px solid #222",
+                  display:"flex", willChange:"transform, opacity", position:"relative" }}>
                 {imgFor(chord)
-                  ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center", position:"relative" }}>
-                    <img src={imgFor(chord)} alt={labelFor(chord)}
-                      style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                    {isActive && hasVar && (
-                      <div onClick={e=>{e.stopPropagation();
-                        if(perSlot) setVariantPickerSlot({ idx, base, current: chord });
-                        else setVariantPickerSlot({ idx:-1, base:chord, current: chordVariants?.[chord]||chord });
-                      }}
-                        style={{ position:"absolute", top:4, right:4, padding:"2px 7px",
-                          borderRadius:8, background:"rgba(0,0,0,0.8)",
-                          border:"1px solid rgba(255,190,11,0.5)",
-                          fontSize:10, fontWeight:700,
-                          color: chosenLabel!=="standard"?"#FFBE0B":"#888",
-                          cursor:"pointer", zIndex:2, whiteSpace:"nowrap" }}>
-                        {chosenLabel} ⚙
-                      </div>
-                    )}
+                  ? <img src={imgFor(chord)} alt={labelFor(chord)} draggable={false}
+                      style={{ width:"100%", height:"100%", objectFit:"cover", display:"block", pointerEvents:"none" }} />
+                  : <div style={{ margin:"auto", fontSize:36, fontWeight:900, color:accentColor }}>{labelFor(chord)}</div>}
+                {/* Variant gear — only on the centered chord and when paused (keeps motion clean) */}
+                {isActiveSlot && activeHasVar && !isPlaying && (
+                  <div onClick={e=>{e.stopPropagation();
+                      if(perSlot) setVariantPickerSlot({ idx:chordIndex, base:activeBase, current: chord });
+                      else setVariantPickerSlot({ idx:-1, base:chord, current: chordVariants?.[chord]||chord });
+                    }}
+                    style={{ position:"absolute", top:6, right:6, padding:"3px 8px", borderRadius:8,
+                      background:"rgba(0,0,0,0.8)", border:"1px solid rgba(255,190,11,0.5)",
+                      fontSize:10, fontWeight:700, color: activeChosenLabel!=="standard"?"#FFBE0B":"#888",
+                      cursor:"pointer", zIndex:2, whiteSpace:"nowrap" }}>
+                    {activeChosenLabel} ⚙
                   </div>
-                  : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
-                      justifyContent:"center", fontSize:isActive?32:20, fontWeight:900,
-                      color:isActive?accentColor:"#555" }}>{labelFor(chord)}</div>
-                }
+                )}
               </div>
-              <div style={{ marginTop:4, fontSize:isActive?15:11, fontWeight:900,
-                color: isActive ? accentColor : highlight ? accentColor+"88" : "#555",
-                transition:"all 0.2s" }}>{labelFor(chord)}</div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
+
+      {/* Active chord label */}
+      <div style={{ textAlign:"center", fontSize:16, fontWeight:900, color:accentColor, marginBottom:4 }}>
+        {activeChord != null ? labelFor(activeChord) : ""}
+      </div>
+
       {variantPickerSlot && (
         <VariantPickerModal
           chord={variantPickerSlot.base}
