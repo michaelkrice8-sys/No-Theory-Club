@@ -911,7 +911,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
         setMode("build");
         setSharedViewName(d.name||"Shared Pattern");
         setStrumSaveName(d.name||"Shared Pattern");
-        setBuilderOpen(false);
+        setBuilderOpen(onExport ? true : false);
         if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
       }
     }
@@ -2863,7 +2863,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
         setHasSecondRow(d.hasSecondRow); setRow1Size(d.row1Size); setRow2Size(d.row2Size);
         setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord); setCapo(d.capo||0);
         setLoadedName(d.name); setSaveName(d.name);
-        setPickerOpen(false);
+        setPickerOpen(onExport ? true : false);
         if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
         if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
       }
@@ -3767,7 +3767,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       setCapo(d.c||0);
       setLoadedPatternName(d.n||"Shared Pattern");
       setSaveName(d.n||"Shared Pattern");
-      setBuilderOpen(false);
+      setBuilderOpen(onExport ? true : false);
       if(initialParam==null){ window.history.replaceState({}, "", window.location.pathname); window.scrollTo(0, 0); }
     } catch(e) {}
   }, []);
@@ -4553,14 +4553,15 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
 
 // ─── SHARED UI COMPONENTS ────────────────────────────────────────────────────
 
-function SectionHeader({ title, sub }) {
+function SectionHeader({ title, sub, action=null }) {
   return (
     <div style={{
       borderRadius:18, padding:"18px 24px",
-      textAlign:"center", marginBottom:18, width:"100%",
+      textAlign:"center", marginBottom:18, width:"100%", position:"relative",
       background:"#0e0b07", border:"1px solid #211b10",
       boxShadow:"0 6px 22px rgba(0,0,0,0.4)",
     }}>
+      {action && <div style={{ position:"absolute", top:12, right:12 }}>{action}</div>}
       <h1 style={{ margin:0, fontSize:21, fontWeight:900, color:"#f3ead2", letterSpacing:0.3 }}>{title}</h1>
       <p style={{ margin:"6px 0 0", fontSize:12.5, color:"#8a7f5e", lineHeight:1.6 }}>{sub}</p>
     </div>
@@ -5923,6 +5924,8 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteVal, setPasteVal] = useState("");
   const [buildType, setBuildType] = useState(null); // "drill"|"strum"|"simple"|"advanced" → opens modal
+  const [editIdx, setEditIdx] = useState(null);      // index being edited, or null for new
+  const [editParam, setEditParam] = useState(null);  // payload to preload into the builder when editing
   const [savedLink, setSavedLink] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState(null);
@@ -5943,9 +5946,26 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
 
   // Called by the in-modal builder's "Use this in package" button.
   const handleBuilderExport = (t, d, label) => {
-    addItem({ t, d });
-    setBuildType(null);
+    const newItem = { t, d, label: itemLabel({ t, d }) };
+    if(editIdx != null){
+      setItems(p => p.map((it,i)=> i===editIdx ? newItem : it));
+    } else {
+      setItems(p => [...p, newItem]);
+    }
+    setBuildType(null); setEditIdx(null); setEditParam(null);
   };
+
+  // Open an existing item back up in its builder, preloaded with its data.
+  const editItem = (i) => {
+    const it = items[i];
+    if(!it) return;
+    const TYPE_TO_BUILD = { drill:"drill", strum:"strum", strumprog:"simple", pattern:"advanced" };
+    setEditIdx(i);
+    setEditParam(it.d);
+    setBuildType(TYPE_TO_BUILD[it.t] || null);
+  };
+
+  const closeModal = () => { setBuildType(null); setEditIdx(null); setEditParam(null); };
 
   const doSave = async () => {
     if(items.length < 1 && !includeTracker){ alert("Add at least one exercise (or include the tracker)."); return; }
@@ -5982,16 +6002,16 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
 
   return (
     <div style={{ width:"100%" }}>
-      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
-        <SectionHeader title="📦 Build a Package"
-          sub="Bundle a few exercises into one shareable link. Add exercises, set the order, then share." />
-        <button onClick={doReset} title="Clear everything and start over"
-          style={{ flexShrink:0, marginTop:4, padding:"7px 13px", borderRadius:10,
-            border:"1px solid #2a2417", background:"#100d09", color:"#8a7f5e",
-            fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
-          ↺ Reset
-        </button>
-      </div>
+      <SectionHeader title="📦 Build a Package"
+        sub="Bundle a few exercises into one shareable link. Add exercises, set the order, then share."
+        action={
+          <button onClick={doReset} title="Clear everything and start over"
+            style={{ padding:"6px 12px", borderRadius:10,
+              border:"1px solid #2a2417", background:"#161009", color:"#8a7f5e",
+              fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+            ↺ Reset
+          </button>
+        } />
 
       {/* Package details */}
       <div style={{ width:"100%", background:"#0c0a06", border:"1px solid #241d10", borderRadius:18, padding:"16px", marginBottom:14 }}>
@@ -6047,6 +6067,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
               <div style={{ fontSize:10.5, color:"#6f6749" }}>{PKG_TYPE_META[it.t]?.label||it.t}</div>
             </div>
             <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+              <button onClick={()=>editItem(i)} title="Edit" style={{ ...stepBtn, color:"#FFBE0B", borderColor:"rgba(255,190,11,0.35)", background:"#16110a" }}>✏️</button>
               <button onClick={()=>move(i,-1)} disabled={i===0} style={{ ...stepBtn, opacity:i===0?0.3:1 }}>↑</button>
               <button onClick={()=>move(i,1)} disabled={i===items.length-1} style={{ ...stepBtn, opacity:i===items.length-1?0.3:1 }}>↓</button>
               <button onClick={()=>removeItem(i)} style={{ ...stepBtn, color:"#e74c3c88", borderColor:"#3a1a1a", background:"#1a0a0a" }}>✕</button>
@@ -6078,7 +6099,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
           <div style={{ fontSize:10, color:"#5a5238", letterSpacing:1, marginBottom:8 }}>OR BUILD A NEW ONE</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {[["drill","🤚 Chords"],["strum","🎸 Strum"],["simple","🎵 Song · Simple"],["advanced","🎵 Song · Advanced"]].map(([t,lbl])=>(
-              <button key={t} onClick={()=>setBuildType(t)} style={{ flex:"1 1 auto", padding:"9px 12px", borderRadius:10,
+              <button key={t} onClick={()=>{ setEditIdx(null); setEditParam(null); setBuildType(t); }} style={{ flex:"1 1 auto", padding:"9px 12px", borderRadius:10,
                 border:"1px dashed rgba(255,190,11,0.4)", background:"rgba(255,190,11,0.06)", color:"#FFBE0B",
                 fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>{lbl}</button>
             ))}
@@ -6116,14 +6137,14 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
           <div style={{ maxWidth:560, margin:"0 auto", background:"#0d0d0a", border:"1px solid #241d10", borderRadius:18, padding:"14px 12px" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
               <div style={{ fontSize:13, fontWeight:900, color:"#FFD60A" }}>
-                Build {PKG_TYPE_META[buildType==="simple"?"strumprog":buildType==="advanced"?"pattern":buildType]?.label || buildType}
+                {editIdx!=null ? "Edit" : "Build"} {PKG_TYPE_META[buildType==="simple"?"strumprog":buildType==="advanced"?"pattern":buildType]?.label || buildType}
               </div>
-              <button onClick={()=>setBuildType(null)} style={{ background:"none", border:"none", color:"#888", fontSize:20, cursor:"pointer" }}>✕</button>
+              <button onClick={closeModal} style={{ background:"none", border:"none", color:"#888", fontSize:20, cursor:"pointer" }}>✕</button>
             </div>
-            {buildType==="drill" && <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} />}
-            {buildType==="strum" && <StrummingTab audio={audio} onExport={handleBuilderExport} />}
-            {buildType==="simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} />}
-            {buildType==="advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} />}
+            {buildType==="drill" && <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="strum" && <StrummingTab audio={audio} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
           </div>
         </div>
       )}
