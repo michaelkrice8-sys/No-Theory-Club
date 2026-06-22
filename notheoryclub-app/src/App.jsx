@@ -870,7 +870,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
     const sizes = rowSizesRef.current;
     const mappedIdx = cm==="build" ? beatToSlot(next, sizes) : next;
     setCurrentBeat(cm==="build" ? mappedIdx : next);
-    if(next%4===0) playClick(next===0);
+    if(next%2===0) playClick(next===0);
     const isDown = (cm==="build" ? mappedIdx : next)%2===0;
     let shouldStrum = cm==="build" ? buildActiveRef.current[mappedIdx]===true
       : patternRef.current ? patternRef.current.active[next]===true : true;
@@ -880,7 +880,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
     beatRef.current=-1;
-    const ms=(60/bpmRef.current/4)*1000;
+    const ms=(60/bpmRef.current/2)*1000;
     intervalRef.current=setInterval(tick,ms);
     tick();
   },[tick]);
@@ -1781,8 +1781,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     playPosRef.current = { secIdx, rowIdx, beat, pass };
     setPlayPos({ secIdx, rowIdx, beat, pass });
 
-    // Click every 4 blocks = quarter notes
-    if(!muteRef.current && beat % 4 === 0)
+    // Click every 2 blocks = quarter note (each block is an 8th note)
+    if(!muteRef.current && beat % 2 === 0)
       playChordClick(beat === 0 && pass === 0);
 
     // Track chord and strum on every active block
@@ -1807,7 +1807,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     currentChordRef.current = null;
-    const ms = (60/bpmRef.current/4)*1000; // 16th note per block
+    const ms = (60/bpmRef.current/2)*1000; // 8th note per block
     intervalRef.current = setInterval(tick, ms);
     tick(); // fire immediately — no gap after countdown
   },[tick]);
@@ -1831,7 +1831,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const resumeMetronome = useCallback(()=>{
     // Resume from current position
     if(intervalRef.current) clearInterval(intervalRef.current);
-    const ms = (60/bpmRef.current/4)*1000;
+    const ms = (60/bpmRef.current/2)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
   },[tick]);
@@ -1845,7 +1845,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     setPlayPos({ secIdx, rowIdx:0, beat:-1, pass:0 });
     setIsPaused(false);
     setCountIn(0); setCountInBeat(-1);
-    const ms = (60/bpmRef.current/4)*1000;
+    const ms = (60/bpmRef.current/2)*1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
     setIsPlaying(true);
@@ -1869,7 +1869,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       if(beat <= 0){
         clearInterval(countInRef.current);
         setCountIn(0); setCountInBeat(-1);
-        const ms16 = (60/bpmRef.current/4)*1000;
+        const ms16 = (60/bpmRef.current/2)*1000;
         intervalRef.current = setInterval(tick, ms16);
         tick();
         setIsPlaying(true);
@@ -1901,7 +1901,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       clearInterval(countInRef.current);
       setCountIn(0); setCountInBeat(-1);
       if(intervalRef.current) clearInterval(intervalRef.current);
-      const ms16 = (60/bpmRef.current/4)*1000;
+      const ms16 = (60/bpmRef.current/2)*1000;
       intervalRef.current = setInterval(tick, ms16);
       tick();
       setIsPlaying(true); return;
@@ -1925,7 +1925,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
         currentChordRef.current = null;
         if(intervalRef.current) clearInterval(intervalRef.current);
-        const ms16 = (60/bpmRef.current/4)*1000;
+        const ms16 = (60/bpmRef.current/2)*1000;
         intervalRef.current = setInterval(tick, ms16);
         tick();
         setIsPlaying(true);
@@ -2898,7 +2898,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     // the next chord arrives in focus exactly as the chord changes.
     if(chords.length>1){
       const onFinalRun = chordBeatRef.current === bpc-1;
-      const tickMs = (60/bpmRef.current/4)*1000;
+      const tickMs = (60/bpmRef.current/2)*1000;
       // Start the slide ~2 arrows before the wrap, but give a little more room on
       // short patterns / fast tempo so it never feels abrupt (min ~260ms window).
       let lead = 2;
@@ -2913,7 +2913,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       if(nextRaw===0) slideArmedRef.current = false;
     }
     firstTickRef.current=false;
-    if(nextRaw%4===0) playChordClick(nextRaw===0);
+    if(nextRaw%2===0) playChordClick(nextRaw===0);
     const isDown=strumIdx%2===0;
     if(strumRef.current[strumIdx]){
       const currentChord=chordsRef.current[chordIdxRef.current];
@@ -2926,7 +2926,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     strumBeatRef.current=-1; chordIdxRef.current=0; chordBeatRef.current=0;
     firstTickRef.current=true; slideArmedRef.current=false;
     setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
-    const ms=(60/bpmRef.current/4)*1000;
+    const ms=(60/bpmRef.current/2)*1000;
     intervalRef.current=setInterval(tick,ms); tick();
   },[tick]);
 
@@ -3616,7 +3616,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
         }
       }
     }
-    if(!muteRef.current && next%4===0) playChordClick(next===0);
+    if(!muteRef.current && next%2===0) playChordClick(next===0);
     const isDown=next%2===0;
     if(strumRef.current[flatIdx] && currentChordRef.current) playChordStrum(getAudioKey(currentChordRef.current, chordVariants), isDown, capoRef.current);
   },[playChordClick,playChordStrum]);
@@ -3625,7 +3625,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     if(intervalRef.current) clearInterval(intervalRef.current);
     strumBeatRef.current=-1; currentChordRef.current=null;
     // Don't reset currentChordLabel here to avoid layout jump
-    const ms=(60/bpmRef.current/4)*1000;
+    const ms=(60/bpmRef.current/2)*1000;
     intervalRef.current=setInterval(tick,ms);
     tick();
   },[tick]);
