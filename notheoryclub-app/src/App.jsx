@@ -4571,11 +4571,16 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
   }, [isPlaying]); // eslint-disable-line
 
   const n = chords.length;
-  // Render window: prev, current, next, next+1 so neighbors always exist.
+  // Render window: [prev, current, next, after]. The "next" slot uses the REAL
+  // nextChordIndex (which honors random mode), so the chord that slides into
+  // focus matches the one that actually becomes current. "after" is a best-guess
+  // peek (sequential from next) — in random mode the true after isn't known yet,
+  // but it only ever peeks at the edge and slides off, so it's purely cosmetic.
+  const nextIdx = (typeof nextChordIndex === "number" ? nextChordIndex : (chordIndex+1)%n);
   const windowIdx = n > 0
-    ? [ (chordIndex-1+n)%n, chordIndex%n, (chordIndex+1)%n, (chordIndex+2)%n ]
+    ? [ (chordIndex-1+n)%n, chordIndex%n, nextIdx%n, (nextIdx+1)%n ]
     : [];
-  // Strip is laid out as [prev, cur, next, next+1]; index 1 is "current".
+  // Strip is laid out as [prev, cur, next, after]; index 1 is "current".
   const CUR_SLOT = 1;
 
   const vw = () => (viewportRef.current ? viewportRef.current.clientWidth : 0);
