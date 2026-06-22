@@ -803,7 +803,7 @@ function ChordCarousel({ chords, value, onChange }) {
   );
 }
 
-function StrummingTab({ audio, sharedView=false, active=true, initialParam=null, onExport=null }) {
+function StrummingTab({ audio, sharedView=false, active=true, initialParam=null, onExport=null, hideTitle=false }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState(onExport ? "build" : "practice");
   const [pattern, setPattern] = useState(null);
@@ -1051,7 +1051,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
           strumSavePrompt={strumSavePrompt} setStrumSavePrompt={setStrumSavePrompt}
           strumSaveName={strumSaveName} setStrumSaveName={setStrumSaveName}
           builderOpen={builderOpen} setBuilderOpen={setBuilderOpen}
-          sharedViewName={sharedViewName} />
+          sharedViewName={hideTitle ? null : sharedViewName} />
       )}
 
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
@@ -1624,7 +1624,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
 }
 
 // ─── BUILD A SONG TAB ────────────────────────────────────────────────────────
-function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant, sharedView=false, initialParam=null }) {
+function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant, sharedView=false, initialParam=null, hideTitle=false }) {
   const [buildMode, setBuildMode] = useState(initialBuildMode);
 
   return (
@@ -1641,8 +1641,8 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
         </>
       )}
 
-      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} />}
-      {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} />}
+      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} hideTitle={hideTitle} />}
+      {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} hideTitle={hideTitle} />}
       {buildMode === "song" && <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
       {buildMode === "package" && <PackageBuilderTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
     </div>
@@ -2795,7 +2795,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   );
 }
 
-function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null }) {
+function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null, hideTitle=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [songChords, setSongChords] = useState([]);
   const [strumActive, setStrumActive] = useState(defaultBuild(8).concat(Array(8).fill(false)));
@@ -3039,7 +3039,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       {!pickerOpen && (
         <>
           {/* Title */}
-          {loadedName && (
+          {loadedName && !hideTitle && (
             <div style={{ width:"100%", textAlign:"center", marginBottom:16 }}>
               <div style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:0.3,
                 textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{loadedName}</div>
@@ -3480,7 +3480,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
 
 // ─── ADVANCED BUILD A SONG ───────────────────────────────────────────────────
-function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null }) {
+function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null, hideTitle=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [rowSizes, setRowSizes] = useState([8]);
   const [rowRepeats, setRowRepeats] = useState([1]); // repeat count per row
@@ -3883,7 +3883,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       {!builderOpen && (
         <>
           {/* Title */}
-          {loadedPatternName && (
+          {loadedPatternName && !hideTitle && (
             <div style={{ width:"100%", textAlign:"center", marginBottom:14 }}>
               <div style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:0.3,
                 textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{loadedPatternName}</div>
@@ -6233,15 +6233,22 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
   // Render a single exercise item via its existing share component.
   const renderItem = (it) => {
     if(!it) return null;
+    const title = (
+      <div style={{ width:"100%", textAlign:"center", marginBottom:12 }}>
+        <div style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:0.3,
+          textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{pkg?.n || "Package"}</div>
+      </div>
+    );
+    let panel = null;
     if(it.t === "drill")
-      return <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} />;
-    if(it.t === "strum")
-      return <StrummingTab audio={audio} sharedView={true} initialParam={it.d} />;
-    if(it.t === "strumprog")
-      return <BuildSongTab audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} />;
-    if(it.t === "pattern")
-      return <BuildSongTab audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} />;
-    return null;
+      panel = <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} />;
+    else if(it.t === "strum")
+      panel = <StrummingTab audio={audio} sharedView={true} initialParam={it.d} hideTitle={true} />;
+    else if(it.t === "strumprog")
+      panel = <BuildSongTab audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} />;
+    else if(it.t === "pattern")
+      panel = <BuildSongTab audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} />;
+    return <>{title}{panel}</>;
   };
 
   // Guided next/prev (drills walk forward, ending on tracker if present).
