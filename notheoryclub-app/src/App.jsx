@@ -5932,9 +5932,18 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   const [buildType, setBuildType] = useState(null); // "drill"|"strum"|"simple"|"advanced" → opens modal
   const [editIdx, setEditIdx] = useState(null);      // index being edited, or null for new
   const [editParam, setEditParam] = useState(null);  // payload to preload into the builder when editing
+  const [openSeq, setOpenSeq] = useState(0);          // bumped each modal open → forces builder remount
   const [savedLink, setSavedLink] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState(null);
+
+  // If the package is changed after a link was generated, that link is now stale
+  // (it points to the previously-saved snapshot). Clear it so the user must
+  // re-save to get a link reflecting the new content — prevents copying an old link.
+  useEffect(() => {
+    if(savedLink) setSavedLink(null);
+  // eslint-disable-next-line
+  }, [name, day, includeTracker, items]);
 
   const addItem = (it) => setItems(p => [...p, { ...it, label: itemLabel(it) }]);
   const removeItem = (i) => setItems(p => p.filter((_,k)=>k!==i));
@@ -5968,6 +5977,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
     const TYPE_TO_BUILD = { drill:"drill", strum:"strum", strumprog:"simple", pattern:"advanced" };
     setEditIdx(i);
     setEditParam(it.d);
+    setOpenSeq(s=>s+1);
     setBuildType(TYPE_TO_BUILD[it.t] || null);
   };
 
@@ -6105,7 +6115,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
           <div style={{ fontSize:10, color:"#5a5238", letterSpacing:1, marginBottom:8 }}>OR BUILD A NEW ONE</div>
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
             {[["drill","🤚 Chords"],["strum","🎸 Strum"],["simple","🎵 Song · Simple"],["advanced","🎵 Song · Advanced"]].map(([t,lbl])=>(
-              <button key={t} onClick={()=>{ setEditIdx(null); setEditParam(null); setBuildType(t); }} style={{ flex:"1 1 auto", padding:"9px 12px", borderRadius:10,
+              <button key={t} onClick={()=>{ setEditIdx(null); setEditParam(null); setOpenSeq(s=>s+1); setBuildType(t); }} style={{ flex:"1 1 auto", padding:"9px 12px", borderRadius:10,
                 border:"1px dashed rgba(255,190,11,0.4)", background:"rgba(255,190,11,0.06)", color:"#FFBE0B",
                 fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>{lbl}</button>
             ))}
@@ -6147,10 +6157,10 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
               </div>
               <button onClick={closeModal} style={{ background:"none", border:"none", color:"#888", fontSize:20, cursor:"pointer" }}>✕</button>
             </div>
-            {buildType==="drill" && <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
-            {buildType==="strum" && <StrummingTab audio={audio} onExport={handleBuilderExport} initialParam={editParam} />}
-            {buildType==="simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
-            {buildType==="advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="drill" && <ChordsTab key={`drill-${openSeq}`} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="strum" && <StrummingTab key={`strum-${openSeq}`} audio={audio} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="simple" && <SimpleBuildSong key={`simple-${openSeq}`} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="advanced" && <AdvancedBuildSong key={`advanced-${openSeq}`} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
           </div>
         </div>
       )}
