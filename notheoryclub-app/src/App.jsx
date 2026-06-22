@@ -446,7 +446,13 @@ function App() {
   }, [fadeKey]);
 
   const handleTabChange = (newTab) => {
-    // The outgoing tab stops its own playback via its `active` effect.
+    // Suspend audio context to immediately silence everything
+    try {
+      const ctx = audio.getContext?.();
+      if(ctx && ctx.state === "running") {
+        ctx.suspend().then(()=>{ setTimeout(()=>ctx.resume(), 50); });
+      }
+    } catch(e){}
     setDest(newTab);
   };
 
@@ -754,7 +760,7 @@ function ChordCarousel({ chords, value, onChange }) {
   );
 }
 
-function StrummingTab({ audio, sharedView=false, active=true }) {
+function StrummingTab({ audio, sharedView=false }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState("practice");
   const [pattern, setPattern] = useState(null);
@@ -896,8 +902,7 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
   };
   useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
-  // Stop playback when this tab is left (app tab switch) or the browser tab is
-  // hidden/backgrounded — so a drill never keeps running out of sight.
+  const totalBlocks = mode==="build" ? rowSizes.reduce((a,b)=>a+b,0) : 8;
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
   return (
@@ -984,7 +989,7 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
 }
 
 // ─── CHORDS TAB ─────────────────────────────────────────────────────────────
-function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true }) {
+function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [viewMode, setViewMode] = useState("presets");
   const [selectedPack, setSelectedPack] = useState(null);
@@ -1213,8 +1218,6 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
   };
   useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
-  // Stop playback when this tab is left (app tab switch) or the browser tab is
-  // hidden/backgrounded — so a drill never keeps running out of sight.
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
