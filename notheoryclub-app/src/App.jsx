@@ -1120,7 +1120,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
         const drillName = decoded.name || "Shared Drill";
         setLoadedDrillName(drillName);
         setDrillSaveName(drillName);
-        setPickerOpen(false);
+        setPickerOpen(onExport ? true : false);
         if(decoded.chordVariants && Object.keys(decoded.chordVariants).length > 0)
           Object.entries(decoded.chordVariants).forEach(([c,v])=>updateVariant(c,v));
         if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
@@ -3066,7 +3066,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
               isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
               bpm={bpm} beatsPerChord={beatsPerChord}
               songMode={true} slideSignal={slideSignal} slideDurMs={slideDurMs}
-              chordVariants={chordVariants} updateVariant={updateVariant} />
+              chordVariants={chordVariants} updateVariant={updateVariant}
+              perSlot={true} setCustomChords={setSongChords} />
           )}
 
           {/* Beat count dots */}
@@ -3249,7 +3250,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
               <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
                 isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
                 bpm={bpm} beatsPerChord={beatsPerChord}
-                chordVariants={chordVariants} updateVariant={updateVariant} />
+                chordVariants={chordVariants} updateVariant={updateVariant}
+                perSlot={true} setCustomChords={setSongChords} />
               <div style={{ width:"100%", marginBottom:20 }}>
                 <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>BEATS PER CHORD</div>
                 <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:12 }}>
