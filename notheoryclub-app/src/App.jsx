@@ -1138,21 +1138,6 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
 
-      {/* 3-2-1 countdown overlay */}
-      {countdown>0 && (
-        <div onClick={handleTogglePlay} style={{ position:"fixed", inset:0, zIndex:2000,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          background:"rgba(10,8,4,0.82)", backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)",
-          cursor:"pointer" }}>
-          <div key={countdown} style={{ fontSize:140, fontWeight:900, lineHeight:1,
-            color:"#FFD60A", textShadow:"0 0 40px rgba(255,170,20,0.5)",
-            animation:"ntcCount 1s ease-out" }}>{countdown}</div>
-          <div style={{ position:"absolute", bottom:"22%", fontSize:13, color:"#8a7f5e",
-            letterSpacing:2, textTransform:"uppercase", fontWeight:700 }}>Get ready…</div>
-          <style>{`@keyframes ntcCount { 0%{ transform:scale(0.5); opacity:0; } 25%{ transform:scale(1.1); opacity:1; } 100%{ transform:scale(1); opacity:1; } }`}</style>
-        </div>
-      )}
-
       {!sharedView && (
         <>
           <SectionHeader title="Chord Switching"
@@ -1236,7 +1221,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
       {chords.length>=2 && (
         <ChordGrid chords={chords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
           isPlaying={isPlaying} accentColor={accentColor} isLastBeat={isLastBeat}
-          bpm={bpm} beatsPerChord={beatsPerChord}
+          bpm={bpm} beatsPerChord={beatsPerChord} countdown={countdown}
           chordVariants={effectiveVariants} updateVariant={updateVariant}
           perSlot={viewMode==="build"} setCustomChords={setCustomChords} chordIndexVal={chordIndex} />
       )}
@@ -4514,7 +4499,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   );
 }
 
-function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
+function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, countdown=0, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
   const [variantPickerSlot, setVariantPickerSlot] = useState(null); // {idx, base, current}
 
   // In perSlot mode each chords[i] is self-contained; resolve via slot helpers.
@@ -4647,6 +4632,25 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
           background:"linear-gradient(90deg, #0d0d0a, rgba(13,13,10,0))" }} />
         <div style={{ position:"absolute", top:0, bottom:0, right:0, width:50, zIndex:5, pointerEvents:"none",
           background:"linear-gradient(270deg, #0d0d0a, rgba(13,13,10,0))" }} />
+
+        {/* Countdown badge — floats over the top of the centered chord so the
+            fingering stays visible while the player gets ready. */}
+        {countdown>0 && (
+          <div style={{ position:"absolute", top:18, left:"50%", transform:"translateX(-50%)",
+            zIndex:8, display:"flex", flexDirection:"column", alignItems:"center", pointerEvents:"none" }}>
+            <div key={countdown} style={{ width:64, height:64, borderRadius:"50%",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              background:"rgba(10,8,4,0.78)", border:`2px solid ${accentColor}`,
+              boxShadow:`0 0 24px rgba(${hexToRgb(accentColor)},0.5)`,
+              fontSize:34, fontWeight:900, color:accentColor,
+              animation:"ntcCount 1s ease-out" }}>{countdown}</div>
+            <div style={{ marginTop:6, fontSize:10, letterSpacing:2, textTransform:"uppercase",
+              fontWeight:700, color:"#8a7f5e", background:"rgba(10,8,4,0.6)", padding:"2px 8px", borderRadius:6 }}>
+              Get ready
+            </div>
+            <style>{`@keyframes ntcCount { 0%{ transform:scale(0.5); opacity:0; } 30%{ transform:scale(1.12); opacity:1; } 100%{ transform:scale(1); opacity:1; } }`}</style>
+          </div>
+        )}
         <div ref={stripRef} style={{ position:"absolute", top:0, left:0, height:"100%",
           display:"flex", alignItems:"center", willChange:"transform" }}>
           {windowIdx.map((ci, slot) => {
