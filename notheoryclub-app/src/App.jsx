@@ -807,7 +807,8 @@ function StrummingTab({ audio, sharedView=false }) {
     setCurrentBeat(-1); beatRef.current=-1;
   },[]);
 
-  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm]);
+  const scrubbingRef = useRef(false);
+  useEffect(()=>{ if(isPlaying && !scrubbingRef.current){stopMetronome();startMetronome();} },[bpm]);
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[rowSizes]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
@@ -874,22 +875,15 @@ function StrummingTab({ audio, sharedView=false }) {
             <span style={{ fontSize:17, fontWeight:700 }}>Universal Strumming </span>
             <span style={{ fontSize:17, fontWeight:700, color:"#FFBE0B" }}>"Motion"</span>
           </div>
-          <div style={{ display:"flex", gap:7, marginBottom:20 }}>
-            {Array(8).fill(null).map((_,i)=>(
-              <Arrow key={i} dir={DIRS16[i]} active dim={false} beat={currentBeat===i&&isPlaying} />
+          <div style={{ display:"flex", gap:7, marginBottom:10 }}>
+            {(pattern ? displayPattern : Array(8).fill(true)).map((a,i)=>(
+              <Arrow key={i} dir={DIRS16[i]} active={a} dim={pattern ? !a : false} beat={currentBeat===i&&isPlaying} />
             ))}
           </div>
           {pattern && (
-            <>
-              <div style={{ color:"#888", fontSize:13, marginBottom:4 }}>Reduced to</div>
-              <div style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>{pattern.name}</div>
-              <div style={{ display:"flex", gap:7, marginBottom:6 }}>
-                {displayPattern.map((a,i)=>(
-                  <Arrow key={i} dir={DIRS16[i]} active={a} dim={!a} beat={currentBeat===i&&isPlaying} />
-                ))}
-              </div>
-              <p style={{ fontSize:11, color:"#555", marginBottom:16 }}>⬛ ghost stroke — arm moves, misses strings</p>
-            </>
+            <p style={{ fontSize:11, color:"#5a5238", marginBottom:16 }}>
+              <span style={{ color:"#8a7f5e", fontWeight:700 }}>{pattern.name}</span> · ⬛ ghost stroke — arm moves, misses strings
+            </p>
           )}
           <div style={{ display:"flex", gap:8, marginBottom:24, flexWrap:"wrap", justifyContent:"center" }}>
             {[1,2,3].map(n=>(
@@ -921,7 +915,9 @@ function StrummingTab({ audio, sharedView=false }) {
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
         totalBlocks={totalBlocks} currentBeat={currentBeat}
         accentColor="#FFBE0B" onToggle={handleTogglePlay}
-        canPlay={true} />
+        canPlay={true}
+        onScrubStart={()=>{ if(isPlaying){ scrubbingRef.current=true; stopMetronome(); } }}
+        onScrubEnd={()=>{ if(scrubbingRef.current){ scrubbingRef.current=false; startMetronome(); } }} />
       {/* Copyright */}
       <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
@@ -1076,7 +1072,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     setBeatCount(0); beatRef.current=0; chordRef.current=0; setChordIndex(0);
   },[]);
 
-  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord]);
+  const scrubbingRef = useRef(false);
+  useEffect(()=>{ if(isPlaying && !scrubbingRef.current){stopMetronome();startMetronome();} },[bpm,beatsPerChord]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
   const pack = selectedPack ? CHORD_PACKS[selectedPack] : null;
@@ -1239,7 +1236,9 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
         totalBlocks={4} currentBeat={-1} accentColor={accentColor}
         onToggle={handleTogglePlay} canPlay={canPlay}
-        disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"} />
+        disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"}
+        onScrubStart={()=>{ if(isPlaying){ scrubbingRef.current=true; stopMetronome(); } }}
+        onScrubEnd={()=>{ if(scrubbingRef.current){ scrubbingRef.current=false; startMetronome(); } }} />
 
       {!sharedView && viewMode==="build" && (
         <div style={{ width:"100%", marginBottom:8 }}>
@@ -4873,7 +4872,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
 
 
 function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, accentColor,
-  onToggle, canPlay, disabledLabel }) {
+  onToggle, canPlay, disabledLabel, onScrubStart, onScrubEnd }) {
   return (
     <div style={{ background:"#0c0a06", border:"1px solid #241d10",
       borderRadius:20, padding:"22px 24px", width:"100%", boxShadow:"0 6px 22px rgba(0,0,0,0.5)" }}>
@@ -4907,6 +4906,10 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
       </div>
       <input type="range" min={20} max={160} value={bpm} className="ntc-bpm-slider"
         onChange={e=>setBpm(Number(e.target.value))}
+        onMouseDown={()=>onScrubStart&&onScrubStart()}
+        onMouseUp={()=>onScrubEnd&&onScrubEnd()}
+        onTouchStart={()=>onScrubStart&&onScrubStart()}
+        onTouchEnd={()=>onScrubEnd&&onScrubEnd()}
         style={{ marginBottom:6 }} />
       <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#5a5238", marginBottom:16 }}>
         <span>40</span><span>160</span>
