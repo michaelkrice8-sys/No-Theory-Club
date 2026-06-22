@@ -1042,6 +1042,10 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   const firstTickRef = useRef(true);
   const randomOrderRef = useRef(false);
   const randomNextRef = useRef(0);
+  // Pre-shuffled play order for random mode (so the slide always knows the real
+  // next + next-next). Re-shuffled on each full pass.
+  const shuffleRef = useRef([]);
+  const shufflePosRef = useRef(0);
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -1050,6 +1054,15 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   useEffect(()=>{ vmRef.current=viewMode; },[viewMode]);
   useEffect(()=>{ randomOrderRef.current=randomOrder; },[randomOrder]);
 
+  // Fisher–Yates shuffle of [0..len-1]. If `avoidFirst` is given, ensures the
+  // first element differs from it (so no repeat across a re-shuffle seam).
+  const makeShuffle = (len, avoidFirst=null) => {
+    const a = Array.from({length:len},(_,i)=>i);
+    for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+    if(avoidFirst!=null && len>1 && a[0]===avoidFirst){ [a[0],a[1]]=[a[1],a[0]]; }
+    return a;
+  };
+
   const tick = useCallback(()=>{
     const chords = vmRef.current==="build" ? customRef.current
       : (packRef.current ? CHORD_PACKS[packRef.current].chords : []);
@@ -1057,13 +1070,24 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     const bpc=bpcRef.current, cur=beatRef.current, isFirst=cur===0;
     if(isFirst && !firstTickRef.current){
       if(randomOrderRef.current && chords.length>1){
-        // The pre-decided "next" chord becomes "current"
-        const incoming = randomNextRef.current;
+        // Advance through the pre-shuffled order.
+        const len = chords.length;
+        let order = shuffleRef.current;
+        let pos = shufflePosRef.current + 1;
+        if(pos >= order.length){
+          // Completed a full pass — re-shuffle a fresh order (no repeat at seam).
+          const lastChord = order[order.length-1];
+          order = makeShuffle(len, lastChord);
+          shuffleRef.current = order;
+          pos = 0;
+        }
+        shufflePosRef.current = pos;
+        const incoming = order[pos];
         chordRef.current = incoming;
         setChordIndex(incoming);
-        // Now pre-decide the NEW next — must differ from incoming
-        let upcoming = Math.floor(Math.random() * chords.length);
-        while(upcoming === incoming) upcoming = Math.floor(Math.random() * chords.length);
+        // Real next from the known order (peek the upcoming, even across the seam).
+        const nextPos = pos + 1;
+        const upcoming = nextPos < order.length ? order[nextPos] : order[0];
         randomNextRef.current = upcoming;
         setRandomNextDisplay(upcoming);
       } else {
@@ -1095,13 +1119,15 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     if(intervalRef.current) clearInterval(intervalRef.current);
     beatRef.current=0; chordRef.current=0; firstTickRef.current=true;
     setChordIndex(0); setBeatCount(0);
-    // Random mode: pick a random starting chord + pre-decide the next
+    // Random mode: build a fresh shuffled order and start at its first chord.
     if(randomOrderRef.current) {
       const total = vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1);
       if(total > 1) {
-        const curr = Math.floor(Math.random() * total);
-        let nxt = Math.floor(Math.random() * total);
-        while(nxt === curr) nxt = Math.floor(Math.random() * total);
+        const order = makeShuffle(total);
+        shuffleRef.current = order;
+        shufflePosRef.current = 0;
+        const curr = order[0];
+        const nxt = order[1];
         chordRef.current = curr;
         setChordIndex(curr);
         randomNextRef.current = nxt;
