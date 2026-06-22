@@ -5952,7 +5952,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
     setSaving(true); setSaveErr(null); setSavedLink(null);
     try {
       const data = {
-        n: name.trim() || "Practice Package",
+        n: name.trim(),
         day: day || null,
         tracker: includeTracker,
         items: items.map(it => ({ t: it.t, d: it.d })),
@@ -6249,12 +6249,13 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
   // Render a single exercise item via its existing share component.
   const renderItem = (it) => {
     if(!it) return null;
-    const title = (
+    const name = (pkg?.n || "").trim();
+    const title = name ? (
       <div style={{ width:"100%", textAlign:"center", marginBottom:12 }}>
         <div style={{ fontSize:22, fontWeight:900, color:"#fff", letterSpacing:0.3,
-          textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{pkg?.n || "Package"}</div>
+          textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{name}</div>
       </div>
-    );
+    ) : null;
     let panel = null;
     if(it.t === "drill")
       panel = <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} />;
