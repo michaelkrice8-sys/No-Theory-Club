@@ -1277,7 +1277,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
 
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
         totalBlocks={4} currentBeat={-1} accentColor={accentColor}
-        onToggle={handleTogglePlay} canPlay={canPlay}
+        onToggle={handleTogglePlay} canPlay={canPlay} countdown={countdown}
         disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"}
         onScrubStart={()=>{ if(isPlaying){ scrubbingRef.current=true; stopMetronome(); } }}
         onScrubEnd={()=>{ if(scrubbingRef.current){ scrubbingRef.current=false; startMetronome(); } }} />
@@ -4632,25 +4632,6 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
           background:"linear-gradient(90deg, #0d0d0a, rgba(13,13,10,0))" }} />
         <div style={{ position:"absolute", top:0, bottom:0, right:0, width:50, zIndex:5, pointerEvents:"none",
           background:"linear-gradient(270deg, #0d0d0a, rgba(13,13,10,0))" }} />
-
-        {/* Countdown badge — floats over the top of the centered chord so the
-            fingering stays visible while the player gets ready. */}
-        {countdown>0 && (
-          <div style={{ position:"absolute", top:18, left:"50%", transform:"translateX(-50%)",
-            zIndex:8, display:"flex", flexDirection:"column", alignItems:"center", pointerEvents:"none" }}>
-            <div key={countdown} style={{ width:64, height:64, borderRadius:"50%",
-              display:"flex", alignItems:"center", justifyContent:"center",
-              background:"rgba(10,8,4,0.78)", border:`2px solid ${accentColor}`,
-              boxShadow:`0 0 24px rgba(${hexToRgb(accentColor)},0.5)`,
-              fontSize:34, fontWeight:900, color:accentColor,
-              animation:"ntcCount 1s ease-out" }}>{countdown}</div>
-            <div style={{ marginTop:6, fontSize:10, letterSpacing:2, textTransform:"uppercase",
-              fontWeight:700, color:"#8a7f5e", background:"rgba(10,8,4,0.6)", padding:"2px 8px", borderRadius:6 }}>
-              Get ready
-            </div>
-            <style>{`@keyframes ntcCount { 0%{ transform:scale(0.5); opacity:0; } 30%{ transform:scale(1.12); opacity:1; } 100%{ transform:scale(1); opacity:1; } }`}</style>
-          </div>
-        )}
         <div ref={stripRef} style={{ position:"absolute", top:0, left:0, height:"100%",
           display:"flex", alignItems:"center", willChange:"transform" }}>
           {windowIdx.map((ci, slot) => {
@@ -4998,7 +4979,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
 
 
 function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, accentColor,
-  onToggle, canPlay, disabledLabel, onScrubStart, onScrubEnd }) {
+  onToggle, canPlay, disabledLabel, onScrubStart, onScrubEnd, countdown=0 }) {
   return (
     <div style={{ background:"#0c0a06", border:"1px solid #241d10",
       borderRadius:20, padding:"22px 24px", width:"100%", boxShadow:"0 6px 22px rgba(0,0,0,0.5)" }}>
@@ -5053,19 +5034,22 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
       <button onClick={onToggle} disabled={!canPlay} style={{
         width:"100%", padding:"14px", borderRadius:14,
         border: !canPlay ? "1px solid #1c1710"
-          : isPlaying ? "1px solid rgba(231,76,60,0.5)"
+          : (isPlaying||countdown>0) ? "1px solid rgba(231,76,60,0.5)"
           : "1px solid rgba(255,190,11,0.5)",
         background: !canPlay ? "#100d09"
-          : isPlaying ? "radial-gradient(120% 160% at 50% 0%, rgba(231,76,60,0.18) 0%, rgba(231,76,60,0) 70%), #1a0f0c"
+          : (isPlaying||countdown>0) ? "radial-gradient(120% 160% at 50% 0%, rgba(231,76,60,0.18) 0%, rgba(231,76,60,0) 70%), #1a0f0c"
           : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
-        color:!canPlay?"#3a3528": isPlaying ? "#ff8a7a" : "#FFD60A", fontSize:16, fontWeight:900,
+        color:!canPlay?"#3a3528": (isPlaying||countdown>0) ? "#ff8a7a" : "#FFD60A", fontSize:16, fontWeight:900,
         letterSpacing:0.5, cursor:canPlay?"pointer":"not-allowed",
         boxShadow: !canPlay?"none"
-          : isPlaying ? "0 0 22px rgba(231,76,60,0.2)"
+          : (isPlaying||countdown>0) ? "0 0 22px rgba(231,76,60,0.2)"
           : "0 0 22px rgba(255,160,20,0.22)",
         fontFamily:"inherit", transition:"all 0.2s" }}>
         {!canPlay ? (disabledLabel||"Select options to start")
-          : isPlaying ? "⏹ Stop" : "▶ Start"}
+          : countdown>0
+            ? <><span style={{ fontSize:22, fontWeight:900 }}>{countdown}</span>
+                <span style={{ fontSize:11, fontWeight:700, opacity:0.7, marginLeft:8 }}>tap to skip</span></>
+            : isPlaying ? "⏹ Stop" : "▶ Start"}
       </button>
     </div>
   );
