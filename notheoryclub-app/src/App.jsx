@@ -2894,15 +2894,12 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     }
     // ── Song-mode chord slide trigger ──
     // The chord holds static while the pattern runs. On the final run-through of
-    // this chord, kick off a quick slide a couple of arrows before the switch so
-    // the next chord arrives in focus exactly as the chord changes.
+    // this chord, start the slide exactly 2 arrows before the wrap (the 7th arrow
+    // of an 8-arrow row) so the next chord lands in focus right as the chord changes.
     if(chords.length>1){
       const onFinalRun = chordBeatRef.current === bpc-1;
       const tickMs = (60/bpmRef.current/2)*1000;
-      // Start the slide ~2 arrows before the wrap, but give a little more room on
-      // short patterns / fast tempo so it never feels abrupt (min ~260ms window).
-      let lead = 2;
-      while(lead < totalS-1 && lead*tickMs < 260) lead++;
+      const lead = 2; // always begin sliding 2 arrows before the switch
       const slideStartRaw = (totalS - lead + totalS) % totalS;
       if(onFinalRun && nextRaw===slideStartRaw && !slideArmedRef.current && !firstTickRef.current){
         slideArmedRef.current = true;
