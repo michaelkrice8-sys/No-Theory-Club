@@ -49,6 +49,26 @@ class ErrorBoundary extends Component {
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
+// Centralized localStorage keys — EXACT existing strings (changing these would
+// orphan users' saved data, so they must never be altered).
+const STORAGE_KEYS = {
+  drills:   "ntc_drills",
+  patterns: "ntc_patterns",
+  songs:    "ntc_songs",
+  strum:    "ntc_strum",
+  strumTab: "ntc_strum_tab",
+};
+
+// Slot-array sizes for the various builders (named for clarity).
+const STRUM_TAB_SLOTS = 64; // StrummingTab buildActive: 8 rows × 8 slots
+const ADVANCED_SLOTS  = 80; // AdvancedBuildSong strumActive/blockChords
+
+// Shared row-size helpers (used by SongBuilder, SimpleBuildSong, BuildStrumPanel).
+// NOTE: AdvancedBuildSong computes per-row VALUES with the same names locally —
+// that is a different thing and is intentionally left untouched.
+const cycleRowSize  = (cur) => cur===8?4:cur===4?6:8;
+const rowSizeLabel  = (n)   => n===6?"Triplet":n===4?"4":"8";
+
 const CHORD_PACKS = {
   1: { name: "Pack #1 — The Anchored 4", label: "Anchor Fingering", chords: ["G","C","Em","D"], color: "#FFBE0B", useAnchors: true },
   2: { name: "Pack #2 — The Big 4",      label: "Beginner Essential", chords: ["G","C","Em","D"], color: "#FFBE0B" },
@@ -496,7 +516,7 @@ function StrummingTab({ audio, sharedView=false }) {
   const [rowSizes, setRowSizes] = useState([8]); // 1-8 entries, each 4/6/8
   const [strumChord, setStrumChord] = useState("G");
   const [savedStrums, setSavedStrums] = useState(()=>{
-    try{ return JSON.parse(localStorage.getItem("ntc_strum_tab")||"[]"); } catch{ return []; }
+    try{ return JSON.parse(localStorage.getItem(STORAGE_KEYS.strumTab)||"[]"); } catch{ return []; }
   });
   const [showSavedStrums, setShowSavedStrums] = useState(false);
   const [strumSavePrompt, setStrumSavePrompt] = useState(false);
@@ -725,7 +745,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   const [randomOrder, setRandomOrder] = useState(false);
   const [randomNextDisplay, setRandomNextDisplay] = useState(0);
   const [savedDrills, setSavedDrills] = useState(()=>{
-    try{ return JSON.parse(localStorage.getItem("ntc_drills")||"[]"); } catch{ return []; }
+    try{ return JSON.parse(localStorage.getItem(STORAGE_KEYS.drills)||"[]"); } catch{ return []; }
   });
   const [showSavedDrills, setShowSavedDrills] = useState(false);
   const [drillSavePrompt, setDrillSavePrompt] = useState(false);
@@ -1055,7 +1075,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
                       savedAt:new Date().toLocaleDateString() };
                     const updated=[...savedDrills, drill];
                     setSavedDrills(updated);
-                    localStorage.setItem("ntc_drills", JSON.stringify(updated));
+                    localStorage.setItem(STORAGE_KEYS.drills, JSON.stringify(updated));
                     setDrillSavePrompt(false); setDrillSaveName(""); setShowSavedDrills(true);
                   }}}
                   placeholder="e.g. G C G D practice..."
@@ -1070,7 +1090,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
                     savedAt:new Date().toLocaleDateString() };
                   const updated=[...savedDrills, drill];
                   setSavedDrills(updated);
-                  localStorage.setItem("ntc_drills", JSON.stringify(updated));
+                  localStorage.setItem(STORAGE_KEYS.drills, JSON.stringify(updated));
                   setDrillSavePrompt(false); setDrillSaveName(""); setShowSavedDrills(true);
                 }} style={{ padding:"9px 16px", borderRadius:10, border:"none",
                   background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
@@ -1144,7 +1164,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
                     <button onClick={()=>{
                       const updated = savedDrills.filter(x=>x.id!==d.id);
                       setSavedDrills(updated);
-                      localStorage.setItem("ntc_drills", JSON.stringify(updated));
+                      localStorage.setItem(STORAGE_KEYS.drills, JSON.stringify(updated));
                     }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                       background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
                   </div>
@@ -1476,7 +1496,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   };
 
   // ── Save / Load / Share state ──
-  const [savedSongs, setSavedSongs] = useState(()=>{ try{ return JSON.parse(localStorage.getItem("ntc_songs")||"[]"); } catch{ return []; } });
+  const [savedSongs, setSavedSongs] = useState(()=>{ try{ return JSON.parse(localStorage.getItem(STORAGE_KEYS.songs)||"[]"); } catch{ return []; } });
   const [showSaved, setShowSaved] = useState(false);
   const [savePrompt, setSavePrompt] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -1516,7 +1536,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     const song = { id:Date.now(), name:saveName.trim(), sections:encodeSections(sections), bpm, capo, scrollSpeed, savedAt:new Date().toLocaleDateString() };
     const updated = [...savedSongs, song];
     setSavedSongs(updated);
-    try{ localStorage.setItem("ntc_songs", JSON.stringify(updated)); } catch(e){}
+    try{ localStorage.setItem(STORAGE_KEYS.songs, JSON.stringify(updated)); } catch(e){}
     setSavePrompt(false); setSaveName(""); setShowSaved(true); setLoadedSongName(song.name);
   };
 
@@ -1532,7 +1552,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   const doDelete = (id) => {
     const updated = savedSongs.filter(s=>s.id!==id);
     setSavedSongs(updated);
-    try{ localStorage.setItem("ntc_songs", JSON.stringify(updated)); } catch(e){}
+    try{ localStorage.setItem(STORAGE_KEYS.songs, JSON.stringify(updated)); } catch(e){}
   };
 
   const doShare = async (song) => {
@@ -1613,8 +1633,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   }));
   const removeRow=(secId,rowIdx)=>setSections(s=>s.map(sec=>sec.id!==secId?sec:{...sec,rows:sec.rows.filter((_,i)=>i!==rowIdx)}));
 
-  const cycleSize=(cur)=>cur===8?4:cur===4?6:8;
-  const sizeLabel=(n)=>n===6?"Triplet":n===4?"4":"8";
+  const cycleSize=cycleRowSize;
+  const sizeLabel=rowSizeLabel;
 
   const handleBlockClick=(secId,rowIdx,colIdx,inAssign)=>{
     if(inAssign){
@@ -2378,7 +2398,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const [loadedName, setLoadedName] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(true);
   const [savedPatterns, setSavedPatterns] = useState(()=>{
-    try{ return JSON.parse(localStorage.getItem("ntc_strum")||"[]"); } catch{ return []; }
+    try{ return JSON.parse(localStorage.getItem(STORAGE_KEYS.strum)||"[]"); } catch{ return []; }
   });
   const [showSaved, setShowSaved] = useState(false);
   const [savePrompt, setSavePrompt] = useState(false);
@@ -2489,7 +2509,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       savedAt:new Date().toLocaleDateString() };
     const updated = [...savedPatterns, pattern];
     setSavedPatterns(updated);
-    localStorage.setItem("ntc_strum", JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEYS.strum, JSON.stringify(updated));
     setSavePrompt(false); setSaveName(""); setShowSaved(true);
   };
 
@@ -2535,8 +2555,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     }, ms);
   };
 
-  const cycleSize = (cur) => cur===8?4:cur===4?6:8;
-  const sizeLabel = (n) => n===6?"Triplet":n===4?"4":"8";
+  const cycleSize = cycleRowSize;
+  const sizeLabel = rowSizeLabel;
 
   return (
     <>
@@ -2707,7 +2727,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                     <button onClick={()=>{
                       const updated=savedPatterns.filter(x=>x.id!==p.id);
                       setSavedPatterns(updated);
-                      localStorage.setItem("ntc_strum", JSON.stringify(updated));
+                      localStorage.setItem(STORAGE_KEYS.strum, JSON.stringify(updated));
                     }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                       background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
                   </div>
@@ -2980,7 +3000,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                       <button onClick={()=>{
                         const updated=savedPatterns.filter(x=>x.id!==p.id);
                         setSavedPatterns(updated);
-                        localStorage.setItem("ntc_strum", JSON.stringify(updated));
+                        localStorage.setItem(STORAGE_KEYS.strum, JSON.stringify(updated));
                       }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                         background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
                     </div>
@@ -3033,7 +3053,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
   const lastViewRowRef = useRef(-1);
   const [viewScrollOffset, setViewScrollOffset] = useState(0);
   const [savedPatterns, setSavedPatterns] = useState(()=>{
-    try { return JSON.parse(localStorage.getItem("ntc_patterns")||"[]"); } catch{ return []; }
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.patterns)||"[]"); } catch{ return []; }
   });
   const [showSaved, setShowSaved] = useState(false);
   const [savePrompt, setSavePrompt] = useState(false);
@@ -3208,7 +3228,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     };
     const updated = [...savedPatterns, pattern];
     setSavedPatterns(updated);
-    localStorage.setItem("ntc_patterns", JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEYS.patterns, JSON.stringify(updated));
     setSavePrompt(false);
     setSaveName("");
     setShowSaved(true);
@@ -3283,7 +3303,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
   const handleDelete = (id) => {
     const updated = savedPatterns.filter(p=>p.id!==id);
     setSavedPatterns(updated);
-    localStorage.setItem("ntc_patterns", JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEYS.patterns, JSON.stringify(updated));
   };
 
   const handleTogglePlay = async()=>{
@@ -4456,8 +4476,8 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
   strumSavePrompt, setStrumSavePrompt, strumSaveName, setStrumSaveName,
   builderOpen, setBuilderOpen, sharedViewName }) {
 
-  const cycleSize = (cur) => cur===8?4:cur===4?6:8;
-  const sizeLabel = (n) => n===6?"Triplet":n===4?"4":"8";
+  const cycleSize = cycleRowSize;
+  const sizeLabel = rowSizeLabel;
 
   // Migrate legacy 2-row patterns on load to the rowSizes model
   const sizesFromPattern = (p) => {
@@ -4479,7 +4499,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
       savedAt:new Date().toLocaleDateString() };
     const updated = [...savedStrums, pattern];
     setSavedStrums(updated);
-    localStorage.setItem("ntc_strum_tab", JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEYS.strumTab, JSON.stringify(updated));
     setStrumSavePrompt(false); setStrumSaveName(""); setShowSavedStrums(true);
   };
 
@@ -4590,7 +4610,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
                   background:"linear-gradient(135deg,#FFBE0B,#F77F00)", color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
                 <button onClick={()=>doShare(p)} style={{ padding:"6px 10px", borderRadius:8,
                   border:"1px solid #333", background:"transparent", color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗</button>
-                <button onClick={()=>{ const u=savedStrums.filter(x=>x.id!==p.id); setSavedStrums(u); localStorage.setItem("ntc_strum_tab",JSON.stringify(u)); }}
+                <button onClick={()=>{ const u=savedStrums.filter(x=>x.id!==p.id); setSavedStrums(u); localStorage.setItem(STORAGE_KEYS.strumTab,JSON.stringify(u)); }}
                   style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333", background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
               </div>
             </div>
@@ -4738,7 +4758,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
                 <button onClick={()=>{
                   const updated=savedStrums.filter(x=>x.id!==p.id);
                   setSavedStrums(updated);
-                  localStorage.setItem("ntc_strum_tab", JSON.stringify(updated));
+                  localStorage.setItem(STORAGE_KEYS.strumTab, JSON.stringify(updated));
                 }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                   background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
               </div>
