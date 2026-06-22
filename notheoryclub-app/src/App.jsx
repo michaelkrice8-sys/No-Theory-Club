@@ -1384,15 +1384,6 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
         </div>
       )}
 
-      {viewMode==="build" && loadedDrillName && (
-        <div style={{ width:"100%", textAlign:"center", marginBottom:4 }}>
-          <div style={{ fontSize:18, fontWeight:900, color:"#fff", letterSpacing:0.3,
-            textShadow:"0 2px 8px rgba(0,0,0,0.5)", marginBottom:2 }}>
-            {loadedDrillName}
-          </div>
-        </div>
-      )}
-
       {viewMode==="build" && (
         <>
           {pickerOpen && (
@@ -5009,11 +5000,6 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, p
             );
           })}
         </div>
-      </div>
-
-      {/* Active chord label */}
-      <div style={{ textAlign:"center", fontSize:16, fontWeight:900, color:accentColor, marginBottom:4 }}>
-        {activeChord != null ? labelFor(activeChord) : ""}
       </div>
 
       {variantPickerSlot && (
