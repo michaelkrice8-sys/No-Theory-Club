@@ -487,6 +487,14 @@ function App() {
 
   // ── Main app: 3-tab shell (Strumming / Chords / Tracker) ──
   const activeTab = dest || "strum";
+  // Fade the content in each time the active tab changes (the three tabs stay
+  // mounted via display toggle, so this animates opacity without remounting).
+  const [fadeOn, setFadeOn] = useState(false);
+  useEffect(() => {
+    setFadeOn(false);
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setFadeOn(true)));
+    return () => cancelAnimationFrame(id);
+  }, [activeTab]);
   return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
@@ -506,8 +514,9 @@ function App() {
 
       {/* Tab Bar — dark / warm-glow */}
       <div style={{ position:"sticky", top:0, zIndex:100,
-        padding:"4px 16px 12px", background:"rgba(10,10,8,0.92)",
-        backdropFilter:"blur(12px)", borderBottom:"1px solid #1c1710" }}>
+        padding:"6px 16px 14px",
+        background:"linear-gradient(180deg, rgba(13,11,8,0.96) 0%, rgba(13,11,8,0.85) 55%, rgba(13,11,8,0) 100%)",
+        backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)" }}>
         <div style={{ display:"flex", gap:8, maxWidth:520, margin:"0 auto" }}>
           {tabs.map(t => {
             const on = activeTab === t.id;
@@ -529,15 +538,19 @@ function App() {
         </div>
       </div>
 
-      {/* Tab Content — kept mounted via display toggle so state persists */}
-      <div style={{ display: activeTab==="strum" ? "block" : "none" }}>
-        <StrummingTab audio={audio} />
-      </div>
-      <div style={{ display: activeTab==="chords" ? "block" : "none" }}>
-        <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />
-      </div>
-      <div style={{ display: activeTab==="tracker" ? "block" : "none" }}>
-        <TrackerTab />
+      {/* Tab Content — kept mounted via display toggle so state persists.
+          The visible tab fades in (opacity) on each switch. */}
+      <div style={{ opacity: fadeOn ? 1 : 0, transform: fadeOn ? "translateY(0)" : "translateY(8px)",
+        transition:"opacity 0.4s ease, transform 0.4s ease" }}>
+        <div style={{ display: activeTab==="strum" ? "block" : "none" }}>
+          <StrummingTab audio={audio} />
+        </div>
+        <div style={{ display: activeTab==="chords" ? "block" : "none" }}>
+          <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />
+        </div>
+        <div style={{ display: activeTab==="tracker" ? "block" : "none" }}>
+          <TrackerTab />
+        </div>
       </div>
     </div>
   );
