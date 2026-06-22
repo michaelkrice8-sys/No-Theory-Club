@@ -2948,7 +2948,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
             </button>
           </div>
 
-          {/* Save / Load */}
+          {/* Save / Load — hidden in shared link view */}
+          {!sharedView && (<>
           <div style={{ display:"flex", gap:8, marginBottom:8 }}>
             <button onClick={()=>setSavePrompt(p=>!p)} style={{
               flex:1, padding:"10px", borderRadius:12,
@@ -3017,6 +3018,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
             background:"transparent", color:"#555",
             fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:1,
           }}>▼ SHOW BUILDER</button>
+          </>)}
         </>
       )}
 
@@ -4868,55 +4870,6 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
           );
         })}
       </div>
-
-      {/* Save / Load */}
-      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-        <button onClick={()=>setStrumSavePrompt(p=>!p)} style={{
-          flex:1, padding:"10px", borderRadius:12,
-          border:"1px solid #FFBE0B44", background:"rgba(255,190,11,0.07)",
-          color:"#FFBE0B", fontSize:13, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
-        <button onClick={()=>setShowSavedStrums(s=>!s)} style={{
-          flex:1, padding:"10px", borderRadius:12,
-          border:"1px solid #2a2a2a", background:"#111",
-          color:"#888", fontSize:13, fontWeight:700, cursor:"pointer" }}>
-          📂 My Patterns ({savedStrums.length})
-        </button>
-      </div>
-
-      {strumSavePrompt && (
-        <SavePrompt header="Name this pattern" placeholder="e.g. D DU UDU..."
-          value={strumSaveName} onChange={setStrumSaveName}
-          onSave={doSave} onCancel={()=>setStrumSavePrompt(false)} />
-      )}
-
-      {showSavedStrums && (
-        <div style={{ marginBottom:10, display:"flex", flexDirection:"column", gap:6 }}>
-          {savedStrums.length===0 && <div style={{ textAlign:"center", color:"#444", fontSize:13, padding:"14px 0" }}>No saved patterns yet</div>}
-          {savedStrums.map(p=>(
-            <div key={p.id} style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:12, padding:"10px 14px",
-              display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, fontWeight:800, color:"#fff", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
-                <div style={{ fontSize:11, color:"#555", marginTop:2 }}>{(sizesFromPattern(p).length)} row{sizesFromPattern(p).length!==1?"s":""} · {p.savedAt}</div>
-              </div>
-              <div style={{ display:"flex", gap:6, marginLeft:10 }}>
-                <button onClick={()=>doLoad(p)} style={{ padding:"6px 12px", borderRadius:8, border:"none",
-                  background:"linear-gradient(135deg,#FFBE0B,#F77F00)", color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
-                <button onClick={()=>doShare(p)} style={{ padding:"6px 10px", borderRadius:8,
-                  border:"1px solid #333", background:"transparent", color:"#6b9fff", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔗</button>
-                <button onClick={()=>{ const u=savedStrums.filter(x=>x.id!==p.id); setSavedStrums(u); localStorage.setItem(STORAGE_KEYS.strumTab,JSON.stringify(u)); }}
-                  style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333", background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <button onClick={()=>setBuilderOpen(true)} style={{
-        width:"100%", padding:"8px", marginTop:4, borderRadius:10,
-        border:"1px solid #2a2a2a", background:"transparent",
-        color:"#555", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:1,
-      }}>▼ SHOW BUILDER</button>
     </div>
   );
 
