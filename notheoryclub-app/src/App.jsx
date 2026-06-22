@@ -129,6 +129,40 @@ async function supabaseFetch(id) {
   return rows[0] || null;
 }
 
+// ─── PACKAGE STORAGE ─────────────────────────────────────────────────────────
+// A "package" bundles several exercises (chord drill / strum / song) plus an
+// optional tracker into one shareable ?pkg= link. Stored in its own `packages`
+// table (id text PK auto-gen, name text, data jsonb). Each item's `d` payload is
+// produced by the EXISTING per-type encoders, so packages never change how a
+// single exercise is serialized — they only wrap an ordered array of them.
+async function packageInsert(name, data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/packages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify({ name, data }),
+  });
+  if(!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return rows[0]?.id;
+}
+
+async function packageFetch(id) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/packages?id=eq.${id}&select=*`, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+    },
+  });
+  if(!res.ok) throw new Error(await res.text());
+  const rows = await res.json();
+  return rows[0] || null;
+}
+
 const DIRS16 = Array(16).fill(null).map((_,i) => i%2===0 ? "↓" : "↑");
 const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
 
@@ -407,6 +441,8 @@ function App() {
       new URLSearchParams(window.location.search).has("id")
     )
   );
+  const [hasSharedPackage] = useState(() => typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("pkg"));
 
   const [buildMode, setBuildMode] = useState(
     hasSharedPattern ? "advanced"
@@ -465,7 +501,12 @@ function App() {
   ];
 
   // Share view — clean layout, no tabs
-  const anyShared = hasSharedSong || hasSharedDrill || hasSharedStrum || hasSharedStrumProg || hasSharedPattern;
+  const anyShared = hasSharedSong || hasSharedDrill || hasSharedStrum || hasSharedStrumProg || hasSharedPattern || hasSharedPackage;
+
+  // A package link (?pkg=) renders the combined multi-exercise share view. It
+  // owns its full-page layout (pinned streak strip + bottom nav), so render it
+  // bare, before the other shared returns.
+  if(hasSharedPackage) return <PackageShareView audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />;
 
   // SongBuilder controls its OWN full-page layout (sticky header, fixed bottom bar).
   // Render it bare so we don't constrain it inside a maxWidth wrapper.
@@ -5764,6 +5805,100 @@ function TrackerTab() {
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
       </div>
     </div>
+  );
+}
+
+// ─── PACKAGE SHARE VIEW ──────────────────────────────────────────────────────
+// Renders a ?pkg= link: fetches the package row, decodes each item with the
+// EXISTING per-type decoders, and shows the combined bottom-nav view (with an
+// optional pinned streak strip + tracker tab). Step 1 = stub: fetch + states
+// only. The panel renderers and nav are added in step 2.
+function PackageShareView({ audio, chordVariants, updateVariant }) {
+  const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error" | "notfound"
+  const [pkg, setPkg] = useState(null);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("pkg");
+    if(!id){ setStatus("notfound"); return; }
+    let cancelled = false;
+    packageFetch(id)
+      .then(row => {
+        if(cancelled) return;
+        if(!row){ setStatus("notfound"); return; }
+        setPkg(row.data || null);
+        setStatus("ready");
+        // Strip the param so a refresh/clean reload doesn't re-trigger.
+        try { window.history.replaceState({}, "", window.location.pathname); } catch(e){}
+      })
+      .catch(err => {
+        if(cancelled) return;
+        console.error("Package load failed:", err);
+        setStatus("error");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const shell = (children) => (
+    <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff",
+      display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", textAlign:"center" }}>
+      <style>{NTC_SLIDER_CSS}</style>
+      {children}
+    </div>
+  );
+
+  if(status === "loading") return shell(
+    <>
+      <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5, marginBottom:6 }}>NO THEORY CLUB</div>
+      <div style={{ fontSize:32, marginBottom:14 }}>📦</div>
+      <div style={{ fontSize:15, fontWeight:800, color:"#FFD60A", marginBottom:6 }}>Loading package…</div>
+      <div style={{ fontSize:12, color:"#8a7f5e", maxWidth:300, lineHeight:1.6 }}>
+        Fetching your exercises. If this is the first open after a while, it can take a moment to wake up.
+      </div>
+    </>
+  );
+
+  if(status === "error" || status === "notfound") return shell(
+    <>
+      <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5, marginBottom:6 }}>NO THEORY CLUB</div>
+      <div style={{ fontSize:32, marginBottom:14 }}>🎸</div>
+      <div style={{ fontSize:18, fontWeight:900, color:"#fff", marginBottom:8 }}>
+        {status === "notfound" ? "Package not found" : "Couldn't load this package"}
+      </div>
+      <div style={{ fontSize:13, color:"#888", lineHeight:1.6, maxWidth:320, marginBottom:20 }}>
+        {status === "notfound"
+          ? "This link may be broken or the package was removed."
+          : "Something went wrong reaching the server. Reloading usually fixes it."}
+      </div>
+      <button onClick={()=>window.location.reload()}
+        style={{ padding:"11px 22px", borderRadius:12, border:"none",
+          background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+          color:"#111", fontSize:14, fontWeight:800, cursor:"pointer" }}>
+        Try again
+      </button>
+    </>
+  );
+
+  // status === "ready" — step-1 stub: confirm the fetch + decode wiring works.
+  // Step 2 replaces this with the bottom-nav combined view.
+  const items = Array.isArray(pkg?.items) ? pkg.items : [];
+  return shell(
+    <>
+      <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5, marginBottom:6 }}>NO THEORY CLUB</div>
+      <div style={{ fontSize:32, marginBottom:10 }}>📦</div>
+      <div style={{ fontSize:20, fontWeight:900, color:"#FFD60A", marginBottom:4 }}>{pkg?.n || "Package"}</div>
+      {pkg?.day ? <div style={{ fontSize:13, color:"#8a7f5e", marginBottom:14 }}>Day {pkg.day} · 30-Day Challenge</div> : <div style={{ marginBottom:14 }} />}
+      <div style={{ fontSize:13, color:"#8a7f5e", maxWidth:340, lineHeight:1.7 }}>
+        Loaded {items.length} item{items.length!==1?"s":""}
+        {pkg?.tracker ? " + tracker" : ""}:
+        <div style={{ marginTop:8, color:"#c9bd97", fontWeight:700 }}>
+          {items.map((it,i)=> `${i+1}. ${it.t}`).join("   ")}
+        </div>
+      </div>
+      <div style={{ marginTop:18, fontSize:11, color:"#5a5238" }}>
+        (Combined view UI is added in the next step.)
+      </div>
+    </>
   );
 }
 
