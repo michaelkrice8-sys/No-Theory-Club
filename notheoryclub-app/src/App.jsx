@@ -908,13 +908,17 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
     clearInterval(countdownRef.current); countdownRef.current=null;
     setCountdown(0); stopMetronome(); setIsPlaying(false);
   };
-  useEffect(()=>{ if(!active) stopAll(); }, [active]); // eslint-disable-line
+  const didMountActiveRef = useRef(false);
   useEffect(()=>{
-    const onHide = ()=>{ if(document.hidden) stopAll(); };
+    if(!didMountActiveRef.current){ didMountActiveRef.current = true; return; }
+    if(!active && (isPlaying || countdown>0)) stopAll();
+  }, [active]); // eslint-disable-line
+  useEffect(()=>{
+    const onHide = ()=>{ if(document.hidden && (isPlaying || countdown>0)) stopAll(); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", onHide);
     return ()=>{ document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", onHide); };
-  }, []); // eslint-disable-line
+  }, [isPlaying, countdown]); // eslint-disable-line
 
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
@@ -1237,13 +1241,17 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
     clearInterval(countdownRef.current); countdownRef.current=null;
     setCountdown(0); stopMetronome(); setIsPlaying(false);
   };
-  useEffect(()=>{ if(!active) stopAll(); }, [active]); // eslint-disable-line
+  const didMountActiveRef = useRef(false);
   useEffect(()=>{
-    const onHide = ()=>{ if(document.hidden) stopAll(); };
+    if(!didMountActiveRef.current){ didMountActiveRef.current = true; return; }
+    if(!active && (isPlaying || countdown>0)) stopAll();
+  }, [active]); // eslint-disable-line
+  useEffect(()=>{
+    const onHide = ()=>{ if(document.hidden && (isPlaying || countdown>0)) stopAll(); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", onHide);
     return ()=>{ document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", onHide); };
-  }, []); // eslint-disable-line
+  }, [isPlaying, countdown]); // eslint-disable-line
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
