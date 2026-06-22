@@ -1119,8 +1119,9 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     }
     if(!canPlay) return;
     await init();
-    // 3 → 2 → 1, fixed 1s per number, then start.
+    // 3 → 2 → 1 with a beep each second, then start.
     setCountdown(3);
+    playChordClick(false); // beep on "3"
     countdownRef.current = setInterval(()=>{
       setCountdown(c=>{
         if(c<=1){
@@ -1128,6 +1129,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
           startMetronome(); setIsPlaying(true);
           return 0;
         }
+        playChordClick(c-1===1); // beep on "2" (normal) and "1" (accented)
         return c-1;
       });
     }, 1000);
