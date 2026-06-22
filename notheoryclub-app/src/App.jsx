@@ -329,6 +329,12 @@ function useAudio() {
 
   const init = useCallback(async () => {
     if (ctxRef.current) return ctxRef.current;
+    // On iOS, audio respects the hardware mute switch unless the page declares a
+    // "playback" audio session. Where supported (iOS Safari 16.4+) this lets the
+    // metronome/chords be heard in silent mode. Harmless / ignored elsewhere.
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = "playback";
+    } catch (e) {}
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     ctxRef.current = ctx;
     const chordKeys = Object.keys(ALL_CHORD_AUDIO);
@@ -446,7 +452,9 @@ function App() {
   }, [fadeKey]);
 
   const handleTabChange = (newTab) => {
-    // The outgoing tab stops its own playback via its `active` effect.
+    // Tell whichever tab is playing to stop (it listens for this event). This
+    // avoids passing reactive props that would trigger cross-component updates.
+    try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(e){}
     setDest(newTab);
   };
 
@@ -896,8 +904,25 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
   };
   useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
-  // Stop playback when this tab is left (app tab switch) or the browser tab is
-  // hidden/backgrounded — so a drill never keeps running out of sight.
+  // Stop playback when this tab is left (app tab switch fires "ntc-stop-playback")
+  // or the browser tab is hidden/backgrounded — so a drill never keeps running
+  // out of sight. Listener-based so it never triggers cross-component renders.
+  useEffect(()=>{
+    const stop = ()=>{
+      clearInterval(countdownRef.current); countdownRef.current=null;
+      setCountdown(0); stopMetronome(); setIsPlaying(false);
+    };
+    const onHide = ()=>{ if(document.hidden) stop(); };
+    window.addEventListener("ntc-stop-playback", stop);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", stop);
+    return ()=>{
+      window.removeEventListener("ntc-stop-playback", stop);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", stop);
+    };
+  }, [stopMetronome]); // eslint-disable-line
+
   const totalBlocks = mode==="build" ? rowSizes.reduce((a,b)=>a+b,0) : 8;
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
@@ -1214,8 +1239,25 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
   };
   useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
-  // Stop playback when this tab is left (app tab switch) or the browser tab is
-  // hidden/backgrounded — so a drill never keeps running out of sight.
+  // Stop playback when this tab is left (app tab switch fires "ntc-stop-playback")
+  // or the browser tab is hidden/backgrounded. Listener-based to avoid any
+  // cross-component renders.
+  useEffect(()=>{
+    const stop = ()=>{
+      clearInterval(countdownRef.current); countdownRef.current=null;
+      setCountdown(0); stopMetronome(); setIsPlaying(false);
+    };
+    const onHide = ()=>{ if(document.hidden) stop(); };
+    window.addEventListener("ntc-stop-playback", stop);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", stop);
+    return ()=>{
+      window.removeEventListener("ntc-stop-playback", stop);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", stop);
+    };
+  }, [stopMetronome]); // eslint-disable-line
+
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
@@ -2829,6 +2871,23 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord,hasSecondRow,row1Size,row2Size]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInIntervalRef.current); },[]);
+
+  // Stop playback if the browser tab is hidden/backgrounded or a stop event fires.
+  useEffect(()=>{
+    const stop = ()=>{
+      clearInterval(countInIntervalRef.current); setCountIn(0);
+      stopMetronome(); setIsPlaying(false);
+    };
+    const onHide = ()=>{ if(document.hidden) stop(); };
+    window.addEventListener("ntc-stop-playback", stop);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", stop);
+    return ()=>{
+      window.removeEventListener("ntc-stop-playback", stop);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", stop);
+    };
+  }, [stopMetronome]); // eslint-disable-line
 
   const doSave = () => {
     if(!saveName.trim()) return;
