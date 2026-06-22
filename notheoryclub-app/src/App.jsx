@@ -803,9 +803,9 @@ function ChordCarousel({ chords, value, onChange }) {
   );
 }
 
-function StrummingTab({ audio, sharedView=false, active=true, initialParam=null }) {
+function StrummingTab({ audio, sharedView=false, active=true, initialParam=null, onExport=null }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
-  const [mode, setMode] = useState("practice");
+  const [mode, setMode] = useState(onExport ? "build" : "practice");
   const [pattern, setPattern] = useState(null);
   const [activeBtn, setActiveBtn] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -967,9 +967,27 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null 
   const totalBlocks = mode==="build" ? rowSizes.reduce((a,b)=>a+b,0) : 8;
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
+  // Export current build pattern as a strum payload (for the Package builder).
+  const exportPayload = () => {
+    const ba=[...buildActive]; while(ba.length<64) ba.push(false);
+    return encodeStrumDrill(sharedViewName||"Strum", ba, rowSizes, [], bpm, 2, {}, 0);
+  };
+
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
+
+      {onExport && (
+        <div style={{ width:"100%", marginBottom:12 }}>
+          <button onClick={()=>onExport("strum", exportPayload(), "Strum pattern")}
+            style={{ width:"100%", padding:"12px", borderRadius:12,
+              border:"1px solid rgba(255,190,11,0.5)",
+              background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+              color:"#FFD60A", fontSize:14, fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>
+            ✓ Use this in package
+          </button>
+        </div>
+      )}
 
       {!sharedView && (
         <>
@@ -1051,9 +1069,9 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null 
 }
 
 // ─── CHORDS TAB ─────────────────────────────────────────────────────────────
-function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true, initialParam=null }) {
+function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true, initialParam=null, onExport=null }) {
   const { init, playChordClick, playChordStrum } = audio;
-  const [viewMode, setViewMode] = useState("presets");
+  const [viewMode, setViewMode] = useState(onExport ? "build" : "presets");
   const [selectedPack, setSelectedPack] = useState(null);
   const [customChords, setCustomChords] = useState([]);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1299,9 +1317,26 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
     };
   }, [stopMetronome]); // eslint-disable-line
 
+  // Export current build-mode drill as a drill payload (for the Package builder).
+  const exportPayload = () => encodeChordDrill(customChords, bpm, beatsPerChord, loadedDrillName||"Chords", {...chordVariants});
+
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
+
+      {onExport && (
+        <div style={{ width:"100%", marginBottom:12 }}>
+          <button onClick={()=>onExport("drill", exportPayload(), loadedDrillName||(customChords.length?customChords.map(slotLabel).join(" "):"Chords"))}
+            disabled={customChords.length<2}
+            style={{ width:"100%", padding:"12px", borderRadius:12,
+              border:"1px solid rgba(255,190,11,0.5)",
+              background: customChords.length<2 ? "#100d09" : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+              color: customChords.length<2 ? "#3a3528" : "#FFD60A", fontSize:14, fontWeight:900,
+              cursor: customChords.length<2 ? "not-allowed" : "pointer", fontFamily:"inherit" }}>
+            ✓ Use this in package
+          </button>
+        </div>
+      )}
 
       {!sharedView && (
         <>
@@ -1610,7 +1645,7 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
           <SectionHeader title="🎵 Build a Song"
             sub="Build chords and strumming patterns together." />
 
-          <ModeTabs options={[["simple","🎸 Simple"],["advanced","⚡ Advanced"],["song","📋 Song"]]}
+          <ModeTabs options={[["simple","🎸 Simple"],["advanced","⚡ Advanced"],["song","📋 Song"],["package","📦 Package"]]}
             value={buildMode} onChange={setBuildMode} />
         </>
       )}
@@ -1618,6 +1653,7 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
       {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} />}
       {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} />}
       {buildMode === "song" && <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
+      {buildMode === "package" && <PackageBuilderTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
     </div>
   );
 }
@@ -2769,7 +2805,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   );
 }
 
-function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null }) {
+function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [songChords, setSongChords] = useState([]);
   const [strumActive, setStrumActive] = useState(defaultBuild(8).concat(Array(8).fill(false)));
@@ -2956,6 +2992,12 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     } catch(e) { alert("Couldn't generate link."); }
   };
 
+  // Export current builder state as a strumprog payload (for the Package builder).
+  const exportPayload = () => {
+    const sizes = hasSecondRow ? [row1Size||8, row2Size||8] : [row1Size||8];
+    return encodeStrumDrill(loadedName||"Song", strumActive, sizes, songChords, bpm, beatsPerChord, {...chordVariants}, capo||0);
+  };
+
   const canPlay = songChords.length>=1;
   const nextChordIndex = songChords.length>0?(chordIndex+1)%songChords.length:0;
   const isLastBeat = isPlaying&&beatCount===beatsPerChord-1;
@@ -2990,6 +3032,19 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
   return (
     <>
+      {onExport && (
+        <div style={{ width:"100%", marginBottom:12 }}>
+          <button onClick={()=>onExport("strumprog", exportPayload(), loadedName||(songChords.length?songChords.map(slotLabel).join(" "):"Song"))}
+            disabled={songChords.length<1}
+            style={{ width:"100%", padding:"12px", borderRadius:12,
+              border:"1px solid rgba(255,190,11,0.5)",
+              background: songChords.length<1 ? "#100d09" : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+              color: songChords.length<1 ? "#3a3528" : "#FFD60A", fontSize:14, fontWeight:900,
+              cursor: songChords.length<1 ? "not-allowed" : "pointer", fontFamily:"inherit" }}>
+            ✓ Use this in package
+          </button>
+        </div>
+      )}
       {/* ── SHARED LINK VIEW ─────────────────────────────── */}
       {!pickerOpen && (
         <>
@@ -3435,7 +3490,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
 
 // ─── ADVANCED BUILD A SONG ───────────────────────────────────────────────────
-function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null }) {
+function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [rowSizes, setRowSizes] = useState([8]);
   const [rowRepeats, setRowRepeats] = useState([1]); // repeat count per row
@@ -3660,6 +3715,20 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     setShowSaved(false);
   };
 
+  // Export current builder state as a pattern payload (for the Package builder).
+  const exportPayload = () => {
+    const sparse = {
+      n: loadedPatternName||"Song",
+      rs: rowSizes,
+      rr: rowRepeats||rowSizes.map(()=>1),
+      sa: strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; }, []),
+      bc: Object.fromEntries(blockChords.map((v,i)=>[i,v]).filter(([,v])=>v)),
+      b: bpm,
+      c: capo||0,
+    };
+    return btoa(JSON.stringify(sparse));
+  };
+
   const handleShare = (p) => {
     try {
       const sparse = {
@@ -3807,6 +3876,19 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
 
   return (
     <>
+      {onExport && (
+        <div style={{ width:"100%", marginBottom:12 }}>
+          <button onClick={()=>onExport("pattern", exportPayload(), loadedPatternName||"Advanced song")}
+            disabled={!hasAnyChords}
+            style={{ width:"100%", padding:"12px", borderRadius:12,
+              border:"1px solid rgba(255,190,11,0.5)",
+              background: !hasAnyChords ? "#100d09" : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+              color: !hasAnyChords ? "#3a3528" : "#FFD60A", fontSize:14, fontWeight:900,
+              cursor: !hasAnyChords ? "not-allowed" : "pointer", fontFamily:"inherit" }}>
+            ✓ Use this in package
+          </button>
+        </div>
+      )}
       {/* ── VIEW MODE (shared link) ──────────────────────────── */}
       {!builderOpen && (
         <>
@@ -5801,6 +5883,251 @@ function TrackerTab() {
       </div>
 
       <div style={{ textAlign:"center", paddingTop:28, color:"#332e22", fontSize:11 }}>
+        © {new Date().getFullYear()} No Theory Club · All rights reserved.
+      </div>
+    </div>
+  );
+}
+
+// ─── PACKAGE BUILDER (authoring) ─────────────────────────────────────────────
+// The 📦 mode inside Build a Song. Assemble an ordered list of exercises — each
+// added by pasting an existing share link OR building a new one in a modal — plus
+// an optional tracker, then Save → Supabase → ?pkg= link. Each item stores the
+// SAME encoded payload a single share link uses, so nothing about per-exercise
+// serialization changes.
+
+// Pull {t, d} out of a pasted share URL or raw encoded string.
+function parseShareLink(raw) {
+  if(!raw) return null;
+  let s = raw.trim();
+  const PARAM_TO_TYPE = { drill:"drill", strum:"strum", strumprog:"strumprog", pattern:"pattern" };
+  try {
+    // Try as a URL with a known param.
+    const qIdx = s.indexOf("?");
+    if(qIdx >= 0) {
+      const params = new URLSearchParams(s.slice(qIdx));
+      for(const p of Object.keys(PARAM_TO_TYPE)) {
+        if(params.has(p)) return { t: PARAM_TO_TYPE[p], d: params.get(p) };
+      }
+    }
+  } catch(e){}
+  return null;
+}
+// A friendly label for an item, decoded from its payload.
+function itemLabel(it) {
+  try {
+    if(it.t==="drill"){ const d=decodeChordDrill(it.d); return d?.name || (d?.chords||[]).map(slotLabel).join(" ") || "Chords"; }
+    if(it.t==="strum"){ const d=decodeStrumDrill(it.d); return d?.name || "Strum pattern"; }
+    if(it.t==="strumprog"){ const d=decodeStrumDrill(it.d); return d?.name || "Song (Simple)"; }
+    if(it.t==="pattern"){ const d=JSON.parse(atob(it.d)); return d?.n || "Song (Advanced)"; }
+  } catch(e){}
+  return "Exercise";
+}
+const PKG_TYPE_META = {
+  drill:     { icon:"🤚", label:"Chords",         buildMode:"drill" },
+  strum:     { icon:"🎸", label:"Strumming",      buildMode:"strum" },
+  strumprog: { icon:"🎵", label:"Song · Simple",  buildMode:"simple" },
+  pattern:   { icon:"🎵", label:"Song · Advanced", buildMode:"advanced" },
+};
+
+function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
+  const [name, setName] = useState("");
+  const [day, setDay] = useState(0); // 0 = no day
+  const [includeTracker, setIncludeTracker] = useState(false);
+  const [items, setItems] = useState([]); // [{ t, d, label }]
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteVal, setPasteVal] = useState("");
+  const [buildType, setBuildType] = useState(null); // "drill"|"strum"|"simple"|"advanced" → opens modal
+  const [savedLink, setSavedLink] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState(null);
+
+  const addItem = (it) => setItems(p => [...p, { ...it, label: itemLabel(it) }]);
+  const removeItem = (i) => setItems(p => p.filter((_,k)=>k!==i));
+  const move = (i, dir) => setItems(p => {
+    const j=i+dir; if(j<0||j>=p.length) return p;
+    const n=[...p]; [n[i],n[j]]=[n[j],n[i]]; return n;
+  });
+
+  const handlePaste = () => {
+    const parsed = parseShareLink(pasteVal);
+    if(!parsed){ alert("That doesn't look like a Chords / Strum / Song share link. Paste a link that has ?drill= , ?strum= , ?strumprog= or ?pattern= in it."); return; }
+    addItem(parsed);
+    setPasteVal(""); setPasteOpen(false);
+  };
+
+  // Called by the in-modal builder's "Use this in package" button.
+  const handleBuilderExport = (t, d, label) => {
+    addItem({ t, d });
+    setBuildType(null);
+  };
+
+  const doSave = async () => {
+    if(items.length < 1 && !includeTracker){ alert("Add at least one exercise (or include the tracker)."); return; }
+    setSaving(true); setSaveErr(null); setSavedLink(null);
+    try {
+      const data = {
+        n: name.trim() || "Practice Package",
+        day: day || null,
+        tracker: includeTracker,
+        items: items.map(it => ({ t: it.t, d: it.d })),
+      };
+      const id = await packageInsert(data.n, data);
+      const url = `${window.location.origin}${window.location.pathname}?pkg=${id}`;
+      setSavedLink(url);
+      if(navigator.clipboard?.writeText) navigator.clipboard.writeText(url).catch(()=>{});
+    } catch(e) {
+      console.error(e);
+      setSaveErr("Couldn't save the package. Check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const stepBtn = { width:26, height:26, borderRadius:7, border:"1px solid #333", background:"#1a1a1a",
+    color:"#aaa", fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" };
+
+  return (
+    <div style={{ width:"100%" }}>
+      <SectionHeader title="📦 Build a Package"
+        sub="Bundle a few exercises into one shareable link. Add exercises, set the order, then share." />
+
+      {/* Package details */}
+      <div style={{ width:"100%", background:"#0c0a06", border:"1px solid #241d10", borderRadius:18, padding:"16px", marginBottom:14 }}>
+        <div style={{ fontSize:10, color:"#5a5238", letterSpacing:2, textTransform:"uppercase", fontWeight:700, marginBottom:12 }}>Package details</div>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Package name — e.g. Day 3 · 30-Day Challenge"
+          style={{ width:"100%", padding:"11px 13px", borderRadius:11, border:"1px solid #333", background:"#0a0a0a",
+            color:"#fff", fontSize:15, outline:"none", fontFamily:"inherit", marginBottom:14, boxSizing:"border-box" }} />
+        <div style={{ display:"flex", alignItems:"center", gap:8, background:"#111", border:"1px solid #241d10", borderRadius:11, padding:"8px 12px" }}>
+          <span style={{ fontSize:11, color:"#6f6749", fontWeight:700, letterSpacing:1 }}>CHALLENGE DAY</span>
+          <button onClick={()=>setDay(d=>Math.max(0,d-1))} style={stepBtn}>−</button>
+          <span style={{ fontSize:16, fontWeight:900, minWidth:24, textAlign:"center", color: day>0?"#FFBE0B":"#444" }}>{day>0?day:"—"}</span>
+          <button onClick={()=>setDay(d=>Math.min(30,d+1))} style={stepBtn}>+</button>
+          <span style={{ fontSize:11, color:"#5a5238", marginLeft:4 }}>optional</span>
+        </div>
+      </div>
+
+      {/* Tracker toggle */}
+      <div onClick={()=>setIncludeTracker(v=>!v)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12,
+        padding:"13px 14px", borderRadius:14, marginBottom:14, cursor:"pointer",
+        border:`1px solid ${includeTracker?"rgba(255,190,11,0.45)":"#241d10"}`,
+        background: includeTracker ? "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.1) 0%, rgba(255,170,30,0) 60%), #14100a" : "#100d09" }}>
+        <div style={{ fontSize:22, width:44, height:44, borderRadius:12, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+          background:"rgba(255,190,11,0.06)", border:"1px solid rgba(255,190,11,0.12)" }}>🔥</div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:15, fontWeight:900, color: includeTracker?"#FFD60A":"#f3ead2" }}>30-Day Tracker</div>
+          <div style={{ fontSize:11.5, color:"#6f6749", marginTop:2 }}>Pins the streak on top + adds a tracker tab</div>
+        </div>
+        <div style={{ width:26, height:26, borderRadius:8, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+          border:`2px solid ${includeTracker?"rgba(255,190,11,0.6)":"#2a2417"}`,
+          background: includeTracker ? "radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.22), rgba(255,140,0,0.12)), #16110a" : "#0e0b06" }}>
+          {includeTracker && <div style={{ width:9, height:5, borderLeft:"2px solid #FFD60A", borderBottom:"2px solid #FFD60A", transform:"rotate(-45deg) translate(1px,-1px)" }} />}
+        </div>
+      </div>
+
+      {/* Items list */}
+      <div style={{ width:"100%", background:"#0c0a06", border:"1px solid #241d10", borderRadius:18, padding:"16px", marginBottom:14 }}>
+        <div style={{ fontSize:10, color:"#5a5238", letterSpacing:2, textTransform:"uppercase", fontWeight:700, marginBottom:12 }}>Exercises &amp; order</div>
+
+        {items.length===0 && (
+          <div style={{ textAlign:"center", color:"#5a5238", fontSize:12, padding:"10px 0 16px" }}>
+            No exercises yet — paste a link or build one below.
+          </div>
+        )}
+
+        {items.map((it,i)=>(
+          <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 12px", borderRadius:13,
+            border:"1px solid #241d10", background:"#100d09", marginBottom:9 }}>
+            <span style={{ width:22, height:22, borderRadius:7, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+              background:"rgba(255,190,11,0.12)", border:"1px solid rgba(255,190,11,0.3)", color:"#FFBE0B", fontSize:11, fontWeight:900 }}>{i+1}</span>
+            <span style={{ fontSize:18, flexShrink:0 }}>{PKG_TYPE_META[it.t]?.icon||"🎵"}</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:900, color:"#f3ead2", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.label}</div>
+              <div style={{ fontSize:10.5, color:"#6f6749" }}>{PKG_TYPE_META[it.t]?.label||it.t}</div>
+            </div>
+            <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+              <button onClick={()=>move(i,-1)} disabled={i===0} style={{ ...stepBtn, opacity:i===0?0.3:1 }}>↑</button>
+              <button onClick={()=>move(i,1)} disabled={i===items.length-1} style={{ ...stepBtn, opacity:i===items.length-1?0.3:1 }}>↓</button>
+              <button onClick={()=>removeItem(i)} style={{ ...stepBtn, color:"#e74c3c88", borderColor:"#3a1a1a", background:"#1a0a0a" }}>✕</button>
+            </div>
+          </div>
+        ))}
+
+        {/* Add controls */}
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:6 }}>
+          <button onClick={()=>setPasteOpen(o=>!o)} style={{ flex:1, minWidth:130, padding:"10px", borderRadius:11,
+            border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+            🔗 Paste a link
+          </button>
+        </div>
+        {pasteOpen && (
+          <div style={{ marginTop:8, background:"#111", border:"1px solid #FFBE0B33", borderRadius:12, padding:"12px" }}>
+            <div style={{ fontSize:11, color:"#888", marginBottom:8 }}>Paste a Chords / Strum / Song share link</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <input value={pasteVal} onChange={e=>setPasteVal(e.target.value)} placeholder="https://practice.notheoryclub.com/?drill=…"
+                style={{ flex:1, padding:"9px 12px", borderRadius:10, border:"1px solid #333", background:"#0a0a0a", color:"#fff", fontSize:12, outline:"none", fontFamily:"monospace" }} />
+              <button onClick={handlePaste} style={{ padding:"9px 16px", borderRadius:10, border:"none",
+                background:"linear-gradient(135deg,#FFBE0B,#F77F00)", color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Add</button>
+            </div>
+          </div>
+        )}
+
+        {/* Build new */}
+        <div style={{ marginTop:12, paddingTop:12, borderTop:"1px solid #1a160d" }}>
+          <div style={{ fontSize:10, color:"#5a5238", letterSpacing:1, marginBottom:8 }}>OR BUILD A NEW ONE</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {[["drill","🤚 Chords"],["strum","🎸 Strum"],["simple","🎵 Song · Simple"],["advanced","🎵 Song · Advanced"]].map(([t,lbl])=>(
+              <button key={t} onClick={()=>setBuildType(t)} style={{ flex:"1 1 auto", padding:"9px 12px", borderRadius:10,
+                border:"1px dashed rgba(255,190,11,0.4)", background:"rgba(255,190,11,0.06)", color:"#FFBE0B",
+                fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Save */}
+      <button onClick={doSave} disabled={saving} style={{ width:"100%", padding:"14px", borderRadius:14,
+        border:"1px solid rgba(255,190,11,0.5)", cursor:saving?"wait":"pointer", fontFamily:"inherit",
+        background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+        color:"#FFD60A", fontSize:16, fontWeight:900, letterSpacing:0.5, boxShadow:"0 0 22px rgba(255,160,20,0.22)", marginBottom:14 }}>
+        {saving ? "Saving…" : "🔗 Save & generate link"}
+      </button>
+
+      {saveErr && <div style={{ color:"#ff8a7a", fontSize:13, textAlign:"center", marginBottom:14 }}>{saveErr}</div>}
+
+      {savedLink && (
+        <div style={{ border:"1px solid rgba(255,190,11,0.35)", borderRadius:16, padding:"16px", marginBottom:14,
+          background:"radial-gradient(130% 130% at 50% 0%, rgba(255,170,30,0.08) 0%, rgba(255,170,30,0) 60%), #100d09" }}>
+          <div style={{ fontSize:13, fontWeight:900, color:"#FFD60A", textAlign:"center", marginBottom:10 }}>✅ Package link ready (copied)</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <div style={{ flex:1, padding:"10px 12px", borderRadius:10, background:"#0a0a0a", border:"1px solid #333",
+              color:"#6b9fff", fontSize:12, fontFamily:"monospace", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{savedLink}</div>
+            <button onClick={()=>{ navigator.clipboard?.writeText(savedLink).then(()=>alert("✅ Copied!")).catch(()=>prompt("Copy:",savedLink)); }}
+              style={{ padding:"10px 16px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#FFBE0B,#F77F00)", color:"#111", fontSize:13, fontWeight:800, cursor:"pointer" }}>Copy</button>
+          </div>
+        </div>
+      )}
+
+      {/* Build-new modal */}
+      {buildType && (
+        <div style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.9)", backdropFilter:"blur(6px)",
+          overflowY:"auto", padding:"12px" }}>
+          <div style={{ maxWidth:560, margin:"0 auto", background:"#0d0d0a", border:"1px solid #241d10", borderRadius:18, padding:"14px 12px" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:900, color:"#FFD60A" }}>
+                Build {PKG_TYPE_META[buildType==="simple"?"strumprog":buildType==="advanced"?"pattern":buildType]?.label || buildType}
+              </div>
+              <button onClick={()=>setBuildType(null)} style={{ background:"none", border:"none", color:"#888", fontSize:20, cursor:"pointer" }}>✕</button>
+            </div>
+            {buildType==="drill" && <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} />}
+            {buildType==="strum" && <StrummingTab audio={audio} onExport={handleBuilderExport} />}
+            {buildType==="simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} />}
+            {buildType==="advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} />}
+          </div>
+        </div>
+      )}
+
+      <div style={{ textAlign:"center", paddingTop:8, paddingBottom:8, color:"#332e22", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
       </div>
     </div>
