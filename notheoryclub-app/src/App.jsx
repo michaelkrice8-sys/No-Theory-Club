@@ -2887,18 +2887,19 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
             <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:16 }}>
               {Array(beatsPerChord).fill(null).map((_,i)=>(
                 <div key={i} style={{ width:14, height:14, borderRadius:"50%",
-                  background:isPlaying&&beatCount===i?"#FFBE0B":i===0?"#2a1f00":"#111",
-                  border:`1px solid ${i===0?"#f5a62344":"#2a1f00"}`,
-                  boxShadow:isPlaying&&beatCount===i?"0 0 8px rgba(255,190,11,0.7)":"none",
+                  background:isPlaying&&beatCount===i?"#FFBE0B":i===0?"#2a1f0a":"#16110a",
+                  border:`1px solid ${i===0?"rgba(255,190,11,0.3)":"#241d10"}`,
+                  boxShadow:isPlaying&&beatCount===i?"0 0 10px rgba(255,190,11,0.7)":"none",
                   transition:"background 0.05s" }} />
               ))}
             </div>
           )}
 
           {/* Strum pattern */}
-          <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
-            borderRadius:20, padding:"14px 10px", marginBottom:16 }}>
-            <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
+          <div style={{ width:"100%", background:"#0c0a06", border:"1px solid #241d10",
+            borderRadius:20, padding:"14px 10px", marginBottom:16,
+            boxShadow:"inset 0 1px 0 rgba(255,255,255,0.03)" }}>
+            <div style={{ fontSize:9, color:"#6f6749", letterSpacing:2, textAlign:"center", marginBottom:12 }}>STRUMMING PATTERN</div>
             <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap", marginBottom: hasSecondRow ? 10 : 0 }}>
               {Array(row1Size).fill(null).map((_,i)=>(
                 <div key={i} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
@@ -2918,33 +2919,42 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
           </div>
 
           {/* BPM + Play */}
-          <div style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a",
-            borderRadius:14, padding:"14px", marginBottom:14 }}>
+          <div style={{ width:"100%", background:"#0c0a06", border:"1px solid #241d10",
+            borderRadius:18, padding:"16px", marginBottom:14,
+            boxShadow:"inset 0 1px 0 rgba(255,255,255,0.03)" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-              <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
+              <span style={{ fontSize:12, fontWeight:700, color:"#8a7f5e" }}>BPM</span>
               <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
             </div>
             <input type="range" min={20} max={160} value={bpm}
               onChange={e=>setBpm(Number(e.target.value))}
-              style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
-            <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
+              className="ntc-bpm-slider"
+              style={{ width:"100%", cursor:"pointer", marginBottom:12 }} />
+            <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:12 }}>
               {[40,60,80,100].map(b=>(
                 <button key={b} onClick={()=>setBpm(b)} style={{
-                  flex:1, padding:"5px 0", borderRadius:8,
-                  border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
-                  background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
-                  color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
+                  flex:1, padding:"8px 0", borderRadius:10,
+                  border:bpm===b?"1px solid rgba(255,190,11,0.55)":"1px solid #241d10",
+                  background:bpm===b?"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a":"#100d09",
+                  color:bpm===b?"#FFD60A":"#6f6749", fontSize:13, fontWeight:800, cursor:"pointer",
+                  boxShadow:bpm===b?"0 0 14px rgba(255,160,20,0.15)":"none", transition:"all 0.2s" }}>{b}</button>
               ))}
             </div>
             <button onClick={handleTogglePlay} disabled={!canPlay&&countIn===0} style={{
-              width:"100%", padding:"13px", borderRadius:12, border:"none",
-              background:!canPlay?"#111":countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#FFD60A,#F77F00)",
-              color:!canPlay?"#333":"#fff",
-              fontSize:countIn>0?22:17, fontWeight:900, cursor:canPlay||countIn>0?"pointer":"not-allowed",
-              boxShadow:!canPlay?"none":countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 24px rgba(255,214,10,0.4)",
-              transition:"all 0.15s",
+              width:"100%", padding:"14px", borderRadius:14,
+              border: !canPlay ? "1px solid #1c1710"
+                : (isPlaying||countIn>0) ? "1px solid rgba(231,76,60,0.5)"
+                : "1px solid rgba(255,190,11,0.5)",
+              background: !canPlay ? "#100d09"
+                : (isPlaying||countIn>0) ? "radial-gradient(120% 160% at 50% 0%, rgba(231,76,60,0.18) 0%, rgba(231,76,60,0) 70%), #1a0f0c"
+                : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+              color: !canPlay?"#3a3528": (isPlaying||countIn>0) ? "#ff8a7a" : "#FFD60A",
+              fontSize:16, fontWeight:900, letterSpacing:0.5,
+              cursor:canPlay||countIn>0?"pointer":"not-allowed",
+              boxShadow: !canPlay?"none": (isPlaying||countIn>0) ? "0 0 22px rgba(231,76,60,0.2)" : "0 0 22px rgba(255,160,20,0.22)",
+              fontFamily:"inherit", transition:"all 0.2s",
             }}>
-              {!canPlay?"Select a chord to start":countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Play"}
+              {!canPlay?"Select a chord to start":countIn>0?<><span style={{fontSize:22,fontWeight:900}}>{countIn}</span><span style={{fontSize:11,fontWeight:700,opacity:0.7,marginLeft:8}}>tap to skip</span></>:isPlaying?"⏹ Stop":"▶ Play"}
             </button>
           </div>
 
