@@ -2934,7 +2934,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                         setSongChords(p.songChords||[]); setStrumActive(p.strumActive);
                         setHasSecondRow(p.hasSecondRow||false);
                         setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
-                        setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2);
+                        setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2); setCapo(p.capo||0);
                         if(p.chordVariants) Object.entries(p.chordVariants).forEach(([c,v])=>updateVariant(c,v));
                         setLoadedName(p.name); setPickerOpen(false); setShowSaved(false);
                       }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
@@ -4718,7 +4718,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
 
 
 function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, accentColor,
-  onToggle, canPlay, disabledLabel, countIn }) {
+  onToggle, canPlay, disabledLabel }) {
   return (
     <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a",
       borderRadius:20, padding:"20px 24px", width:"100%", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
@@ -4753,18 +4753,15 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
       <button onClick={onToggle} disabled={!canPlay} style={{
         width:"100%", padding:"13px", borderRadius:14, border:"none",
         background: !canPlay ? "#111009"
-          : countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
           : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
           : "linear-gradient(135deg,#1a6b3c,#27ae60)",
-        color:!canPlay?"#333":"#fff", fontSize: countIn>0 ? 28 : 16, fontWeight:800,
+        color:!canPlay?"#333":"#fff", fontSize: 16, fontWeight:800,
         cursor:canPlay?"pointer":"not-allowed",
         boxShadow: !canPlay?"none"
-          : countIn>0 ? "0 4px 20px rgba(255,190,11,0.3)"
           : isPlaying ? "0 4px 20px rgba(231,76,60,0.4)"
           : "0 4px 20px rgba(39,174,96,0.4)",
-        transition:"all 0.15s", letterSpacing: countIn>0?2:0 }}>
+        transition:"all 0.15s" }}>
         {!canPlay ? (disabledLabel||"Select options to start")
-          : countIn>0 ? countIn
           : isPlaying ? "⏹ Stop" : "▶ Start"}
       </button>
     </div>
