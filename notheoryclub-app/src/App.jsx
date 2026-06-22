@@ -446,13 +446,7 @@ function App() {
   }, [fadeKey]);
 
   const handleTabChange = (newTab) => {
-    // Suspend audio context to immediately silence everything
-    try {
-      const ctx = audio.getContext?.();
-      if(ctx && ctx.state === "running") {
-        ctx.suspend().then(()=>{ setTimeout(()=>ctx.resume(), 50); });
-      }
-    } catch(e){}
+    // The outgoing tab stops its own playback via its `active` effect.
     setDest(newTab);
   };
 
@@ -760,7 +754,7 @@ function ChordCarousel({ chords, value, onChange }) {
   );
 }
 
-function StrummingTab({ audio, sharedView=false }) {
+function StrummingTab({ audio, sharedView=false, active=true }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState("practice");
   const [pattern, setPattern] = useState(null);
@@ -902,6 +896,8 @@ function StrummingTab({ audio, sharedView=false }) {
   };
   useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
+  // Stop playback when this tab is left (app tab switch) or the browser tab is
+  // hidden/backgrounded — so a drill never keeps running out of sight.
   const totalBlocks = mode==="build" ? rowSizes.reduce((a,b)=>a+b,0) : 8;
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
@@ -989,7 +985,7 @@ function StrummingTab({ audio, sharedView=false }) {
 }
 
 // ─── CHORDS TAB ─────────────────────────────────────────────────────────────
-function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
+function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [viewMode, setViewMode] = useState("presets");
   const [selectedPack, setSelectedPack] = useState(null);
@@ -1218,6 +1214,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   };
   useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
+  // Stop playback when this tab is left (app tab switch) or the browser tab is
+  // hidden/backgrounded — so a drill never keeps running out of sight.
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
