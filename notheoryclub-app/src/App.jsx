@@ -803,7 +803,7 @@ function ChordCarousel({ chords, value, onChange }) {
   );
 }
 
-function StrummingTab({ audio, sharedView=false, active=true }) {
+function StrummingTab({ audio, sharedView=false, active=true, initialParam=null }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState("practice");
   const [pattern, setPattern] = useState(null);
@@ -897,8 +897,8 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
 
   // Load from ?strum= URL on mount
   useEffect(()=>{
-    const params = new URLSearchParams(window.location.search);
-    const encoded = params.get("strum");
+    const params = new URLSearchParams(initialParam!=null ? "" : window.location.search);
+    const encoded = initialParam!=null ? initialParam : params.get("strum");
     if(encoded){
       const d = decodeStrumDrill(encoded);
       if(d){
@@ -912,7 +912,7 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
         setSharedViewName(d.name||"Shared Pattern");
         setStrumSaveName(d.name||"Shared Pattern");
         setBuilderOpen(false);
-        window.history.replaceState({}, "", window.location.pathname);
+        if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
       }
     }
   // eslint-disable-next-line
@@ -1051,7 +1051,7 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
 }
 
 // ─── CHORDS TAB ─────────────────────────────────────────────────────────────
-function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true }) {
+function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true, initialParam=null }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [viewMode, setViewMode] = useState("presets");
   const [selectedPack, setSelectedPack] = useState(null);
@@ -1077,8 +1077,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
 
   // Load drill from URL on first mount
   useEffect(()=>{
-    const params = new URLSearchParams(window.location.search);
-    const drill = params.get("drill");
+    const params = new URLSearchParams(initialParam!=null ? "" : window.location.search);
+    const drill = initialParam!=null ? initialParam : params.get("drill");
     if(drill){
       const decoded = decodeChordDrill(drill);
       if(decoded && decoded.chords.length >= 2){
@@ -1105,7 +1105,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
         setPickerOpen(false);
         if(decoded.chordVariants && Object.keys(decoded.chordVariants).length > 0)
           Object.entries(decoded.chordVariants).forEach(([c,v])=>updateVariant(c,v));
-        window.history.replaceState({}, "", window.location.pathname);
+        if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
       }
     }
   // eslint-disable-next-line
@@ -1598,7 +1598,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
 }
 
 // ─── BUILD A SONG TAB ────────────────────────────────────────────────────────
-function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant, sharedView=false }) {
+function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant, sharedView=false, initialParam=null }) {
   const [buildMode, setBuildMode] = useState(initialBuildMode);
 
   return (
@@ -1615,8 +1615,8 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
         </>
       )}
 
-      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} />}
-      {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} />}
+      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} />}
+      {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} />}
       {buildMode === "song" && <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
     </div>
   );
@@ -2769,7 +2769,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   );
 }
 
-function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false }) {
+function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [songChords, setSongChords] = useState([]);
   const [strumActive, setStrumActive] = useState(defaultBuild(8).concat(Array(8).fill(false)));
@@ -2828,8 +2828,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
   // Load from URL on mount
   useEffect(()=>{
-    const params = new URLSearchParams(window.location.search);
-    const encoded = params.get("strumprog");
+    const params = new URLSearchParams(initialParam!=null ? "" : window.location.search);
+    const encoded = initialParam!=null ? initialParam : params.get("strumprog");
     if(encoded){
       const d = decodeStrumDrill(encoded);
       if(d){
@@ -2839,7 +2839,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
         setLoadedName(d.name); setSaveName(d.name);
         setPickerOpen(false);
         if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
-        window.history.replaceState({}, "", window.location.pathname);
+        if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
       }
     }
   // eslint-disable-next-line
@@ -3435,7 +3435,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
 
 // ─── ADVANCED BUILD A SONG ───────────────────────────────────────────────────
-function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=false }) {
+function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [rowSizes, setRowSizes] = useState([8]);
   const [rowRepeats, setRowRepeats] = useState([1]); // repeat count per row
@@ -3682,8 +3682,8 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
   // On mount — check if URL has a shared pattern
   useEffect(()=>{
     try {
-      const params = new URLSearchParams(window.location.search);
-      const encoded = params.get("pattern");
+      const params = new URLSearchParams(initialParam!=null ? "" : window.location.search);
+      const encoded = initialParam!=null ? initialParam : params.get("pattern");
       if(!encoded) return;
       const d = JSON.parse(atob(encoded));
       setRowSizes(d.rs||[8]);
@@ -3709,8 +3709,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       setLoadedPatternName(d.n||"Shared Pattern");
       setSaveName(d.n||"Shared Pattern");
       setBuilderOpen(false);
-      window.history.replaceState({}, "", window.location.pathname);
-      window.scrollTo(0, 0);
+      if(initialParam==null){ window.history.replaceState({}, "", window.location.pathname); window.scrollTo(0, 0); }
     } catch(e) {}
   }, []);
 
@@ -5879,26 +5878,159 @@ function PackageShareView({ audio, chordVariants, updateVariant }) {
     </>
   );
 
-  // status === "ready" — step-1 stub: confirm the fetch + decode wiring works.
-  // Step 2 replaces this with the bottom-nav combined view.
+  // status === "ready" — the combined bottom-nav view.
+  return <PackageView pkg={pkg} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />;
+}
+
+// The combined practice view: a pinned streak strip (when the package includes
+// the tracker), a panel per exercise rendered via the EXISTING share components
+// (fed package data through initialParam), and a bottom nav. Built to match the
+// approved mockup (Option B).
+function PackageView({ pkg, audio, chordVariants, updateVariant }) {
   const items = Array.isArray(pkg?.items) ? pkg.items : [];
-  return shell(
-    <>
-      <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5, marginBottom:6 }}>NO THEORY CLUB</div>
-      <div style={{ fontSize:32, marginBottom:10 }}>📦</div>
-      <div style={{ fontSize:20, fontWeight:900, color:"#FFD60A", marginBottom:4 }}>{pkg?.n || "Package"}</div>
-      {pkg?.day ? <div style={{ fontSize:13, color:"#8a7f5e", marginBottom:14 }}>Day {pkg.day} · 30-Day Challenge</div> : <div style={{ marginBottom:14 }} />}
-      <div style={{ fontSize:13, color:"#8a7f5e", maxWidth:340, lineHeight:1.7 }}>
-        Loaded {items.length} item{items.length!==1?"s":""}
-        {pkg?.tracker ? " + tracker" : ""}:
-        <div style={{ marginTop:8, color:"#c9bd97", fontWeight:700 }}>
-          {items.map((it,i)=> `${i+1}. ${it.t}`).join("   ")}
+  const hasTracker = !!pkg?.tracker;
+
+  // Build the ordered list of tabs: each exercise item, then tracker (if on).
+  const TYPE_META = {
+    drill:     { icon:"🤚", label:"Chords" },
+    strum:     { icon:"🎸", label:"Strum" },
+    strumprog: { icon:"🎵", label:"Song" },
+    pattern:   { icon:"🎵", label:"Song" },
+  };
+  const tabs = items.map((it, i) => ({
+    key: "item"+i,
+    icon: TYPE_META[it.t]?.icon || "🎵",
+    label: TYPE_META[it.t]?.label || "Drill",
+    item: it,
+  }));
+  if(hasTracker) tabs.push({ key:"tracker", icon:"🔥", label:"Tracker", item:null });
+
+  const [activeKey, setActiveKey] = useState(tabs[0]?.key || "tracker");
+  const activeIdx = tabs.findIndex(t => t.key === activeKey);
+
+  // Streak for the pinned strip (reads the tracker's own storage).
+  const [streak, setStreak] = useState(0);
+  useEffect(() => {
+    if(!hasTracker) return;
+    try {
+      const saved = localStorage.getItem(TRACKER_STORAGE_KEY);
+      if(saved) setStreak(trackerStreak(JSON.parse(saved)));
+    } catch(_){}
+  }, [hasTracker]);
+
+  // Render a single exercise item via its existing share component.
+  const renderItem = (it) => {
+    if(!it) return null;
+    if(it.t === "drill")
+      return <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} />;
+    if(it.t === "strum")
+      return <StrummingTab audio={audio} sharedView={true} initialParam={it.d} />;
+    if(it.t === "strumprog")
+      return <BuildSongTab audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} />;
+    if(it.t === "pattern")
+      return <BuildSongTab audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} />;
+    return null;
+  };
+
+  // Guided next/prev (drills walk forward, ending on tracker if present).
+  const go = (key) => {
+    try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(e){}
+    setActiveKey(key);
+    window.scrollTo(0,0);
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff", display:"flex", flexDirection:"column" }}>
+      <style>{NTC_SLIDER_CSS}</style>
+      <style>{`@keyframes ntcFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }`}</style>
+
+      {/* Brand header */}
+      <div style={{ textAlign:"center", padding:"14px 16px 8px", flexShrink:0 }}>
+        <div style={{ fontSize:16, fontWeight:900, letterSpacing:1.5,
+          background:"linear-gradient(135deg,#FFE27A,#FFBE0B 50%,#F77F00)",
+          WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>NO THEORY CLUB</div>
+        <div style={{ fontSize:9, color:"#6f6749", letterSpacing:2, marginTop:2, textTransform:"uppercase" }}>
+          Shared Practice{pkg?.day ? ` · Day ${pkg.day}` : ""}
         </div>
       </div>
-      <div style={{ marginTop:18, fontSize:11, color:"#5a5238" }}>
-        (Combined view UI is added in the next step.)
+
+      {/* Pinned streak strip (only when tracker is included) */}
+      {hasTracker && (
+        <div style={{ margin:"4px 14px 0", flexShrink:0,
+          border:"1px solid rgba(255,190,11,0.25)", borderRadius:14,
+          background:"radial-gradient(130% 130% at 0% 50%, rgba(255,170,30,0.10) 0%, rgba(255,170,30,0) 60%), #100d09",
+          padding:"11px 14px", display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ width:42, height:42, borderRadius:11, flexShrink:0, display:"flex",
+            flexDirection:"column", alignItems:"center", justifyContent:"center",
+            background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.35)" }}>
+            <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B", lineHeight:1 }}>{streak}</span>
+            <span style={{ fontSize:7, color:"#6f6749", letterSpacing:1, marginTop:1 }}>DAYS</span>
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"#f3ead2" }}>
+              {pkg?.day ? `Day ${pkg.day} of 30 — keep the streak 🔥` : "Keep the streak 🔥"}
+            </div>
+            <div style={{ fontSize:10.5, color:"#5a5238", marginTop:2 }}>
+              {pkg?.n || "Practice package"}
+            </div>
+          </div>
+          <div style={{ color:"#6f6749", fontSize:18, flexShrink:0 }}>›</div>
+        </div>
+      )}
+
+      {/* Active panel — kept mounted via display toggle so playback state survives
+          tab switches; each panel fades in on activation. */}
+      <div style={{ flex:1, overflowY:"auto", padding:"4px 16px 24px", maxWidth:560, margin:"0 auto", width:"100%" }}>
+        {tabs.map(t => (
+          <div key={t.key}
+            style={{ display: t.key===activeKey ? "block" : "none",
+              animation: t.key===activeKey ? "ntcFadeIn 0.35s ease both" : "none" }}>
+            {t.key==="tracker" ? <TrackerTab /> : renderItem(t.item)}
+          </div>
+        ))}
+
+        {/* Guided footer — Back / Next through the items (skips on tracker) */}
+        {activeKey !== "tracker" && tabs.length > 1 && (
+          <div style={{ display:"flex", gap:8, marginTop:6 }}>
+            {activeIdx > 0 && (
+              <button onClick={()=>go(tabs[activeIdx-1].key)} style={{
+                flex:"0 0 90px", padding:"11px", borderRadius:12,
+                border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
+                fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>← Back</button>
+            )}
+            <button onClick={()=>go(tabs[activeIdx+1].key)} style={{
+              flex:1, padding:"11px", borderRadius:12, border:"none",
+              background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+              color:"#111", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+              {tabs[activeIdx+1]?.key==="tracker" ? "Finish → Tracker" : "Next →"}
+            </button>
+          </div>
+        )}
       </div>
-    </>
+
+      {/* Bottom nav */}
+      <div style={{ flexShrink:0, display:"flex", gap:4, padding:"8px 10px 14px",
+        background:"linear-gradient(0deg, rgba(13,11,8,0.98) 0%, rgba(13,11,8,0.9) 70%, rgba(13,11,8,0) 100%)",
+        borderTop:"1px solid #1c1710" }}>
+        {tabs.map(t => {
+          const on = t.key===activeKey;
+          return (
+            <button key={t.key} onClick={()=>go(t.key)} style={{
+              flex:1, padding:"8px 2px", borderRadius:13, cursor:"pointer", fontFamily:"inherit",
+              border:`1px solid ${on ? "rgba(255,190,11,0.4)" : "transparent"}`,
+              background: on
+                ? "radial-gradient(120% 160% at 50% 100%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
+                : "transparent",
+              color: on ? "#FFD60A" : "#5a5238",
+              display:"flex", flexDirection:"column", alignItems:"center", gap:3, transition:"all 0.2s" }}>
+              <span style={{ fontSize:19 }}>{t.icon}</span>
+              <span style={{ fontSize:9, fontWeight:800, letterSpacing:0.3 }}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
