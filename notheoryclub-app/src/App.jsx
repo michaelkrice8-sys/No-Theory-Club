@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Component } from "react";
 import { CHORD_IMAGES } from "./chordImages";
 import { CHORD_AUDIO, DOWN_WAV, UP_WAV } from "./chordAudio";
 import { CHORD_IMAGES_ANCHORS } from "./chordImages_anchors";
@@ -12,6 +12,40 @@ const ALL_CHORD_AUDIO  = { ...CHORD_AUDIO,  ...CHORD_AUDIO_ANCHORS,  ...CHORD_AU
 // Explicit E override — forces normalized version, bypasses original loud recording
 ALL_CHORD_AUDIO["E_down"] = CHORD_AUDIO_VARIATIONS["E_down"];
 ALL_CHORD_AUDIO["E_up"]   = CHORD_AUDIO_VARIATIONS["E_up"];
+
+// ─── ERROR BOUNDARY ──────────────────────────────────────────────────────────
+// Catches render crashes anywhere in the app (e.g. a malformed share link) and
+// shows a recoverable message instead of a blank white screen.
+class ErrorBoundary extends Component {
+  constructor(props){ super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError(){ return { hasError: true }; }
+  componentDidCatch(error, info){ console.error("App error:", error, info); }
+  render(){
+    if(this.state.hasError){
+      return (
+        <div style={{ minHeight:"100vh",
+          background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+          fontFamily:"'Trebuchet MS', sans-serif", color:"#fff",
+          display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+          padding:"24px", textAlign:"center" }}>
+          <div style={{ fontSize:13, fontWeight:700, color:"#fff", letterSpacing:1.5, marginBottom:4 }}>NO THEORY CLUB</div>
+          <div style={{ fontSize:34, marginBottom:14 }}>🎸</div>
+          <div style={{ fontSize:18, fontWeight:900, color:"#fff", marginBottom:8 }}>Something went wrong</div>
+          <div style={{ fontSize:13, color:"#888", lineHeight:1.6, maxWidth:320, marginBottom:20 }}>
+            The app hit an unexpected error. Reloading usually fixes it. If you opened a shared link, it may be from an older version.
+          </div>
+          <button onClick={()=>{ window.location.href = window.location.origin + window.location.pathname; }}
+            style={{ padding:"11px 22px", borderRadius:12, border:"none",
+              background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+              color:"#111", fontSize:14, fontWeight:800, cursor:"pointer" }}>
+            Reload app
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
@@ -316,7 +350,7 @@ function useAudio() {
 }
 
 // ─── MAIN APP ───────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [hasSharedPattern] = useState(() => typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("pattern"));
   const [hasSharedDrill] = useState(() => typeof window !== "undefined" &&
@@ -4938,5 +4972,14 @@ function PatternBtn({ label, active, onClick, accent }) {
       color:active?color:"#555", fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 0.15s" }}>
       {label}
     </button>
+  );
+}
+
+// ─── DEFAULT EXPORT — App wrapped in the error boundary ──────────────────────
+export default function AppWithBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   );
 }
