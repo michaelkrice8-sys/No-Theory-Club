@@ -957,6 +957,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   const [beatsPerChord, setBeatsPerChord] = useState(2);
   const [chordIndex, setChordIndex] = useState(0);
   const [beatCount, setBeatCount] = useState(0);
+  const [countdown, setCountdown] = useState(0); // 3..2..1 before play; 0 = inactive
+  const countdownRef = useRef(null);
 
   const [randomOrder, setRandomOrder] = useState(false);
   const [randomNextDisplay, setRandomNextDisplay] = useState(0);
@@ -1108,13 +1110,48 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     : chordVariants;
 
   const handleTogglePlay = async ()=>{
-    if(isPlaying){stopMetronome();setIsPlaying(false);}
-    else if(canPlay){await init();startMetronome();setIsPlaying(true);}
+    if(isPlaying || countdown>0){
+      // Stop — also cancels an in-progress countdown
+      clearInterval(countdownRef.current); countdownRef.current=null;
+      setCountdown(0);
+      stopMetronome(); setIsPlaying(false);
+      return;
+    }
+    if(!canPlay) return;
+    await init();
+    // 3 → 2 → 1, fixed 1s per number, then start.
+    setCountdown(3);
+    countdownRef.current = setInterval(()=>{
+      setCountdown(c=>{
+        if(c<=1){
+          clearInterval(countdownRef.current); countdownRef.current=null;
+          startMetronome(); setIsPlaying(true);
+          return 0;
+        }
+        return c-1;
+      });
+    }, 1000);
   };
+  useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
+
+      {/* 3-2-1 countdown overlay */}
+      {countdown>0 && (
+        <div onClick={handleTogglePlay} style={{ position:"fixed", inset:0, zIndex:2000,
+          display:"flex", alignItems:"center", justifyContent:"center",
+          background:"rgba(10,8,4,0.82)", backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)",
+          cursor:"pointer" }}>
+          <div key={countdown} style={{ fontSize:140, fontWeight:900, lineHeight:1,
+            color:"#FFD60A", textShadow:"0 0 40px rgba(255,170,20,0.5)",
+            animation:"ntcCount 1s ease-out" }}>{countdown}</div>
+          <div style={{ position:"absolute", bottom:"22%", fontSize:13, color:"#8a7f5e",
+            letterSpacing:2, textTransform:"uppercase", fontWeight:700 }}>Get ready…</div>
+          <style>{`@keyframes ntcCount { 0%{ transform:scale(0.5); opacity:0; } 25%{ transform:scale(1.1); opacity:1; } 100%{ transform:scale(1); opacity:1; } }`}</style>
+        </div>
+      )}
 
       {!sharedView && (
         <>
@@ -4498,6 +4535,7 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
   const rafRef = useRef(null);
   const chordStartRef = useRef(performance.now());
   const lastIdxRef = useRef(chordIndex);
+  const wasPlayingRef = useRef(isPlaying);
 
   // Stamp the moment the active chord changes (animation interpolates from here).
   useEffect(() => {
@@ -4506,6 +4544,16 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
       chordStartRef.current = performance.now();
     }
   }, [chordIndex]);
+
+  // When playback starts, calibrate the timer to "now" so the first chord
+  // begins its dwell→travel from zero (no startup jump). When it stops, recenter.
+  useEffect(() => {
+    if (isPlaying && !wasPlayingRef.current) {
+      chordStartRef.current = performance.now();
+      lastIdxRef.current = chordIndex;
+    }
+    wasPlayingRef.current = isPlaying;
+  }, [isPlaying]); // eslint-disable-line
 
   const n = chords.length;
   // Render window: prev, current, next, next+1 so neighbors always exist.
@@ -4614,19 +4662,6 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, isPlaying, accentColor,
                   ? <img src={imgFor(chord)} alt={labelFor(chord)} draggable={false}
                       style={{ width:"100%", height:"100%", objectFit:"cover", display:"block", pointerEvents:"none" }} />
                   : <div style={{ margin:"auto", fontSize:36, fontWeight:900, color:accentColor }}>{labelFor(chord)}</div>}
-                {/* Variant gear — only on the centered chord and when paused (keeps motion clean) */}
-                {isActiveSlot && activeHasVar && !isPlaying && (
-                  <div onClick={e=>{e.stopPropagation();
-                      if(perSlot) setVariantPickerSlot({ idx:chordIndex, base:activeBase, current: chord });
-                      else setVariantPickerSlot({ idx:-1, base:chord, current: chordVariants?.[chord]||chord });
-                    }}
-                    style={{ position:"absolute", top:6, right:6, padding:"3px 8px", borderRadius:8,
-                      background:"rgba(0,0,0,0.8)", border:"1px solid rgba(255,190,11,0.5)",
-                      fontSize:10, fontWeight:700, color: activeChosenLabel!=="standard"?"#FFBE0B":"#888",
-                      cursor:"pointer", zIndex:2, whiteSpace:"nowrap" }}>
-                    {activeChosenLabel} ⚙
-                  </div>
-                )}
               </div>
             );
           })}
