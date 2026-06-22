@@ -2694,6 +2694,11 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const [saveName, setSaveName] = useState("");
   const [capo, setCapo] = useState(0);
   const [countIn, setCountIn] = useState(0);
+  // Song-mode chord slide: chord holds static through the run-throughs, then a
+  // quick slide is triggered near the end of the final run-through.
+  const [slideSignal, setSlideSignal] = useState(0); // increment = "start the slide now"
+  const [slideDurMs, setSlideDurMs] = useState(380);
+  const slideArmedRef = useRef(false); // prevents double-triggering within a run
 
   const intervalRef = useRef(null);
   const countInIntervalRef = useRef(null);
@@ -2762,6 +2767,26 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
         chordIdxRef.current=nextChord; setChordIndex(nextChord);
       }
     }
+    // ── Song-mode chord slide trigger ──
+    // The chord holds static while the pattern runs. On the final run-through of
+    // this chord, kick off a quick slide a couple of arrows before the switch so
+    // the next chord arrives in focus exactly as the chord changes.
+    if(chords.length>1){
+      const onFinalRun = chordBeatRef.current === bpc-1;
+      const tickMs = (60/bpmRef.current/4)*1000;
+      // Start the slide ~2 arrows before the wrap, but give a little more room on
+      // short patterns / fast tempo so it never feels abrupt (min ~260ms window).
+      let lead = 2;
+      while(lead < totalS-1 && lead*tickMs < 260) lead++;
+      const slideStartRaw = (totalS - lead + totalS) % totalS;
+      if(onFinalRun && nextRaw===slideStartRaw && !slideArmedRef.current && !firstTickRef.current){
+        slideArmedRef.current = true;
+        setSlideDurMs(lead*tickMs);
+        setSlideSignal(s=>s+1);
+      }
+      // Re-arm once we've passed the switch (new run-through begins).
+      if(nextRaw===0) slideArmedRef.current = false;
+    }
     firstTickRef.current=false;
     if(nextRaw%4===0) playChordClick(nextRaw===0);
     const isDown=strumIdx%2===0;
@@ -2774,7 +2799,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
     strumBeatRef.current=-1; chordIdxRef.current=0; chordBeatRef.current=0;
-    firstTickRef.current=true;
+    firstTickRef.current=true; slideArmedRef.current=false;
     setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
     const ms=(60/bpmRef.current/4)*1000;
     intervalRef.current=setInterval(tick,ms); tick();
@@ -2879,6 +2904,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
             <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
               isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
               bpm={bpm} beatsPerChord={beatsPerChord}
+              songMode={true} slideSignal={slideSignal} slideDurMs={slideDurMs}
               chordVariants={chordVariants} updateVariant={updateVariant} />
           )}
 
@@ -4585,7 +4611,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   );
 }
 
-function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, prevChordIndex=null, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, countdown=0, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
+function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, prevChordIndex=null, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, countdown=0, songMode=false, slideSignal=0, slideDurMs=380, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
   const [variantPickerSlot, setVariantPickerSlot] = useState(null); // {idx, base, current}
 
   // In perSlot mode each chords[i] is self-contained; resolve via slot helpers.
@@ -4675,9 +4701,9 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, p
     }
   }); // eslint-disable-line
 
-  // Playing: animate via rAF using elapsed time vs chord duration.
+  // Playing (normal mode): continuous dwell→travel glide via rAF.
   useEffect(() => {
-    if (!isPlaying || n === 0) return;
+    if (songMode || !isPlaying || n === 0) return;
     const tick = (now) => {
       const beatMs = 60000 / (bpm || 60);
       const cycleMs = beatMs * (beatsPerChord || 1);
@@ -4692,7 +4718,41 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, p
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [isPlaying, bpm, beatsPerChord, chordIndex, n]); // eslint-disable-line
+  }, [songMode, isPlaying, bpm, beatsPerChord, chordIndex, n]); // eslint-disable-line
+
+  // Song mode: hold the chord static, centered. The slide is fired separately
+  // by slideSignal (see below), so here we just keep it parked when not sliding.
+  const slidingRef = useRef(false);
+  useEffect(() => {
+    if (!songMode) return;
+    if (slidingRef.current) return; // don't stomp an in-progress slide
+    cancelAnimationFrame(rafRef.current);
+    paint(centerForSlot(CUR_SLOT));
+  }, [songMode, isPlaying, chordIndex, n]); // eslint-disable-line
+
+  // Song mode one-shot slide: when slideSignal increments, glide current→next
+  // over slideDurMs, landing as the chord switches.
+  const slideSigRef = useRef(slideSignal);
+  useEffect(() => {
+    if (!songMode || slideSignal === slideSigRef.current) { slideSigRef.current = slideSignal; return; }
+    slideSigRef.current = slideSignal;
+    if (n === 0) return;
+    cancelAnimationFrame(rafRef.current);
+    const from = centerForSlot(CUR_SLOT);
+    const to = centerForSlot(CUR_SLOT + 1);
+    const dur = Math.max(120, slideDurMs);
+    const t0 = performance.now();
+    slidingRef.current = true;
+    const ease = (x) => x<0.5 ? 4*x*x*x : 1-Math.pow(-2*x+2,3)/2; // easeInOutCubic
+    const run = (now) => {
+      let p = (now - t0) / dur;
+      if (p > 1) p = 1;
+      paint(from + (to - from) * ease(p));
+      if (p < 1) { rafRef.current = requestAnimationFrame(run); }
+      else { slidingRef.current = false; }
+    };
+    rafRef.current = requestAnimationFrame(run);
+  }, [slideSignal]); // eslint-disable-line
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
