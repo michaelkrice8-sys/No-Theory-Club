@@ -1861,9 +1861,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     playPosRef.current = { secIdx, rowIdx, beat:-1, pass:0, _secPass:0 };
     setPlayPos({ secIdx, rowIdx, beat:-1, pass:0 });
     setIsPlaying(false); setIsPaused(false);
-    // 4-beat countdown then start
-    const ms = (60/bpmRef.current)*1000;
-    let beat = 4, beatIdx = 0;
+    // Fixed 3 → 2 → 1 count-in (1s per beep), matching Chords & Strumming.
+    let beat = 3, beatIdx = 0;
     setCountIn(beat); setCountInBeat(beatIdx); playChordClick(true);
     countInRef.current = setInterval(()=>{
       beat--; beatIdx += 2;
@@ -1877,7 +1876,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       } else {
         setCountIn(beat); setCountInBeat(beatIdx%8); playChordClick(false);
       }
-    }, ms);
+    }, 1000);
   },[init, tick, playChordClick]);
 
   useEffect(()=>{
@@ -1914,8 +1913,8 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       await startFromRow(secIdx, rowIdx); return;
     }
     await init();
-    const ms = (60/bpmRef.current)*1000;
-    let beat=4, beatIdx=0;
+    // Fixed 3 → 2 → 1 count-in (1s per beep), matching Chords & Strumming.
+    let beat=3, beatIdx=0;
     setCountIn(beat); setCountInBeat(beatIdx); playChordClick(true);
     countInRef.current = setInterval(()=>{
       beat--; beatIdx+=2;
@@ -1933,7 +1932,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       } else {
         setCountIn(beat); setCountInBeat(beatIdx%8); playChordClick(false);
       }
-    }, ms);
+    }, 1000);
   };
 
   // ── Save / Load / Share state ──
@@ -3003,8 +3002,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     }
     if(!canPlay) return;
     await init();
-    const ms=(60/bpmRef.current)*1000;
-    let beat=4;
+    // Fixed 3 → 2 → 1 count-in (1s per beep), matching Chords & Strumming.
+    let beat=3;
     setCountIn(beat); playChordClick(true);
     countInIntervalRef.current=setInterval(()=>{
       beat--;
@@ -3015,7 +3014,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       } else {
         setCountIn(beat); playChordClick(false);
       }
-    }, ms);
+    }, 1000);
   };
 
   const cycleSize = cycleRowSize;
@@ -3788,8 +3787,8 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       startMetronome(); setIsPlaying(true);
     } else {
       await init();
-      const ms = (60/bpm)*1000;
-      let beat = 4, beatIdx = 0;
+      // Fixed 3 → 2 → 1 count-in (1s per beep), matching Chords & Strumming.
+      let beat = 3, beatIdx = 0;
       setCountIn(beat); setCountInBeat(beatIdx); playChordClick(true);
       countIntervalRef.current = setInterval(()=>{
         beat--; beatIdx += 2;
@@ -3800,7 +3799,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
         } else {
           setCountIn(beat); setCountInBeat(beatIdx % 8); playChordClick(false);
         }
-      }, ms);
+      }, 1000);
     }
   };
 
@@ -6272,27 +6271,29 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
         </div>
       </div>
 
-      {/* Pinned streak strip (only when tracker is included) */}
+      {/* Pinned streak strip (only when tracker is included) — tap to open Tracker */}
       {hasTracker && (
-        <div style={{ margin:"4px 14px 0", flexShrink:0,
-          border:"1px solid rgba(255,190,11,0.25)", borderRadius:14,
+        <div onClick={()=>go("tracker")} role="button" tabIndex={0}
+          onKeyDown={e=>{ if(e.key==="Enter"||e.key===" ") go("tracker"); }}
+          style={{ margin:"4px 14px 0", flexShrink:0, cursor:"pointer",
+          border:`1px solid ${activeKey==="tracker"?"rgba(255,190,11,0.5)":"rgba(255,190,11,0.25)"}`, borderRadius:14,
           background:"radial-gradient(130% 130% at 0% 50%, rgba(255,170,30,0.10) 0%, rgba(255,170,30,0) 60%), #100d09",
-          padding:"11px 14px", display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ width:42, height:42, borderRadius:11, flexShrink:0, display:"flex",
+          padding:"13px 16px", display:"flex", alignItems:"center", gap:13, transition:"border-color 0.2s" }}>
+          <div style={{ width:48, height:48, borderRadius:12, flexShrink:0, display:"flex",
             flexDirection:"column", alignItems:"center", justifyContent:"center",
             background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.35)" }}>
-            <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B", lineHeight:1 }}>{streak}</span>
-            <span style={{ fontSize:7, color:"#6f6749", letterSpacing:1, marginTop:1 }}>DAYS</span>
+            <span style={{ fontSize:22, fontWeight:900, color:"#FFBE0B", lineHeight:1 }}>{streak}</span>
+            <span style={{ fontSize:8, color:"#6f6749", letterSpacing:1, marginTop:1 }}>DAYS</span>
           </div>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:12, fontWeight:800, color:"#f3ead2" }}>
+            <div style={{ fontSize:16, fontWeight:900, color:"#f3ead2", lineHeight:1.2 }}>
               {pkg?.day ? `Day ${pkg.day} of 30 — keep the streak 🔥` : "Keep the streak 🔥"}
             </div>
-            <div style={{ fontSize:10.5, color:"#5a5238", marginTop:2 }}>
-              {pkg?.n || "Practice package"}
+            <div style={{ fontSize:12, color:"#8a7f5e", marginTop:3, fontWeight:600 }}>
+              Tap to open your tracker
             </div>
           </div>
-          <div style={{ color:"#6f6749", fontSize:18, flexShrink:0 }}>›</div>
+          <div style={{ color:"#FFBE0B", fontSize:22, flexShrink:0, fontWeight:900 }}>›</div>
         </div>
       )}
 
