@@ -544,6 +544,188 @@ function App() {
 }
 
 // ─── STRUMMING TAB ──────────────────────────────────────────────────────────
+// ─── CHORD CAROUSEL ──────────────────────────────────────────────────────────
+// Real draggable carousel: the track follows the pointer in real time, then
+// snaps to the nearest card on release (a fast flick advances one). Tapping a
+// peeking side card or a dot slides+locks to it. Calls onChange with the locked
+// chord name. Uses regular (non-anchored) chord images.
+const CAROUSEL_CARD_W = 140;
+const CAROUSEL_CARD_MARGIN = 11;
+const CAROUSEL_STEP = CAROUSEL_CARD_W + CAROUSEL_CARD_MARGIN * 2;
+
+function ChordCarousel({ chords, value, onChange }) {
+  const viewportRef = useRef(null);
+  const trackRef = useRef(null);
+  const cardRefs = useRef([]);
+  const [activeIdx, setActiveIdx] = useState(() => Math.max(0, chords.indexOf(value)));
+
+  const posRef = useRef(0);
+  const draggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startPosRef = useRef(0);
+  const lastXRef = useRef(0);
+  const lastTRef = useRef(0);
+  const velRef = useRef(0);
+  const movedRef = useRef(false);
+  const rafRef = useRef(null);
+
+  const idxRef = useRef(activeIdx);
+  useEffect(() => { idxRef.current = activeIdx; }, [activeIdx]);
+
+  const vw = () => (viewportRef.current ? viewportRef.current.clientWidth : 0);
+  const posFor = (i) => vw() / 2 - (i * CAROUSEL_STEP + CAROUSEL_STEP / 2);
+  const nearest = () => {
+    const i = Math.round((vw() / 2 - posRef.current - CAROUSEL_STEP / 2) / CAROUSEL_STEP);
+    return Math.max(0, Math.min(chords.length - 1, i));
+  };
+
+  const paint = () => {
+    const p = posRef.current;
+    if (trackRef.current) trackRef.current.style.transform = `translateX(${p}px)`;
+    const n = nearest();
+    const w = vw();
+    cardRefs.current.forEach((c, i) => {
+      if (!c) return;
+      const center = i * CAROUSEL_STEP + CAROUSEL_STEP / 2 + p;
+      const dist = Math.abs(center - w / 2);
+      const t = Math.min(1, dist / CAROUSEL_STEP);
+      c.style.transform = `scale(${(1 - 0.18 * t).toFixed(3)})`;
+      c.style.opacity = (1 - 0.55 * t).toFixed(3);
+      const on = i === n;
+      c.style.borderColor = on ? "rgba(255,190,11,0.6)" : "#2a2417";
+      c.style.boxShadow = on ? "0 0 26px rgba(255,160,20,0.26)" : "none";
+    });
+  };
+
+  const applyPos = (p) => { posRef.current = p; paint(); };
+
+  const animateTo = (target, onDone) => {
+    cancelAnimationFrame(rafRef.current);
+    const start = posRef.current, dist = target - start, dur = 360, t0 = performance.now();
+    const step = (now) => {
+      const e = Math.min(1, (now - t0) / dur);
+      const c1 = 1.70158, c3 = c1 + 1;
+      const eased = 1 + c3 * Math.pow(e - 1, 3) + c1 * Math.pow(e - 1, 2);
+      applyPos(start + dist * eased);
+      if (e < 1) rafRef.current = requestAnimationFrame(step);
+      else { applyPos(target); onDone && onDone(); }
+    };
+    rafRef.current = requestAnimationFrame(step);
+  };
+
+  const lockTo = (i, animate) => {
+    i = Math.max(0, Math.min(chords.length - 1, i));
+    setActiveIdx(i);
+    onChange && onChange(chords[i]);
+    if (animate) animateTo(posFor(i)); else applyPos(posFor(i));
+  };
+
+  // Pointer handlers
+  const down = (x) => {
+    draggingRef.current = true; movedRef.current = false;
+    cancelAnimationFrame(rafRef.current);
+    startXRef.current = x; startPosRef.current = posRef.current;
+    lastXRef.current = x; lastTRef.current = performance.now(); velRef.current = 0;
+    if (viewportRef.current) viewportRef.current.style.cursor = "grabbing";
+  };
+  const move = (x) => {
+    if (!draggingRef.current) return;
+    const delta = x - startXRef.current;
+    if (Math.abs(delta) > 6) movedRef.current = true;
+    let n = startPosRef.current + delta;
+    const minP = posFor(chords.length - 1), maxP = posFor(0);
+    if (n > maxP) n = maxP + (n - maxP) * 0.35;
+    if (n < minP) n = minP + (n - minP) * 0.35;
+    applyPos(n);
+    const now = performance.now(), dt = now - lastTRef.current;
+    if (dt > 0) velRef.current = (x - lastXRef.current) / dt;
+    lastXRef.current = x; lastTRef.current = now;
+  };
+  const up = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (viewportRef.current) viewportRef.current.style.cursor = "grab";
+    const F = 0.5;
+    let t = nearest();
+    if (velRef.current < -F) t = nearest() + 1;
+    else if (velRef.current > F) t = nearest() - 1;
+    lockTo(t, true);
+  };
+
+  // Mouse + touch listeners (window-level for move/up so drag continues off-element)
+  useEffect(() => {
+    const mm = (e) => move(e.clientX);
+    const mu = () => up();
+    window.addEventListener("mousemove", mm);
+    window.addEventListener("mouseup", mu);
+    return () => { window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); };
+  }); // eslint-disable-line
+
+  // Center the initial / external value, and re-center on resize.
+  useEffect(() => {
+    applyPos(posFor(idxRef.current));
+    const onResize = () => applyPos(posFor(idxRef.current));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }); // eslint-disable-line
+
+  return (
+    <div>
+      <div ref={viewportRef}
+        onMouseDown={(e)=>{ e.preventDefault(); down(e.clientX); }}
+        onTouchStart={(e)=>down(e.touches[0].clientX)}
+        onTouchMove={(e)=>move(e.touches[0].clientX)}
+        onTouchEnd={up}
+        onClick={(e)=>{
+          if (movedRef.current) return;
+          const card = e.target.closest("[data-cidx]");
+          if (card) lockTo(Number(card.getAttribute("data-cidx")), true);
+        }}
+        style={{ position:"relative", width:"100%", height:240, overflow:"hidden",
+          touchAction:"pan-y", cursor:"grab", userSelect:"none", WebkitUserSelect:"none", marginBottom:4 }}>
+        {/* edge fades */}
+        <div style={{ position:"absolute", top:0, bottom:0, left:0, width:64, zIndex:5, pointerEvents:"none",
+          background:"linear-gradient(90deg, #0d0d0a 0%, rgba(13,13,10,0) 100%)" }} />
+        <div style={{ position:"absolute", top:0, bottom:0, right:0, width:64, zIndex:5, pointerEvents:"none",
+          background:"linear-gradient(270deg, #0d0d0a 0%, rgba(13,13,10,0) 100%)" }} />
+        <div ref={trackRef} style={{ position:"absolute", top:0, left:0, height:"100%",
+          display:"flex", alignItems:"center", willChange:"transform" }}>
+          {chords.map((c, i) => {
+            const img = ALL_CHORD_IMAGES[c];
+            return (
+              <div key={c} data-cidx={i} ref={el=>cardRefs.current[i]=el}
+                style={{ flex:"0 0 auto", width:CAROUSEL_CARD_W, height:186,
+                  margin:`0 ${CAROUSEL_CARD_MARGIN}px`, borderRadius:16, border:"1px solid #2a2417",
+                  overflow:"hidden", background:"#0a0805", display:"flex", flexDirection:"column",
+                  transition:"border-color 0.25s, box-shadow 0.25s" }}>
+                <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center",
+                  background:"radial-gradient(120% 120% at 50% 0%, rgba(255,170,30,0.08), rgba(0,0,0,0) 60%), #0a0805" }}>
+                  {img
+                    ? <img src={img} alt={c} draggable={false} style={{ width:"100%", height:"auto", display:"block", pointerEvents:"none" }} />
+                    : <span style={{ fontSize:58, fontWeight:900, color:"#FFBE0B" }}>{c}</span>}
+                </div>
+                <div style={{ textAlign:"center", padding:"8px 0 10px", fontSize:14, fontWeight:900,
+                  color: i===activeIdx ? "#FFD60A" : "#9a8d6a" }}>{c}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* dots */}
+      <div style={{ display:"flex", gap:7, justifyContent:"center", marginTop:10, marginBottom:8 }}>
+        {chords.map((c, i) => (
+          <div key={c} onClick={()=>lockTo(i, true)} style={{ height:6, cursor:"pointer", borderRadius:3,
+            width: i===activeIdx ? 22 : 6,
+            background: i===activeIdx ? "linear-gradient(90deg,#FFD60A,#F77F00)" : "#2a1f0a",
+            boxShadow: i===activeIdx ? "0 0 8px rgba(255,190,11,0.5)" : "none",
+            transition:"all 0.3s ease" }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StrummingTab({ audio, sharedView=false }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState("practice");
@@ -613,7 +795,7 @@ function StrummingTab({ audio, sharedView=false }) {
     const isDown = (cm==="build" ? mappedIdx : next)%2===0;
     let shouldStrum = cm==="build" ? buildActiveRef.current[mappedIdx]===true
       : patternRef.current ? patternRef.current.active[next]===true : true;
-    if(shouldStrum) playChordStrum(STRUM_ANCHOR_CHORDS.has(strumChordRef.current)?strumChordRef.current+"_anchor":strumChordRef.current, isDown);
+    if(shouldStrum) playChordStrum(strumChordRef.current, isDown);
   },[playClick, playChordStrum]);
 
   const startMetronome = useCallback(()=>{
@@ -678,37 +860,15 @@ function StrummingTab({ audio, sharedView=false }) {
         </>
       )}
 
-      {/* Chord selector bar */}
-      <div style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a",
-        borderRadius:14, padding:"12px 16px", marginBottom:18 }}>
-        <div style={{ fontSize:11, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:10 }}>
-          STRUM CHORD
+      {/* Chord selector — draggable carousel (non-anchored voicings) */}
+      <div style={{ width:"100%", marginBottom:14 }}>
+        <div style={{ fontSize:10, color:"#5a5238", letterSpacing:2, textAlign:"center",
+          marginBottom:12, textTransform:"uppercase", fontWeight:700 }}>
+          Strum Chord
         </div>
-        <div style={{ display:"flex", gap:8, justifyContent:"center" }}>
-          {STRUM_CHORDS.map(chord => {
-            const isActive = strumChord === chord;
-            return (
-              <button key={chord} onClick={()=>setStrumChord(chord)} style={{
-                flex:1, padding:"8px 4px", borderRadius:10,
-                background: isActive ? "linear-gradient(135deg, #FFBE0B, #F77F00)" : "#1c1c1c",
-                border: isActive ? "2px solid #FFBE0B" : "2px solid transparent",
-                cursor:"pointer", transition:"background 0.15s, border-color 0.15s, box-shadow 0.15s",
-                display:"flex", flexDirection:"column", alignItems:"center", gap:4,
-                boxShadow: isActive ? "0 0 12px rgba(255,190,11,0.4)" : "none",
-              }}>
-                {ALL_CHORD_IMAGES[STRUM_ANCHOR_CHORDS.has(chord)?chord+"_anchor":chord] && (
-                  <div style={{ width:"100%", borderRadius:6, opacity: isActive ? 1 : 0.5, overflow:"hidden" }}>
-                    <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                    <img src={ALL_CHORD_IMAGES[STRUM_ANCHOR_CHORDS.has(chord)?chord+"_anchor":chord]} alt={chord}
-                      style={{ width:"100%", height:"auto", display:"block" }} />
-                  </div>
-                  </div>
-                )}
-                <div style={{ fontSize:13, fontWeight:900,
-                  color: isActive ? "#111" : "#666" }}>{chord}</div>
-              </button>
-            );
-          })}
+        <ChordCarousel chords={STRUM_CHORDS} value={strumChord} onChange={setStrumChord} />
+        <div style={{ textAlign:"center", fontSize:11, color:"#5a5238", marginTop:2 }}>
+          Swipe or tap to <b style={{ color:"#8a7f5e" }}>change the chord</b>
         </div>
       </div>
 
@@ -4060,13 +4220,13 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
 function SectionHeader({ title, sub }) {
   return (
     <div style={{
-      borderRadius:16, padding:"14px 24px",
-      textAlign:"center", marginBottom:20, width:"100%",
-      background:"#111", border:"1px solid #2a2a2a",
-      boxShadow:"0 4px 16px rgba(0,0,0,0.5)",
+      borderRadius:18, padding:"18px 24px",
+      textAlign:"center", marginBottom:18, width:"100%",
+      background:"#0e0b07", border:"1px solid #211b10",
+      boxShadow:"0 6px 22px rgba(0,0,0,0.4)",
     }}>
-      <h1 style={{ margin:0, fontSize:21, fontWeight:900, color:"#fff", letterSpacing:0.3 }}>{title}</h1>
-      <p style={{ margin:"6px 0 0", fontSize:12, color:"#aaa", lineHeight:1.6 }}>{sub}</p>
+      <h1 style={{ margin:0, fontSize:21, fontWeight:900, color:"#f3ead2", letterSpacing:0.3 }}>{title}</h1>
+      <p style={{ margin:"6px 0 0", fontSize:12.5, color:"#8a7f5e", lineHeight:1.6 }}>{sub}</p>
     </div>
   );
 }
@@ -4079,20 +4239,23 @@ const MODE_GRADIENTS = [
 
 function ModeTabs({ options, value, onChange }) {
   return (
-    <div style={{ display:"flex", gap:4, marginBottom:20, background:"#0a0a0a", borderRadius:14,
-      padding:4, border:"1px solid #2a2a2a", width:"100%" }}>
-      {options.map(([m,label],i)=>(
-        <button key={m} onClick={()=>onChange(m)} style={{
-          flex:1, padding:"11px 12px", borderRadius:10, border:"none",
-          background: value===m ? MODE_GRADIENTS[i] : "transparent",
-          color: value===m ? (i===2 ? "#fff" : "#111") : "#555",
-          fontSize:14, fontWeight:900,
-          textShadow: value===m ? "0 1px 3px rgba(0,0,0,0.25)" : "none",
-          boxShadow: value===m ? "0 2px 10px rgba(255,190,11,0.3)" : "none",
-          cursor:"pointer", transition:"all 0.2s",
-          letterSpacing:0.3,
-        }}>{label}</button>
-      ))}
+    <div style={{ display:"flex", gap:8, marginBottom:18, width:"100%" }}>
+      {options.map(([m,label])=>{
+        const on = value===m;
+        return (
+          <button key={m} onClick={()=>onChange(m)} style={{
+            flex:1, padding:"13px 12px", borderRadius:14,
+            border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
+            background: on
+              ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
+              : "#100d09",
+            color: on ? "#FFD60A" : "#8a7f5e",
+            fontSize:14, fontWeight:900, letterSpacing:0.3,
+            boxShadow: on ? "0 0 22px rgba(255,160,20,0.18)" : "none",
+            cursor:"pointer", transition:"all 0.22s ease", fontFamily:"inherit",
+          }}>{label}</button>
+        );
+      })}
     </div>
   );
 }
@@ -4575,27 +4738,30 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
   );
 
   return (
-    <div style={{ width:"100%", background:"#0a0a0a",
-      border:"1px solid #2a2a2a", borderRadius:20, padding:"18px 16px", marginBottom:20 }}>
+    <div style={{ width:"100%", background:"#0c0a06",
+      border:"1px solid #241d10", borderRadius:20, padding:"18px 16px", marginBottom:20,
+      boxShadow:"0 6px 24px rgba(0,0,0,0.5)" }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
         <div style={{ width:60 }} />
-        <div style={{ fontSize:11, color:"#888", letterSpacing:2 }}>BUILD YOUR PATTERN</div>
+        <div style={{ fontSize:11, color:"#8a7f5e", letterSpacing:2, fontWeight:700 }}>BUILD YOUR PATTERN</div>
         <button onClick={()=>setBuilderOpen(false)} style={{ background:"none", border:"none",
-          color:"#555", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.5 }}>Hide ▲</button>
+          color:"#6f6749", fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:0.5,
+          fontFamily:"inherit" }}>Hide ▲</button>
       </div>
-      <p style={{ textAlign:"center", fontSize:12, color:"#888", marginBottom:16 }}>Tap blocks to toggle active ↔ ghost</p>
+      <p style={{ textAlign:"center", fontSize:12, color:"#776b4d", marginBottom:16 }}>Tap blocks to toggle active ↔ ghost</p>
 
       {/* Rows */}
       {rowSizes.map((rs, rIdx) => (
         <div key={rIdx} style={{ marginBottom:10 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
-            <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW {rIdx+1}</div>
+            <div style={{ fontSize:10, color:"#5a5238", letterSpacing:1 }}>ROW {rIdx+1}</div>
             <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
               const ns = cycleSize(rs);
               setRowSizes(p=>p.map((v,k)=>k===rIdx?ns:v));
               setBuildActive(p=>{ const n=[...p]; for(let i=ns;i<8;i++) n[rIdx*8+i]=false; return n; });
-            }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
-              background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+            }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #241d10",
+              background:"#16110a", color:"#FFD60A", fontSize:12, fontWeight:700, cursor:"pointer",
+              fontFamily:"inherit" }}>
               {sizeLabel(rs)} ↻
             </button>
           </div>
@@ -4624,8 +4790,10 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
             setRowSizes(p=>[...p, 8]);
             setBuildActive(p=>{ const n=[...p]; for(let i=0;i<8;i++) n[newRowIdx*8+i] = defaultBuild(8)[i]; return n; });
           }} style={{
-            padding:"8px 18px", borderRadius:10, border:"1px solid #FFBE0B",
-            background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add Row</button>
+            padding:"9px 18px", borderRadius:11, border:"1px solid rgba(255,190,11,0.5)",
+            background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.12) 0%, rgba(255,170,30,0) 60%), #16110a",
+            color:"#FFD60A", fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"inherit",
+            boxShadow:"0 0 14px rgba(255,160,20,0.18)" }}>+ Add Row</button>
         )}
         {rowSizes.length>1 && (
           <button onClick={()=>{
@@ -4634,8 +4802,9 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
             setRowSizes(p=>p.slice(0,-1));
             setBuildActive(p=>{ const n=[...p]; for(let i=0;i<8;i++) n[rmIdx*8+i]=false; return n; });
           }} style={{
-            padding:"8px 18px", borderRadius:10, border:"1px solid #2a2a2a",
-            background:"transparent", color:"#666", fontSize:12, cursor:"pointer" }}>− Remove Row</button>
+            padding:"9px 18px", borderRadius:11, border:"1px solid #241d10",
+            background:"#100d09", color:"#8a7f5e", fontSize:12, fontWeight:700, cursor:"pointer",
+            fontFamily:"inherit" }}>− Remove Row</button>
         )}
         <button onClick={()=>{
           if(isPlaying){stopMetronome();setIsPlaying(false);}
@@ -4643,14 +4812,16 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
           const arr=[]; for(let r=0;r<8;r++) arr.push(...(r===0?defaultBuild(8):Array(8).fill(false)));
           setBuildActive(arr);
         }} style={{
-          padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
-          background:"transparent", color:"#444", fontSize:12, cursor:"pointer" }}>Reset</button>
+          padding:"9px 14px", borderRadius:11, border:"1px solid #241d10",
+          background:"#100d09", color:"#6f6749", fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>Reset</button>
         <button onClick={()=>setStrumSavePrompt(p=>!p)} style={{
-          padding:"8px 14px", borderRadius:10, border:"1px solid #FFBE0B44",
-          background:"rgba(255,190,11,0.07)", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Save</button>
+          padding:"9px 14px", borderRadius:11, border:"1px solid rgba(255,190,11,0.4)",
+          background:"rgba(255,190,11,0.08)", color:"#FFD60A", fontSize:12, fontWeight:800, cursor:"pointer",
+          fontFamily:"inherit" }}>💾 Save</button>
         <button onClick={()=>setShowSavedStrums(s=>!s)} style={{
-          padding:"8px 14px", borderRadius:10, border:"1px solid #2a2a2a",
-          background:"#111", color:"#888", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+          padding:"9px 14px", borderRadius:11, border:"1px solid #241d10",
+          background:"#100d09", color:"#8a7f5e", fontSize:12, fontWeight:700, cursor:"pointer",
+          fontFamily:"inherit" }}>
           📂 My Patterns ({savedStrums.length})
         </button>
       </div>
@@ -4708,47 +4879,51 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
 function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, accentColor,
   onToggle, canPlay, disabledLabel }) {
   return (
-    <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a",
-      borderRadius:20, padding:"20px 24px", width:"100%", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
+    <div style={{ background:"#0c0a06", border:"1px solid #241d10",
+      borderRadius:20, padding:"22px 24px", width:"100%", boxShadow:"0 6px 22px rgba(0,0,0,0.5)" }}>
       <div style={{ textAlign:"center", marginBottom:14 }}>
-        <span style={{ fontSize:16, fontWeight:700, textShadow:"0 1px 8px rgba(0,0,0,0.5)" }}>Metronome </span>
-        <span style={{ fontSize:16, fontWeight:700, color:"#FFBE0B" }}>({bpm} BPM)</span>
+        <span style={{ fontSize:16, fontWeight:800 }}>Metronome </span>
+        <span style={{ fontSize:16, fontWeight:800, color:"#FFBE0B" }}>({bpm} BPM)</span>
       </div>
-      <div style={{ display:"flex", justifyContent:"center", gap:6, marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:16 }}>
         {Array(Math.max(4, totalBlocks/2)).fill(null).slice(0,4).map((_,i)=>{
           const b=i*2, lit=(currentBeat===b||currentBeat===b+1)&&isPlaying;
           return <div key={i} style={{ width:11, height:11, borderRadius:"50%",
-            background:lit?(i===0?"#FFBE0B":accentColor):"#2a1f00",
-            boxShadow:lit?`0 0 8px ${i===0?"#FFBE0B":accentColor}`:"none",
+            background:lit?"#FFBE0B":"#2a1f0a",
+            boxShadow:lit?"0 0 8px #FFBE0B":"none",
             transition:"background 0.05s" }} />;
         })}
       </div>
       <input type="range" min={20} max={160} value={bpm}
         onChange={e=>setBpm(Number(e.target.value))}
         style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
-      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#555", marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#5a5238", marginBottom:14 }}>
         <span>40</span><span>160</span>
       </div>
       <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:16 }}>
         {[40,60,80,100].map(b=>(
           <button key={b} onClick={()=>setBpm(b)} style={{
-            padding:"5px 12px", borderRadius:8,
-            border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
-            background:bpm===b?"rgba(255,190,11,0.15)":"#111009",
-            color:bpm===b?"#FFBE0B":"#555", fontSize:12, fontWeight:600, cursor:"pointer" }}>{b}</button>
+            padding:"6px 14px", borderRadius:9,
+            border:`1px solid ${bpm===b ? "rgba(255,190,11,0.5)" : "#241d10"}`,
+            background:bpm===b?"rgba(255,190,11,0.1)":"#100d09",
+            color:bpm===b?"#FFD60A":"#8a7f5e", fontSize:12, fontWeight:700, cursor:"pointer",
+            fontFamily:"inherit", transition:"all 0.2s" }}>{b}</button>
         ))}
       </div>
       <button onClick={onToggle} disabled={!canPlay} style={{
-        width:"100%", padding:"13px", borderRadius:14, border:"none",
-        background: !canPlay ? "#111009"
-          : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
-          : "linear-gradient(135deg,#1a6b3c,#27ae60)",
-        color:!canPlay?"#333":"#fff", fontSize: 16, fontWeight:800,
-        cursor:canPlay?"pointer":"not-allowed",
+        width:"100%", padding:"14px", borderRadius:14,
+        border: !canPlay ? "1px solid #1c1710"
+          : isPlaying ? "1px solid rgba(231,76,60,0.5)"
+          : "1px solid rgba(255,190,11,0.5)",
+        background: !canPlay ? "#100d09"
+          : isPlaying ? "radial-gradient(120% 160% at 50% 0%, rgba(231,76,60,0.18) 0%, rgba(231,76,60,0) 70%), #1a0f0c"
+          : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+        color:!canPlay?"#3a3528": isPlaying ? "#ff8a7a" : "#FFD60A", fontSize:16, fontWeight:900,
+        letterSpacing:0.5, cursor:canPlay?"pointer":"not-allowed",
         boxShadow: !canPlay?"none"
-          : isPlaying ? "0 4px 20px rgba(231,76,60,0.4)"
-          : "0 4px 20px rgba(39,174,96,0.4)",
-        transition:"all 0.15s" }}>
+          : isPlaying ? "0 0 22px rgba(231,76,60,0.2)"
+          : "0 0 22px rgba(255,160,20,0.22)",
+        fontFamily:"inherit", transition:"all 0.2s" }}>
         {!canPlay ? (disabledLabel||"Select options to start")
           : isPlaying ? "⏹ Stop" : "▶ Start"}
       </button>
@@ -4917,13 +5092,16 @@ function VariantPickerModal({ chord, currentVariant, onSelect, onClose }) {
 }
 
 function PatternBtn({ label, active, onClick, accent }) {
-  const color = accent?"#FFBE0B":"#FFBE0B";
   return (
     <button onClick={onClick} style={{
-      padding:"8px 14px", borderRadius:10,
-      border:active?`2px solid ${color}`:"2px solid #2a2210",
-      background:active?`rgba(${hexToRgb(color)},0.15)`:"#111",
-      color:active?color:"#555", fontSize:12, fontWeight:700, cursor:"pointer", transition:"all 0.15s" }}>
+      padding:"10px 16px", borderRadius:11,
+      border:`1px solid ${active ? "rgba(255,190,11,0.5)" : "#241d10"}`,
+      background: active
+        ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.12) 0%, rgba(255,170,30,0) 60%), #16110a"
+        : "#100d09",
+      color: active ? "#FFD60A" : "#8a7f5e", fontSize:12, fontWeight:800, cursor:"pointer",
+      boxShadow: active ? "0 0 14px rgba(255,160,20,0.18)" : "none",
+      fontFamily:"inherit", transition:"all 0.2s" }}>
       {label}
     </button>
   );
@@ -5339,7 +5517,7 @@ function LandingScreen({ onPick, streak }) {
             background:"linear-gradient(90deg,#FFD60A,#F77F00)", margin:"20px auto 0", opacity:0.85 }} />
         </div>
 
-        <div style={{ margin:"44px 0 20px", fontSize:13, color:"#6f6749", fontWeight:700,
+        <div style={{ margin:"20px 0 20px", fontSize:13, color:"#6f6749", fontWeight:700,
           letterSpacing:2, textTransform:"uppercase", textAlign:"center", ...rise(0.12) }}>
           What do you want to work on?
         </div>
