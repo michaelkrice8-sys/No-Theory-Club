@@ -1284,6 +1284,22 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
     }
     if(!canPlay) return;
     await init();
+    // In random mode, settle the shuffled starting chord + lookahead NOW (before the
+    // countdown) so the displayed chord during 3-2-1 is the real first chord and
+    // doesn't jump when playback begins.
+    if(randomOrderRef.current){
+      const total = vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1);
+      if(total > 1){
+        queueRef.current = [];
+        ensureQueue(total, 12);
+        chordRef.current = queueRef.current.shift();
+        ensureQueue(total, 12);
+        setChordIndex(chordRef.current);
+        randomNextRef.current = queueRef.current[0];
+        setRandomNextDisplay(queueRef.current[0]);
+        setRandomNext2(queueRef.current[1]);
+      }
+    }
     // 3 → 2 → 1 with a beep each second, then start.
     setCountdown(3);
     playChordClick(false); // beep on "3"
@@ -2846,6 +2862,26 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const capoRef = useRef(0);
   const songRandomRef = useRef(false);
   const shuffleQueueRef = useRef([]); // upcoming shuffled chord indices for random mode
+  // Carousel peeks for random mode (so the carousel can slide to the real next chord)
+  const [songNextDisplay, setSongNextDisplay] = useState(0);
+  const [songNext2, setSongNext2] = useState(0);
+  const [songPrev, setSongPrev] = useState(0);
+
+  // Fisher–Yates shuffle of [0..len-1]; if avoidFirst given, ensure first differs.
+  const makeSongShuffle = (len, avoidFirst=null) => {
+    const a = Array.from({length:len},(_,i)=>i);
+    for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+    if(avoidFirst!=null && len>1 && a[0]===avoidFirst){ [a[0],a[1]]=[a[1],a[0]]; }
+    return a;
+  };
+  const refillSongQueue = (len) => {
+    const q = shuffleQueueRef.current;
+    const last = q.length ? q[q.length-1] : null;
+    shuffleQueueRef.current = q.concat(makeSongShuffle(len, last));
+  };
+  const ensureSongQueue = (len, min=8) => {
+    while(shuffleQueueRef.current.length < min) refillSongQueue(len);
+  };
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -2896,22 +2932,21 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       chordBeatRef.current=nextChordBeat;
       setBeatCount(nextChordBeat);
       if(nextChordBeat===0 && chords.length>0){
-        let nextChord;
         if(songRandomRef.current && chords.length>1){
-          // Shuffle mode: pull the next index from a shuffled queue; refill
-          // (re-shuffle) when empty, avoiding an immediate repeat at the seam.
-          if(shuffleQueueRef.current.length===0){
-            const last = chordIdxRef.current;
-            let order = Array.from({length:chords.length},(_,i)=>i);
-            for(let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
-            if(order[0]===last && order.length>1){ [order[0],order[1]]=[order[1],order[0]]; }
-            shuffleQueueRef.current = order;
-          }
-          nextChord = shuffleQueueRef.current.shift();
+          const len = chords.length;
+          // Current becomes the real "previous" (left peek).
+          setSongPrev(chordIdxRef.current);
+          // Pull next off the pre-built queue; keep ≥8 queued so peeks are known.
+          ensureSongQueue(len, 8);
+          const incoming = shuffleQueueRef.current.shift();
+          chordIdxRef.current = incoming; setChordIndex(incoming);
+          ensureSongQueue(len, 8);
+          setSongNextDisplay(shuffleQueueRef.current[0]);
+          setSongNext2(shuffleQueueRef.current[1]);
         } else {
-          nextChord=(chordIdxRef.current+1)%chords.length;
+          const nextChord=(chordIdxRef.current+1)%chords.length;
+          chordIdxRef.current=nextChord; setChordIndex(nextChord);
         }
-        chordIdxRef.current=nextChord; setChordIndex(nextChord);
       }
     }
     // ── Song-mode chord slide trigger ──
@@ -2942,9 +2977,25 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
-    strumBeatRef.current=-1; chordIdxRef.current=0; chordBeatRef.current=0; shuffleQueueRef.current=[];
+    strumBeatRef.current=-1; chordBeatRef.current=0;
     firstTickRef.current=true; slideArmedRef.current=false;
-    setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
+    if(songRandomRef.current && chordsRef.current.length>1){
+      // Random mode: settle a shuffled start + lookahead (don't reset to chord 0).
+      const len = chordsRef.current.length;
+      if(shuffleQueueRef.current.length < 3){
+        shuffleQueueRef.current = [];
+        ensureSongQueue(len, 12);
+        chordIdxRef.current = shuffleQueueRef.current.shift();
+        ensureSongQueue(len, 12);
+      }
+      setChordIndex(chordIdxRef.current);
+      setSongNextDisplay(shuffleQueueRef.current[0]);
+      setSongNext2(shuffleQueueRef.current[1]);
+      setBeatCount(0); setCurrentStrum(-1);
+    } else {
+      chordIdxRef.current=0; shuffleQueueRef.current=[];
+      setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
+    }
     const ms=(60/bpmRef.current/2)*1000;
     intervalRef.current=setInterval(tick,ms); tick();
   },[tick]);
@@ -3012,7 +3063,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   };
 
   const canPlay = songChords.length>=1;
-  const nextChordIndex = songChords.length>0?(chordIndex+1)%songChords.length:0;
+  const nextChordIndex = songChords.length>0 ? (songRandom ? songNextDisplay : (chordIndex+1)%songChords.length) : 0;
   const isLastBeat = isPlaying&&beatCount===beatsPerChord-1;
 
   const handleTogglePlay = async()=>{
@@ -3025,6 +3076,19 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     }
     if(!canPlay) return;
     await init();
+    // In shuffle mode, settle the random starting chord + lookahead NOW (before the
+    // count-in) so the carousel already shows the shuffled order during 3-2-1 and
+    // doesn't jump when playback begins.
+    if(songRandomRef.current && songChords.length>1){
+      shuffleQueueRef.current = [];
+      ensureSongQueue(songChords.length, 12);
+      chordIdxRef.current = shuffleQueueRef.current.shift();
+      ensureSongQueue(songChords.length, 12);
+      setChordIndex(chordIdxRef.current);
+      setSongNextDisplay(shuffleQueueRef.current[0]);
+      setSongNext2(shuffleQueueRef.current[1]);
+      setSongPrev(shuffleQueueRef.current[2] ?? chordIdxRef.current);
+    }
     // Fixed 3 → 2 → 1 count-in (1s per beep), matching Chords & Strumming.
     let beat=3;
     setCountIn(beat); playChordClick(true);
@@ -3086,6 +3150,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
           {/* Chord carousel */}
           {songChords.length>=1 && (
             <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
+              afterChordIndex={songRandom ? songNext2 : null}
+              prevChordIndex={songRandom ? songPrev : null}
               isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
               bpm={bpm} beatsPerChord={beatsPerChord}
               songMode={true} slideSignal={slideSignal} slideDurMs={slideDurMs}
@@ -3272,6 +3338,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
           {songChords.length>=1 && (
             <>
               <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
+                afterChordIndex={songRandom ? songNext2 : null}
+                prevChordIndex={songRandom ? songPrev : null}
                 isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
                 bpm={bpm} beatsPerChord={beatsPerChord}
                 chordVariants={chordVariants} updateVariant={updateVariant}
@@ -3366,7 +3434,21 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                   display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
               </div>
               {songChords.length>1 && (
-                <button onClick={()=>{ const nv=!songRandom; setSongRandom(nv); songRandomRef.current=nv; shuffleQueueRef.current=[]; }}
+                <button onClick={()=>{ 
+                    const nv=!songRandom; setSongRandom(nv); songRandomRef.current=nv;
+                    shuffleQueueRef.current=[];
+                    if(nv && songChords.length>1 && !isPlaying){
+                      // Settle a random starting chord + lookahead now, so the carousel
+                      // already shows a shuffled order before Start (no jump after countdown).
+                      ensureSongQueue(songChords.length, 12);
+                      const first = shuffleQueueRef.current.shift();
+                      chordIdxRef.current = first; setChordIndex(first);
+                      ensureSongQueue(songChords.length, 12);
+                      setSongNextDisplay(shuffleQueueRef.current[0]);
+                      setSongNext2(shuffleQueueRef.current[1]);
+                      setSongPrev(shuffleQueueRef.current[2] ?? first);
+                    }
+                  }}
                   title="Shuffle the chord order each loop (keeps your strum pattern)"
                   style={{ display:"flex", alignItems:"center", gap:6,
                     borderRadius:10, padding:"6px 12px", cursor:"pointer",
