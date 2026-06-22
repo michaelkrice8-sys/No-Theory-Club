@@ -229,27 +229,27 @@ const CHORD_VARIATION_MAP = {
 const HAS_VARIATIONS = new Set(Object.keys(CHORD_VARIATION_MAP).filter(c => CHORD_VARIATION_MAP[c].length > 1));
 
 // ─── CHORD DRILL URL ENCODING ────────────────────────────────────────────────
-function encodeChordDrill(chords, bpm, beatsPerChord, name, variants) {
-  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord, n: name||"", v: variants||{} }));
+function encodeChordDrill(chords, bpm, beatsPerChord, name, variants, random) {
+  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord, n: name||"", v: variants||{}, r: random?1:0 }));
 }
 function decodeChordDrill(str) {
   try {
     const obj = JSON.parse(atob(str));
-    return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2, name: obj.n||"", chordVariants: obj.v||{} };
+    return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2, name: obj.n||"", chordVariants: obj.v||{}, random: !!obj.r };
   } catch { return null; }
 }
 
 // ─── STRUM PATTERN URL ENCODING ─────────────────────────────────────────────
 // rowSizes: array of 1-8 entries, each 4/6/8. Each row occupies 8 slots in strumActive
 // (row N = indices [N*8, N*8+rowSizes[N])). strumActive total length should be 64.
-function encodeStrumDrill(name, strumActive, rowSizes, songChords, bpm, beatsPerChord, chordVariants, capo) {
+function encodeStrumDrill(name, strumActive, rowSizes, songChords, bpm, beatsPerChord, chordVariants, capo, random) {
   const sa = strumActive.reduce((acc,v,i)=>{ if(v) acc.push(i); return acc; },[]);
   const rs = Array.isArray(rowSizes) ? rowSizes : [8];
   // Keep old fields for backward compat with older client versions
   const r2 = rs.length>=2 ? 1 : 0;
   const s1 = rs[0]||8;
   const s2 = rs[1]||8;
-  return btoa(JSON.stringify({ n:name, sa, rs, r2, s1, s2, c:songChords, b:bpm, p:beatsPerChord, v:chordVariants||{}, cp:capo||0 }));
+  return btoa(JSON.stringify({ n:name, sa, rs, r2, s1, s2, c:songChords, b:bpm, p:beatsPerChord, v:chordVariants||{}, cp:capo||0, rnd: random?1:0 }));
 }
 function decodeStrumDrill(str) {
   try {
@@ -276,6 +276,7 @@ function decodeStrumDrill(str) {
       beatsPerChord: Number(obj.p)||2,
       chordVariants: obj.v || {},
       capo: Number(obj.cp)||0,
+      random: !!obj.rnd,
     };
   } catch { return null; }
 }
@@ -1121,6 +1122,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
         setLoadedDrillName(drillName);
         setDrillSaveName(drillName);
         setPickerOpen(onExport ? true : false);
+        setRandomOrder(!!decoded.random);
+        randomOrderRef.current = !!decoded.random;
         if(decoded.chordVariants && Object.keys(decoded.chordVariants).length > 0)
           Object.entries(decoded.chordVariants).forEach(([c,v])=>updateVariant(c,v));
         if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
@@ -1318,7 +1321,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
   }, [stopMetronome]); // eslint-disable-line
 
   // Export current build-mode drill as a drill payload (for the Package builder).
-  const exportPayload = () => encodeChordDrill(customChords, bpm, beatsPerChord, loadedDrillName||"Chords", {...chordVariants});
+  const exportPayload = () => encodeChordDrill(customChords, bpm, beatsPerChord, loadedDrillName||"Chords", {...chordVariants}, randomOrder);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
@@ -2818,6 +2821,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const [savePrompt, setSavePrompt] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [capo, setCapo] = useState(0);
+  const [songRandom, setSongRandom] = useState(false); // shuffle chord order each loop
   const [countIn, setCountIn] = useState(0);
   // Song-mode chord slide: chord holds static through the run-throughs, then a
   // quick slide is triggered near the end of the final run-through.
@@ -2840,6 +2844,8 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const row2SizeRef = useRef(8);
   const hasSecondRowRef = useRef(false);
   const capoRef = useRef(0);
+  const songRandomRef = useRef(false);
+  const shuffleQueueRef = useRef([]); // upcoming shuffled chord indices for random mode
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -2851,6 +2857,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     totalStrumRef.current=hasSecondRow?row1Size+row2Size:row1Size;
   },[row1Size,row2Size,hasSecondRow]);
   useEffect(()=>{ capoRef.current=capo; },[capo]);
+  useEffect(()=>{ songRandomRef.current=songRandom; },[songRandom]);
 
   // Load from URL on mount
   useEffect(()=>{
@@ -2862,6 +2869,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
         setSongChords(d.songChords); setStrumActive(d.strumActive);
         setHasSecondRow(d.hasSecondRow); setRow1Size(d.row1Size); setRow2Size(d.row2Size);
         setBpm(d.bpm); setBeatsPerChord(d.beatsPerChord); setCapo(d.capo||0);
+        setSongRandom(!!d.random); songRandomRef.current = !!d.random;
         setLoadedName(d.name); setSaveName(d.name);
         setPickerOpen(onExport ? true : false);
         if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
@@ -2888,7 +2896,21 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       chordBeatRef.current=nextChordBeat;
       setBeatCount(nextChordBeat);
       if(nextChordBeat===0 && chords.length>0){
-        const nextChord=(chordIdxRef.current+1)%chords.length;
+        let nextChord;
+        if(songRandomRef.current && chords.length>1){
+          // Shuffle mode: pull the next index from a shuffled queue; refill
+          // (re-shuffle) when empty, avoiding an immediate repeat at the seam.
+          if(shuffleQueueRef.current.length===0){
+            const last = chordIdxRef.current;
+            let order = Array.from({length:chords.length},(_,i)=>i);
+            for(let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
+            if(order[0]===last && order.length>1){ [order[0],order[1]]=[order[1],order[0]]; }
+            shuffleQueueRef.current = order;
+          }
+          nextChord = shuffleQueueRef.current.shift();
+        } else {
+          nextChord=(chordIdxRef.current+1)%chords.length;
+        }
         chordIdxRef.current=nextChord; setChordIndex(nextChord);
       }
     }
@@ -2920,7 +2942,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
-    strumBeatRef.current=-1; chordIdxRef.current=0; chordBeatRef.current=0;
+    strumBeatRef.current=-1; chordIdxRef.current=0; chordBeatRef.current=0; shuffleQueueRef.current=[];
     firstTickRef.current=true; slideArmedRef.current=false;
     setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
     const ms=(60/bpmRef.current/2)*1000;
@@ -2957,7 +2979,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     if(!saveName.trim()) return;
     const pattern = { id:Date.now(), name:saveName.trim(),
       strumActive, hasSecondRow, row1Size, row2Size,
-      songChords, bpm, beatsPerChord, capo,
+      songChords, bpm, beatsPerChord, capo, random: songRandom,
       chordVariants: {...chordVariants},
       savedAt:new Date().toLocaleDateString() };
     const updated = [...savedPatterns, pattern];
@@ -2969,7 +2991,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   const doShare = (p) => {
     try {
       const sizes = p.hasSecondRow ? [p.row1Size||8, p.row2Size||8] : [p.row1Size||8];
-      const encoded = encodeStrumDrill(p.name, p.strumActive, sizes, p.songChords, p.bpm, p.beatsPerChord, p.chordVariants||{}, p.capo||0);
+      const encoded = encodeStrumDrill(p.name, p.strumActive, sizes, p.songChords, p.bpm, p.beatsPerChord, p.chordVariants||{}, p.capo||0, p.random);
       const url = `${window.location.origin}${window.location.pathname}?strumprog=${encoded}`;
       if(navigator.clipboard && navigator.clipboard.writeText){
         navigator.clipboard.writeText(url)
@@ -2986,7 +3008,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   // when the package opens, which caused saved voicings to "revert".
   const exportPayload = () => {
     const sizes = hasSecondRow ? [row1Size||8, row2Size||8] : [row1Size||8];
-    return encodeStrumDrill(loadedName||"Song", strumActive, sizes, songChords, bpm, beatsPerChord, {}, capo||0);
+    return encodeStrumDrill(loadedName||"Song", strumActive, sizes, songChords, bpm, beatsPerChord, {}, capo||0, songRandom);
   };
 
   const canPlay = songChords.length>=1;
@@ -3191,6 +3213,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                       setHasSecondRow(p.hasSecondRow||false);
                       setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
                       setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2); setCapo(p.capo||0);
+                      setSongRandom(!!p.random); songRandomRef.current=!!p.random;
                       setLoadedName(p.name); setShowSaved(false);
                     }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
                       background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
@@ -3342,6 +3365,18 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                   background:"#1a1a1a", color:"#aaa", fontSize:16, cursor:"pointer",
                   display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
               </div>
+              {songChords.length>1 && (
+                <button onClick={()=>{ const nv=!songRandom; setSongRandom(nv); songRandomRef.current=nv; shuffleQueueRef.current=[]; }}
+                  title="Shuffle the chord order each loop (keeps your strum pattern)"
+                  style={{ display:"flex", alignItems:"center", gap:6,
+                    borderRadius:10, padding:"6px 12px", cursor:"pointer",
+                    border: songRandom ? "1px solid #FFBE0B" : "1px solid #2a2a2a",
+                    background: songRandom ? "rgba(255,190,11,0.12)" : "#111",
+                    color: songRandom ? "#FFBE0B" : "#666", fontSize:12, fontWeight:700,
+                    boxShadow: songRandom ? "0 0 10px rgba(255,190,11,0.25)" : "none" }}>
+                  🎲 Shuffle chords
+                </button>
+              )}
             </div>
 
             <div style={{ marginBottom:10 }}>
