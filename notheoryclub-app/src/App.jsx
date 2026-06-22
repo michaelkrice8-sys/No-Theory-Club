@@ -2983,9 +2983,13 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   };
 
   // Export current builder state as a strumprog payload (for the Package builder).
+  // Per-slot voicings are baked into songChords, so we pass an EMPTY global
+  // variant map. The app-wide chordVariants is shared across tabs and can hold
+  // stale entries (e.g. Em→Em7); sending it would override the per-slot choices
+  // when the package opens, which caused saved voicings to "revert".
   const exportPayload = () => {
     const sizes = hasSecondRow ? [row1Size||8, row2Size||8] : [row1Size||8];
-    return encodeStrumDrill(loadedName||"Song", strumActive, sizes, songChords, bpm, beatsPerChord, {...chordVariants}, capo||0);
+    return encodeStrumDrill(loadedName||"Song", strumActive, sizes, songChords, bpm, beatsPerChord, {}, capo||0);
   };
 
   const canPlay = songChords.length>=1;
