@@ -329,12 +329,6 @@ function useAudio() {
 
   const init = useCallback(async () => {
     if (ctxRef.current) return ctxRef.current;
-    // On iOS, audio respects the hardware mute switch unless the page declares a
-    // "playback" audio session. Where supported this lets the metronome/chords be
-    // heard in silent mode. Harmless / ignored where unsupported.
-    try {
-      if (navigator.audioSession) navigator.audioSession.type = "playback";
-    } catch (e) {}
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     ctxRef.current = ctx;
     const chordKeys = Object.keys(ALL_CHORD_AUDIO);
@@ -568,10 +562,10 @@ function App() {
       <style>{`@keyframes ntcFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }`}</style>
       <div ref={fadeRef} style={{ animation:"ntcFadeIn 0.4s ease both" }}>
         <div style={{ display: activeTab==="strum" ? "block" : "none" }}>
-          <StrummingTab audio={audio} active={activeTab==="strum"} />
+          <StrummingTab audio={audio} />
         </div>
         <div style={{ display: activeTab==="chords" ? "block" : "none" }}>
-          <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} active={activeTab==="chords"} />
+          <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />
         </div>
         <div style={{ display: activeTab==="tracker" ? "block" : "none" }}>
           <TrackerTab />
@@ -904,22 +898,6 @@ function StrummingTab({ audio, sharedView=false, active=true }) {
 
   // Stop playback when this tab is left (app tab switch) or the browser tab is
   // hidden/backgrounded — so a drill never keeps running out of sight.
-  const stopAll = ()=>{
-    clearInterval(countdownRef.current); countdownRef.current=null;
-    setCountdown(0); stopMetronome(); setIsPlaying(false);
-  };
-  const didMountActiveRef = useRef(false);
-  useEffect(()=>{
-    if(!didMountActiveRef.current){ didMountActiveRef.current = true; return; }
-    if(!active && (isPlaying || countdown>0)) stopAll();
-  }, [active]); // eslint-disable-line
-  useEffect(()=>{
-    const onHide = ()=>{ if(document.hidden && (isPlaying || countdown>0)) stopAll(); };
-    document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", onHide);
-    return ()=>{ document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", onHide); };
-  }, [isPlaying, countdown]); // eslint-disable-line
-
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
   return (
@@ -1237,22 +1215,6 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
 
   // Stop playback when this tab is left (app tab switch) or the browser tab is
   // hidden/backgrounded — so a drill never keeps running out of sight.
-  const stopAll = ()=>{
-    clearInterval(countdownRef.current); countdownRef.current=null;
-    setCountdown(0); stopMetronome(); setIsPlaying(false);
-  };
-  const didMountActiveRef = useRef(false);
-  useEffect(()=>{
-    if(!didMountActiveRef.current){ didMountActiveRef.current = true; return; }
-    if(!active && (isPlaying || countdown>0)) stopAll();
-  }, [active]); // eslint-disable-line
-  useEffect(()=>{
-    const onHide = ()=>{ if(document.hidden && (isPlaying || countdown>0)) stopAll(); };
-    document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", onHide);
-    return ()=>{ document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", onHide); };
-  }, [isPlaying, countdown]); // eslint-disable-line
-
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
       padding: sharedView ? "12px 0" : "24px 16px 12px", maxWidth:560, margin:"0 auto" }}>
@@ -2866,17 +2828,6 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
 
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord,hasSecondRow,row1Size,row2Size]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInIntervalRef.current); },[]);
-
-  // Stop playback if the browser tab is hidden/backgrounded.
-  useEffect(()=>{
-    const onHide = ()=>{ if(document.hidden){
-      clearInterval(countInIntervalRef.current); setCountIn(0);
-      stopMetronome(); setIsPlaying(false);
-    }};
-    document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", onHide);
-    return ()=>{ document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", onHide); };
-  }, []); // eslint-disable-line
 
   const doSave = () => {
     if(!saveName.trim()) return;
