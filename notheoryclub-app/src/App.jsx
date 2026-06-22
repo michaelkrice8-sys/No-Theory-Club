@@ -59,6 +59,22 @@ const STORAGE_KEYS = {
   strumTab: "ntc_strum_tab",
 };
 
+// Global slider styling (thick, easy-to-grab gold knob). Defined once so it is
+// available everywhere a .ntc-bpm-slider appears, not just inside MetronomePanel.
+const NTC_SLIDER_CSS = `
+  .ntc-bpm-slider { -webkit-appearance:none; appearance:none; width:100%; height:30px;
+    background:transparent; cursor:pointer; outline:none; }
+  .ntc-bpm-slider::-webkit-slider-runnable-track { height:10px; border-radius:99px; background:#241d10; }
+  .ntc-bpm-slider::-moz-range-track { height:10px; border-radius:99px; background:#241d10; }
+  .ntc-bpm-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
+    width:30px; height:30px; margin-top:-10px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #FFE27A, #FFBE0B 55%, #F77F00);
+    border:2px solid #1a1208; box-shadow:0 0 12px rgba(255,170,20,0.5); cursor:pointer; }
+  .ntc-bpm-slider::-moz-range-thumb { width:28px; height:28px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #FFE27A, #FFBE0B 55%, #F77F00);
+    border:2px solid #1a1208; box-shadow:0 0 12px rgba(255,170,20,0.5); cursor:pointer; }
+`;
+
 // Slot-array sizes for the various builders (named for clarity).
 const STRUM_TAB_SLOTS = 64; // StrummingTab buildActive: 8 rows × 8 slots
 const ADVANCED_SLOTS  = 80; // AdvancedBuildSong strumActive/blockChords
@@ -456,6 +472,7 @@ function App() {
   if(anyShared) return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
+      <style>{NTC_SLIDER_CSS}</style>
       <div style={{ textAlign:"center", padding:"14px 16px 6px", background:"rgba(10,10,8,0.98)" }}>
         <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5 }}>NO THEORY CLUB</div>
         <div style={{ fontSize:10, color:"#555" }}>Guitar Practice Tool</div>
@@ -505,6 +522,7 @@ function App() {
   return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
+      <style>{NTC_SLIDER_CSS}</style>
 
       {/* Brand Header — logo returns to landing */}
       <div style={{ textAlign:"center", padding:"16px 16px 12px" }}>
@@ -4720,15 +4738,23 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, p
     return () => cancelAnimationFrame(rafRef.current);
   }, [songMode, isPlaying, bpm, beatsPerChord, chordIndex, n]); // eslint-disable-line
 
-  // Song mode: hold the chord static, centered. The slide is fired separately
-  // by slideSignal (see below), so here we just keep it parked when not sliding.
+  // Song mode: hold the chord static, centered. When the chord advances, the
+  // slide (if any) is done — snap authoritatively to the new centered chord so
+  // the strip never ends up parked on slot 2 (which would show the chord AFTER).
   const slidingRef = useRef(false);
   useEffect(() => {
     if (!songMode) return;
-    if (slidingRef.current) return; // don't stomp an in-progress slide
+    slidingRef.current = false;        // chord changed → slide is over
+    cancelAnimationFrame(rafRef.current);
+    paint(centerForSlot(CUR_SLOT));    // recenter the (new) current chord
+  }, [songMode, chordIndex, n]); // eslint-disable-line
+
+  // Also park on play/stop in song mode.
+  useEffect(() => {
+    if (!songMode || slidingRef.current) return;
     cancelAnimationFrame(rafRef.current);
     paint(centerForSlot(CUR_SLOT));
-  }, [songMode, isPlaying, chordIndex, n]); // eslint-disable-line
+  }, [songMode, isPlaying]); // eslint-disable-line
 
   // Song mode one-shot slide: when slideSignal increments, glide current→next
   // over slideDurMs, landing as the chord switches.
@@ -5088,20 +5114,7 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
     <div style={{ background:"#0c0a06", border:"1px solid #241d10",
       borderRadius:20, padding:"22px 24px", width:"100%", boxShadow:"0 6px 22px rgba(0,0,0,0.5)" }}>
       {/* Thick, easy-to-grab slider (range inputs need explicit thumb/track styling) */}
-      <style>{`
-        .ntc-bpm-slider { -webkit-appearance:none; appearance:none; width:100%; height:30px;
-          background:transparent; cursor:pointer; outline:none; }
-        .ntc-bpm-slider::-webkit-slider-runnable-track { height:10px; border-radius:99px;
-          background:#241d10; }
-        .ntc-bpm-slider::-moz-range-track { height:10px; border-radius:99px; background:#241d10; }
-        .ntc-bpm-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
-          width:30px; height:30px; margin-top:-10px; border-radius:50%;
-          background:radial-gradient(circle at 35% 30%, #FFE27A, #FFBE0B 55%, #F77F00);
-          border:2px solid #1a1208; box-shadow:0 0 12px rgba(255,170,20,0.5); cursor:pointer; }
-        .ntc-bpm-slider::-moz-range-thumb { width:28px; height:28px; border-radius:50%;
-          background:radial-gradient(circle at 35% 30%, #FFE27A, #FFBE0B 55%, #F77F00);
-          border:2px solid #1a1208; box-shadow:0 0 12px rgba(255,170,20,0.5); cursor:pointer; }
-      `}</style>
+      <style>{NTC_SLIDER_CSS}</style>
       <div style={{ textAlign:"center", marginBottom:14 }}>
         <span style={{ fontSize:16, fontWeight:800 }}>Metronome </span>
         <span style={{ fontSize:16, fontWeight:800, color:"#FFBE0B" }}>({bpm} BPM)</span>
