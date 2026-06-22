@@ -5972,10 +5972,26 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   const stepBtn = { width:26, height:26, borderRadius:7, border:"1px solid #333", background:"#1a1a1a",
     color:"#aaa", fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" };
 
+  const doReset = () => {
+    if(!name.trim() && items.length===0 && !includeTracker && day===0){ return; } // nothing to clear
+    if(!window.confirm("Clear this package and start over?")) return;
+    setName(""); setDay(0); setIncludeTracker(false); setItems([]);
+    setPasteOpen(false); setPasteVal(""); setBuildType(null);
+    setSavedLink(null); setSaveErr(null);
+  };
+
   return (
     <div style={{ width:"100%" }}>
-      <SectionHeader title="📦 Build a Package"
-        sub="Bundle a few exercises into one shareable link. Add exercises, set the order, then share." />
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
+        <SectionHeader title="📦 Build a Package"
+          sub="Bundle a few exercises into one shareable link. Add exercises, set the order, then share." />
+        <button onClick={doReset} title="Clear everything and start over"
+          style={{ flexShrink:0, marginTop:4, padding:"7px 13px", borderRadius:10,
+            border:"1px solid #2a2417", background:"#100d09", color:"#8a7f5e",
+            fontSize:12, fontWeight:800, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+          ↺ Reset
+        </button>
+      </div>
 
       {/* Package details */}
       <div style={{ width:"100%", background:"#0c0a06", border:"1px solid #241d10", borderRadius:18, padding:"16px", marginBottom:14 }}>
