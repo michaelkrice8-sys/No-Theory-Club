@@ -1047,6 +1047,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
   // finalized long before it slides into view — the user never sees it change.
   const queueRef = useRef([]);
   const [randomNext2, setRandomNext2] = useState(0); // the chord after next (for the peek)
+  const [randomPrev, setRandomPrev] = useState(0); // the real previous chord (left peek)
 
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
@@ -1082,6 +1083,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     if(isFirst && !firstTickRef.current){
       if(randomOrderRef.current && chords.length>1){
         const len = chords.length;
+        // The chord that was current becomes the real "previous" (left peek).
+        setRandomPrev(chordRef.current);
         // Pull the next chord off the front of the pre-built queue.
         ensureQueue(len, 8);
         const incoming = queueRef.current.shift();
@@ -1284,6 +1287,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
       {chords.length>=2 && (
         <ChordGrid chords={chords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
           afterChordIndex={randomOrder ? randomNext2 : null}
+          prevChordIndex={randomOrder ? randomPrev : null}
           isPlaying={isPlaying} accentColor={accentColor} isLastBeat={isLastBeat}
           bpm={bpm} beatsPerChord={beatsPerChord} countdown={countdown}
           chordVariants={effectiveVariants} updateVariant={updateVariant}
@@ -4569,7 +4573,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   );
 }
 
-function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, countdown=0, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
+function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, prevChordIndex=null, isPlaying, accentColor, isLastBeat, bpm, beatsPerChord, countdown=0, chordVariants, updateVariant, perSlot=false, setCustomChords, chordIndexVal }) {
   const [variantPickerSlot, setVariantPickerSlot] = useState(null); // {idx, base, current}
 
   // In perSlot mode each chords[i] is self-contained; resolve via slot helpers.
@@ -4618,8 +4622,9 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, i
   // but it only ever peeks at the edge and slides off, so it's purely cosmetic.
   const nextIdx = (typeof nextChordIndex === "number" ? nextChordIndex : (chordIndex+1)%n);
   const afterIdx = (typeof afterChordIndex === "number" ? afterChordIndex : (nextIdx+1)%n);
+  const prevIdx = (typeof prevChordIndex === "number" ? prevChordIndex : (chordIndex-1+n)%n);
   const windowIdx = n > 0
-    ? [ (chordIndex-1+n)%n, chordIndex%n, nextIdx%n, afterIdx%n ]
+    ? [ prevIdx%n, chordIndex%n, nextIdx%n, afterIdx%n ]
     : [];
   // Strip is laid out as [prev, cur, next, after]; index 1 is "current".
   const CUR_SLOT = 1;
