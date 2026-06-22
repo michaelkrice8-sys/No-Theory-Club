@@ -2250,7 +2250,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
             onChange={e=>setBpm(Number(e.target.value))}
             style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
           <div style={{ display:"flex", gap:5, marginBottom:10 }}>
-            {[30,60,80,100].map(b=>(
+            {[40,60,80,100].map(b=>(
               <button key={b} onClick={()=>setBpm(b)} style={{
                 flex:1, padding:"5px 0", borderRadius:8,
                 border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -2346,7 +2346,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         <input type="range" min={20} max={160} value={bpm} onChange={e=>setBpm(Number(e.target.value))}
           style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
         <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:12 }}>
-          {[30,60,80,100].map(b=>(
+          {[40,60,80,100].map(b=>(
             <button key={b} onClick={()=>setBpm(b)} style={{
               flex:1, padding:"5px 0", borderRadius:8,
               border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -3123,7 +3123,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
               className="ntc-bpm-slider"
               style={{ width:"100%", cursor:"pointer", marginBottom:12 }} />
             <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:12 }}>
-              {[30,60,80,100].map(b=>(
+              {[40,60,80,100].map(b=>(
                 <button key={b} onClick={()=>setBpm(b)} style={{
                   flex:1, padding:"8px 0", borderRadius:10,
                   border:bpm===b?"1px solid rgba(255,190,11,0.55)":"1px solid #241d10",
@@ -3302,7 +3302,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                 onChange={e=>setBpm(Number(e.target.value))}
                 style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
               <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-                {[30,60,80,100].map(b=>(
+                {[40,60,80,100].map(b=>(
                   <button key={b} onClick={()=>setBpm(b)} style={{
                     flex:1, padding:"5px 0", borderRadius:8,
                     border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -4152,7 +4152,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
             <input type="range" min={20} max={160} value={bpm} onChange={e=>setBpm(Number(e.target.value))}
               style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
             <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-              {[30,60,80,100].map(b=>(
+              {[40,60,80,100].map(b=>(
                 <button key={b} onClick={()=>setBpm(b)} style={{
                   flex:1, padding:"5px 0", borderRadius:8,
                   border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -4227,7 +4227,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
             onChange={e=>setBpm(Number(e.target.value))}
             style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
           <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-            {[30,60,80,100].map(b=>(
+            {[40,60,80,100].map(b=>(
               <button key={b} onClick={()=>setBpm(b)} style={{
                 flex:1, padding:"5px 0", borderRadius:8,
                 border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
@@ -5310,7 +5310,7 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
         <span>40</span><span>160</span>
       </div>
       <div style={{ display:"flex", gap:10, justifyContent:"center", marginBottom:16 }}>
-        {[30,60,80,100].map(b=>(
+        {[40,60,80,100].map(b=>(
           <button key={b} onClick={()=>setBpm(b)} style={{
             flex:1, maxWidth:90, padding:"12px 0", borderRadius:12,
             border:`1px solid ${bpm===b ? "rgba(255,190,11,0.5)" : "#241d10"}`,
