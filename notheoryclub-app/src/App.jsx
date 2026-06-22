@@ -4877,6 +4877,21 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
   return (
     <div style={{ background:"#0c0a06", border:"1px solid #241d10",
       borderRadius:20, padding:"22px 24px", width:"100%", boxShadow:"0 6px 22px rgba(0,0,0,0.5)" }}>
+      {/* Thick, easy-to-grab slider (range inputs need explicit thumb/track styling) */}
+      <style>{`
+        .ntc-bpm-slider { -webkit-appearance:none; appearance:none; width:100%; height:30px;
+          background:transparent; cursor:pointer; outline:none; }
+        .ntc-bpm-slider::-webkit-slider-runnable-track { height:10px; border-radius:99px;
+          background:#241d10; }
+        .ntc-bpm-slider::-moz-range-track { height:10px; border-radius:99px; background:#241d10; }
+        .ntc-bpm-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
+          width:30px; height:30px; margin-top:-10px; border-radius:50%;
+          background:radial-gradient(circle at 35% 30%, #FFE27A, #FFBE0B 55%, #F77F00);
+          border:2px solid #1a1208; box-shadow:0 0 12px rgba(255,170,20,0.5); cursor:pointer; }
+        .ntc-bpm-slider::-moz-range-thumb { width:28px; height:28px; border-radius:50%;
+          background:radial-gradient(circle at 35% 30%, #FFE27A, #FFBE0B 55%, #F77F00);
+          border:2px solid #1a1208; box-shadow:0 0 12px rgba(255,170,20,0.5); cursor:pointer; }
+      `}</style>
       <div style={{ textAlign:"center", marginBottom:14 }}>
         <span style={{ fontSize:16, fontWeight:800 }}>Metronome </span>
         <span style={{ fontSize:16, fontWeight:800, color:"#FFBE0B" }}>({bpm} BPM)</span>
@@ -4890,19 +4905,19 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
             transition:"background 0.05s" }} />;
         })}
       </div>
-      <input type="range" min={20} max={160} value={bpm}
+      <input type="range" min={20} max={160} value={bpm} className="ntc-bpm-slider"
         onChange={e=>setBpm(Number(e.target.value))}
-        style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
-      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#5a5238", marginBottom:14 }}>
+        style={{ marginBottom:6 }} />
+      <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#5a5238", marginBottom:16 }}>
         <span>40</span><span>160</span>
       </div>
-      <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:16 }}>
+      <div style={{ display:"flex", gap:10, justifyContent:"center", marginBottom:16 }}>
         {[40,60,80,100].map(b=>(
           <button key={b} onClick={()=>setBpm(b)} style={{
-            padding:"6px 14px", borderRadius:9,
+            flex:1, maxWidth:90, padding:"12px 0", borderRadius:12,
             border:`1px solid ${bpm===b ? "rgba(255,190,11,0.5)" : "#241d10"}`,
             background:bpm===b?"rgba(255,190,11,0.1)":"#100d09",
-            color:bpm===b?"#FFD60A":"#8a7f5e", fontSize:12, fontWeight:700, cursor:"pointer",
+            color:bpm===b?"#FFD60A":"#8a7f5e", fontSize:15, fontWeight:800, cursor:"pointer",
             fontFamily:"inherit", transition:"all 0.2s" }}>{b}</button>
         ))}
       </div>
