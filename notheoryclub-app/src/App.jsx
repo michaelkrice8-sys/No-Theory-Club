@@ -6318,9 +6318,10 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
                 fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>← Back</button>
             )}
             <button onClick={()=>go(tabs[activeIdx+1].key)} style={{
-              flex:1, padding:"11px", borderRadius:12, border:"none",
-              background:"linear-gradient(135deg,#FFD60A,#F77F00)",
-              color:"#111", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+              flex:1, padding:"11px", borderRadius:12,
+              border:"1px solid rgba(255,190,11,0.35)",
+              background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.12) 0%, rgba(255,170,30,0) 70%), #14100a",
+              color:"#FFD60A", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
               {tabs[activeIdx+1]?.key==="tracker" ? "Finish → Tracker" : "Next →"}
             </button>
           </div>
