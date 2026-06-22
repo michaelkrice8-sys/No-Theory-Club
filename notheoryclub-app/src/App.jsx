@@ -5941,9 +5941,13 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 
   return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
-      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff", display:"flex", flexDirection:"column" }}>
+      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
       <style>{NTC_SLIDER_CSS}</style>
       <style>{`@keyframes ntcFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }`}</style>
+
+      {/* Centered column — matches the rest of the app's max width. Bottom padding
+          leaves room for the fixed nav so content never hides behind it. */}
+      <div style={{ maxWidth:560, margin:"0 auto", paddingBottom:96 }}>
 
       {/* Brand header */}
       <div style={{ textAlign:"center", padding:"14px 16px 8px", flexShrink:0 }}>
@@ -5981,7 +5985,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 
       {/* Active panel — kept mounted via display toggle so playback state survives
           tab switches; each panel fades in on activation. */}
-      <div style={{ flex:1, overflowY:"auto", padding:"4px 16px 24px", maxWidth:560, margin:"0 auto", width:"100%" }}>
+      <div style={{ padding:"4px 16px 8px" }}>
         {tabs.map(t => (
           <div key={t.key}
             style={{ display: t.key===activeKey ? "block" : "none",
@@ -6009,26 +6013,31 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
         )}
       </div>
 
-      {/* Bottom nav */}
-      <div style={{ flexShrink:0, display:"flex", gap:4, padding:"8px 10px 14px",
-        background:"linear-gradient(0deg, rgba(13,11,8,0.98) 0%, rgba(13,11,8,0.9) 70%, rgba(13,11,8,0) 100%)",
+      </div>{/* end centered column */}
+
+      {/* Bottom nav — fixed to the screen, centered to the same column width */}
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:200,
+        background:"linear-gradient(0deg, rgba(13,11,8,0.98) 0%, rgba(13,11,8,0.92) 70%, rgba(13,11,8,0) 100%)",
+        backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)",
         borderTop:"1px solid #1c1710" }}>
-        {tabs.map(t => {
-          const on = t.key===activeKey;
-          return (
-            <button key={t.key} onClick={()=>go(t.key)} style={{
-              flex:1, padding:"8px 2px", borderRadius:13, cursor:"pointer", fontFamily:"inherit",
-              border:`1px solid ${on ? "rgba(255,190,11,0.4)" : "transparent"}`,
-              background: on
-                ? "radial-gradient(120% 160% at 50% 100%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
-                : "transparent",
-              color: on ? "#FFD60A" : "#5a5238",
-              display:"flex", flexDirection:"column", alignItems:"center", gap:3, transition:"all 0.2s" }}>
-              <span style={{ fontSize:19 }}>{t.icon}</span>
-              <span style={{ fontSize:9, fontWeight:800, letterSpacing:0.3 }}>{t.label}</span>
-            </button>
-          );
-        })}
+        <div style={{ maxWidth:560, margin:"0 auto", display:"flex", gap:4, padding:"8px 10px 14px" }}>
+          {tabs.map(t => {
+            const on = t.key===activeKey;
+            return (
+              <button key={t.key} onClick={()=>go(t.key)} style={{
+                flex:1, padding:"8px 2px", borderRadius:13, cursor:"pointer", fontFamily:"inherit",
+                border:`1px solid ${on ? "rgba(255,190,11,0.4)" : "transparent"}`,
+                background: on
+                  ? "radial-gradient(120% 160% at 50% 100%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
+                  : "transparent",
+                color: on ? "#FFD60A" : "#5a5238",
+                display:"flex", flexDirection:"column", alignItems:"center", gap:3, transition:"all 0.2s" }}>
+                <span style={{ fontSize:19 }}>{t.icon}</span>
+                <span style={{ fontSize:9, fontWeight:800, letterSpacing:0.3 }}>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
