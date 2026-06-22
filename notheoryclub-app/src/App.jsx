@@ -1119,23 +1119,27 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
 
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
-    beatRef.current=0; chordRef.current=0; firstTickRef.current=true;
-    setChordIndex(0); setBeatCount(0);
-    // Random mode: pre-build a queue and settle the first chord + its next two
-    // BEFORE play starts, so nothing visibly changes as the slide begins.
+    beatRef.current=0; firstTickRef.current=true;
+    setBeatCount(0);
     if(randomOrderRef.current) {
+      // Random mode: the first chord + queue were already settled when randomize
+      // was toggled on (so the display was random before Start). Keep them — just
+      // start playing from the current chord. Only build if somehow empty.
       const total = vmRef.current==="build" ? customRef.current.length : (packRef.current?CHORD_PACKS[packRef.current].chords.length:1);
       if(total > 1) {
-        queueRef.current = [];
-        ensureQueue(total, 12);
-        const curr = queueRef.current.shift();
-        ensureQueue(total, 12);
-        chordRef.current = curr;
-        setChordIndex(curr);
+        if(queueRef.current.length < 2){
+          queueRef.current = [];
+          ensureQueue(total, 12);
+          chordRef.current = queueRef.current.shift();
+          ensureQueue(total, 12);
+        }
+        setChordIndex(chordRef.current);
         randomNextRef.current = queueRef.current[0];
         setRandomNextDisplay(queueRef.current[0]);
         setRandomNext2(queueRef.current[1]);
       }
+    } else {
+      chordRef.current=0; setChordIndex(0);
     }
     const ms=(60/bpmRef.current)*1000;
     intervalRef.current=setInterval(tick,ms);
@@ -1304,13 +1308,19 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
               setRandomOrder(next);
               randomOrderRef.current = next;
               if(isPlaying){stopMetronome();setIsPlaying(false);}
-              if(next && chords.length>0){
-                // Pre-decide next chord so carousel shows it right away
-                const curr = chordIndex % chords.length;
-                let nxt = Math.floor(Math.random() * chords.length);
-                while(nxt === curr) nxt = Math.floor(Math.random() * chords.length);
-                randomNextRef.current = nxt;
-                setRandomNextDisplay(nxt);
+              if(next && chords.length>1){
+                // Randomize the FIRST chord immediately (before Start) and
+                // pre-build the upcoming queue so the whole display is random now.
+                const len = chords.length;
+                queueRef.current = [];
+                ensureQueue(len, 12);
+                const curr = queueRef.current.shift();
+                ensureQueue(len, 12);
+                chordRef.current = curr;
+                setChordIndex(curr);
+                randomNextRef.current = queueRef.current[0];
+                setRandomNextDisplay(queueRef.current[0]);
+                setRandomNext2(queueRef.current[1]);
               }
             }} style={{
               padding:"9px 14px", borderRadius:10,
