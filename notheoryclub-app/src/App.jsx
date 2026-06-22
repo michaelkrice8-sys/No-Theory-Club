@@ -748,6 +748,8 @@ function StrummingTab({ audio, sharedView=false }) {
   const [pattern, setPattern] = useState(null);
   const [activeBtn, setActiveBtn] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [countdown, setCountdown] = useState(0); // 3..2..1 count-in; 0 = inactive
+  const countdownRef = useRef(null);
   const [bpm, setBpm] = useState(60);
   const [currentBeat, setCurrentBeat] = useState(-1);
   const [buildActive, setBuildActive] = useState(()=>{
@@ -856,9 +858,31 @@ function StrummingTab({ audio, sharedView=false }) {
   },[]);
 
   const handleTogglePlay = async ()=>{
-    if(isPlaying){stopMetronome();setIsPlaying(false);}
-    else{await init();startMetronome();setIsPlaying(true);}
+    // During countdown: "tap to skip" → start immediately.
+    if(countdown>0){
+      clearInterval(countdownRef.current); countdownRef.current=null;
+      setCountdown(0);
+      startMetronome(); setIsPlaying(true);
+      return;
+    }
+    if(isPlaying){ stopMetronome(); setIsPlaying(false); return; }
+    await init();
+    // 3 → 2 → 1 with a beep each second, then start.
+    setCountdown(3);
+    playClick(false); // beep on "3"
+    countdownRef.current = setInterval(()=>{
+      setCountdown(c=>{
+        if(c<=1){
+          clearInterval(countdownRef.current); countdownRef.current=null;
+          startMetronome(); setIsPlaying(true);
+          return 0;
+        }
+        playClick(false); // beep on "2" and "1"
+        return c-1;
+      });
+    }, 1000);
   };
+  useEffect(()=>()=>clearInterval(countdownRef.current),[]);
 
   const totalBlocks = mode==="build" ? rowSizes.reduce((a,b)=>a+b,0) : 8;
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
@@ -935,7 +959,7 @@ function StrummingTab({ audio, sharedView=false }) {
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
         totalBlocks={totalBlocks} currentBeat={currentBeat}
         accentColor="#FFBE0B" onToggle={handleTogglePlay}
-        canPlay={true}
+        canPlay={true} countdown={countdown}
         onScrubStart={()=>{ if(isPlaying){ scrubbingRef.current=true; stopMetronome(); } }}
         onScrubEnd={()=>{ if(scrubbingRef.current){ scrubbingRef.current=false; startMetronome(); } }} />
       {/* Copyright */}
@@ -1110,10 +1134,14 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
     : chordVariants;
 
   const handleTogglePlay = async ()=>{
-    if(isPlaying || countdown>0){
-      // Stop — also cancels an in-progress countdown
+    // During countdown: "tap to skip" → start playing immediately.
+    if(countdown>0){
       clearInterval(countdownRef.current); countdownRef.current=null;
       setCountdown(0);
+      startMetronome(); setIsPlaying(true);
+      return;
+    }
+    if(isPlaying){
       stopMetronome(); setIsPlaying(false);
       return;
     }
@@ -1129,7 +1157,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false }) {
           startMetronome(); setIsPlaying(true);
           return 0;
         }
-        playChordClick(c-1===1); // beep on "2" (normal) and "1" (accented)
+        playChordClick(false); // same beep on "2" and "1"
         return c-1;
       });
     }, 1000);
