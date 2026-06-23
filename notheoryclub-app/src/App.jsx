@@ -5848,17 +5848,27 @@ function TrackerTab() {
             borderRadius:24, padding:"40px 28px", maxWidth:420, width:"100%", textAlign:"center", position:"relative" }}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
               background:"linear-gradient(90deg,#FFD60A,#F77F00)", borderRadius:"24px 24px 0 0" }} />
-            <span style={{ fontSize:64, marginBottom:16, display:"block" }}>🎸</span>
+            <span style={{ fontSize:64, marginBottom:8, display:"block" }}>🏆</span>
+            <div style={{ fontSize:46, fontWeight:900, lineHeight:1, marginBottom:14,
+              background:"linear-gradient(135deg,#FFD60A,#F77F00)", WebkitBackgroundClip:"text",
+              backgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+              {overallPct}%
+            </div>
             <div style={{ fontSize:30, fontWeight:900, marginBottom:8, letterSpacing:0.5,
               background:"linear-gradient(135deg,#FFD60A,#F77F00)", WebkitBackgroundClip:"text",
               backgroundClip:"text", WebkitTextFillColor:"transparent", lineHeight:1.1 }}>
               YOU'RE AN OFFICIAL GUITAR PLAYER
             </div>
             <div style={{ fontSize:16, color:"#fff", fontWeight:700, marginBottom:16 }}>30 Days. Done. No excuses.</div>
-            <p style={{ fontSize:14, color:"#999", lineHeight:1.7, marginBottom:24 }}>
+            <p style={{ fontSize:14, color:"#999", lineHeight:1.7, marginBottom:16 }}>
               You showed up <strong style={{color:"#ccc"}}>every single day</strong> for 30 days straight.
               That's not a beginner anymore — that's a guitar player. Keep going. 🔥
             </p>
+            <div style={{ fontSize:13, color:"#FFD60A", fontWeight:700, lineHeight:1.6, marginBottom:24,
+              background:"rgba(255,190,11,0.08)", border:"1px solid rgba(255,190,11,0.25)",
+              borderRadius:12, padding:"12px 14px" }}>
+              📸 Screenshot this and share it in the Guitar Wins post — let the club celebrate with you!
+            </div>
             <button onClick={()=>setShowModal(false)} style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
               border:"none", borderRadius:12, padding:"14px 32px", fontSize:15, fontWeight:900, color:"#111",
               cursor:"pointer", width:"100%" }}>
@@ -5970,15 +5980,6 @@ function TrackerTab() {
             </div>
           );
         })}
-      </div>
-
-      {/* Legend */}
-      <div style={{ display:"flex", gap:14, marginTop:18, justifyContent:"center", flexWrap:"wrap" }}>
-        {[["⭐","100% day"],["🔥","Partial day"],["🎸","Chords"],["🥁","Strumming"],["🎵","Song"]].map(([e,l])=>(
-          <div key={l} style={{ display:"flex", alignItems:"center", gap:6, fontSize:11, color:"#5a5238" }}>
-            <span>{e}</span><span>{l}</span>
-          </div>
-        ))}
       </div>
 
       {/* Reset */}
@@ -6431,7 +6432,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
       <style>{NTC_SLIDER_CSS}</style>
-      <style>{`@keyframes ntcFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }`}</style>
+      <style>{`@keyframes ntcPkgFade { from { opacity:0; } to { opacity:1; } }`}</style>
 
       {/* Centered column — matches the rest of the app's max width. Bottom padding
           leaves room for the fixed nav so content never hides behind it. */}
@@ -6479,7 +6480,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
         {tabs.map(t => (
           <div key={t.key}
             style={{ display: t.key===activeKey ? "block" : "none",
-              animation: t.key===activeKey ? "ntcFadeIn 0.35s ease both" : "none" }}>
+              animation: t.key===activeKey ? "ntcPkgFade 0.35s ease both" : "none" }}>
             {t.key==="tracker" ? <TrackerTab /> : renderItem(t.item)}
           </div>
         ))}
