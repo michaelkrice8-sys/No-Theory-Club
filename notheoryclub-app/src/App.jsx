@@ -1195,10 +1195,12 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
   useEffect(()=>{
     setCustomChords(prev => {
       if(!prev || !prev.length) return prev;
-      return prev.map(c => anchored ? (ANCHOR_SWAP[c] || c) : (ANCHOR_UNSWAP[c] || c));
+      const next = prev.map(c => anchored ? (ANCHOR_SWAP[c] || c) : (ANCHOR_UNSWAP[c] || c));
+      if(next.length===prev.length && next.every((c,i)=>c===prev[i])) return prev;
+      return next;
     });
   // eslint-disable-next-line
-  },[anchored]);
+  },[anchored, customChords.length]);
 
   // Fisher–Yates shuffle of [0..len-1]. If `avoidFirst` is given, ensures the
   // first element differs from it (so no repeat across a block seam).
@@ -2930,17 +2932,22 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
   useEffect(()=>{ chordsRef.current=songChords; },[songChords]);
 
-  // "Anchor chords" (package view): swap song chords to anchored shapes live.
-  // Mapping both directions is timing-proof regardless of when chords loaded.
+  // "Anchor chords" (package view): keep song chords in sync with the anchored
+  // setting. Runs both when the toggle flips AND when chords first load (so a
+  // package saved as already-anchored shows anchored shapes from the start).
+  // Loop-safe: only writes when the current chords don't already match the target.
   const SONG_ANCHOR_SWAP = { "G":"G_anchor", "C":"C_anchor", "Em":"Em_anchor", "D":"D_anchor" };
   const SONG_ANCHOR_UNSWAP = { "G_anchor":"G", "C_anchor":"C", "Em_anchor":"Em", "D_anchor":"D" };
   useEffect(()=>{
     setSongChords(prev => {
       if(!prev || !prev.length) return prev;
-      return prev.map(c => anchored ? (SONG_ANCHOR_SWAP[c] || c) : (SONG_ANCHOR_UNSWAP[c] || c));
+      const next = prev.map(c => anchored ? (SONG_ANCHOR_SWAP[c] || c) : (SONG_ANCHOR_UNSWAP[c] || c));
+      // Avoid a state update (and render loop) if nothing actually changes.
+      if(next.length===prev.length && next.every((c,i)=>c===prev[i])) return prev;
+      return next;
     });
   // eslint-disable-next-line
-  },[anchored]);
+  },[anchored, songChords.length]);
   useEffect(()=>{ strumRef.current=strumActive; },[strumActive]);
   useEffect(()=>{
     row1SizeRef.current=row1Size; row2SizeRef.current=row2Size;
