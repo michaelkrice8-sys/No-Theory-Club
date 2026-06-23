@@ -6634,17 +6634,17 @@ function LandingScreen({ onPick, streak }) {
   const [hover, setHover] = useState(null);
 
   return (
-    <div style={{ minHeight:"100vh",
+    <div style={{ minHeight:"100dvh",
       background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff",
       display:"flex", flexDirection:"column", alignItems:"center" }}>
-      <div style={{ width:"100%", maxWidth:480, padding:"0 22px 40px",
+      <div style={{ width:"100%", maxWidth:480, padding:"0 22px 20px",
         display:"flex", flexDirection:"column", alignItems:"center", flex:1 }}>
 
         {/* Hero */}
-        <div style={{ textAlign:"center", padding:"72px 0 14px", ...rise(0) }}>
+        <div style={{ textAlign:"center", padding:"34px 0 10px", ...rise(0) }}>
           <span style={{ display:"inline-block", fontSize:11, letterSpacing:4,
-            color:"#7a6a3a", fontWeight:700, marginBottom:22, textTransform:"uppercase" }}>
+            color:"#7a6a3a", fontWeight:700, marginBottom:16, textTransform:"uppercase" }}>
             🎸 Guitar Practice Tool
           </span>
           <div style={{ fontSize:44, lineHeight:0.95, fontWeight:900, letterSpacing:0.5,
@@ -6657,10 +6657,10 @@ function LandingScreen({ onPick, streak }) {
             Play by feel. Skip the theory.
           </div>
           <div style={{ width:50, height:3, borderRadius:3,
-            background:"linear-gradient(90deg,#FFD60A,#F77F00)", margin:"20px auto 0", opacity:0.85 }} />
+            background:"linear-gradient(90deg,#FFD60A,#F77F00)", margin:"16px auto 0", opacity:0.85 }} />
         </div>
 
-        <div style={{ margin:"20px 0 20px", fontSize:13, color:"#6f6749", fontWeight:700,
+        <div style={{ margin:"16px 0 14px", fontSize:13, color:"#6f6749", fontWeight:700,
           letterSpacing:2, textTransform:"uppercase", textAlign:"center", ...rise(0.12) }}>
           What do you want to work on?
         </div>
@@ -6722,8 +6722,8 @@ function LandingScreen({ onPick, streak }) {
         </div>
 
         {/* Separated Build a Song (Beta) — dimmer, set apart */}
-        <div style={{ width:"100%", marginTop:22, ...rise(0.6) }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12, opacity:0.7 }}>
+        <div style={{ width:"100%", marginTop:16, ...rise(0.6) }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, opacity:0.7 }}>
             <div style={{ flex:1, height:1, background:"#241d10" }} />
             <div style={{ fontSize:9, color:"#5a5238", letterSpacing:2, fontWeight:700 }}>EXPERIMENTAL</div>
             <div style={{ flex:1, height:1, background:"#241d10" }} />
@@ -6756,7 +6756,7 @@ function LandingScreen({ onPick, streak }) {
           </button>
         </div>
 
-        <div style={{ marginTop:"auto", paddingTop:42, fontSize:11, color:"#332e22",
+        <div style={{ marginTop:"auto", paddingTop:20, fontSize:11, color:"#332e22",
           textAlign:"center", ...rise(0.7) }}>
           © {new Date().getFullYear()} No Theory Club · All rights reserved.
         </div>
