@@ -6115,6 +6115,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   const [name, setName] = useState("");
   const [day, setDay] = useState(0); // 0 = no day
   const [includeTracker, setIncludeTracker] = useState(false);
+  const [anchorAll, setAnchorAll] = useState(false); // save package so it opens with anchored chords
   const [items, setItems] = useState([]); // [{ t, d, label }]
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteVal, setPasteVal] = useState("");
@@ -6132,7 +6133,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   useEffect(() => {
     if(savedLink) setSavedLink(null);
   // eslint-disable-next-line
-  }, [name, day, includeTracker, items]);
+  }, [name, day, includeTracker, anchorAll, items]);
 
   const addItem = (it) => setItems(p => [...p, { ...it, label: itemLabel(it) }]);
   const removeItem = (i) => setItems(p => p.filter((_,k)=>k!==i));
@@ -6180,6 +6181,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
         n: name.trim(),
         day: day || null,
         tracker: includeTracker,
+        anchor: anchorAll,
         items: items.map(it => ({ t: it.t, d: it.d })),
       };
       const id = await packageInsert(data.n, data);
@@ -6200,7 +6202,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   const doReset = () => {
     if(!name.trim() && items.length===0 && !includeTracker && day===0){ return; } // nothing to clear
     if(!window.confirm("Clear this package and start over?")) return;
-    setName(""); setDay(0); setIncludeTracker(false); setItems([]);
+    setName(""); setDay(0); setIncludeTracker(false); setAnchorAll(false); setItems([]);
     setPasteOpen(false); setPasteVal(""); setBuildType(null);
     setSavedLink(null); setSaveErr(null);
   };
@@ -6248,6 +6250,25 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
           border:`2px solid ${includeTracker?"rgba(255,190,11,0.6)":"#2a2417"}`,
           background: includeTracker ? "radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.22), rgba(255,140,0,0.12)), #16110a" : "#0e0b06" }}>
           {includeTracker && <div style={{ width:9, height:5, borderLeft:"2px solid #FFD60A", borderBottom:"2px solid #FFD60A", transform:"rotate(-45deg) translate(1px,-1px)" }} />}
+        </div>
+      </div>
+
+      {/* Anchor-chords toggle — saves the package so it opens with anchored
+          shapes (G/C/Em/D → anchored). Users can still toggle it off. */}
+      <div onClick={()=>setAnchorAll(v=>!v)} style={{ width:"100%", display:"flex", alignItems:"center", gap:12,
+        padding:"13px 14px", borderRadius:14, marginBottom:14, cursor:"pointer",
+        border:`1px solid ${anchorAll?"rgba(255,190,11,0.45)":"#241d10"}`,
+        background: anchorAll ? "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.1) 0%, rgba(255,170,30,0) 60%), #14100a" : "#100d09" }}>
+        <div style={{ fontSize:22, width:44, height:44, borderRadius:12, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+          background:"rgba(255,190,11,0.06)", border:"1px solid rgba(255,190,11,0.12)" }}>⚓</div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:15, fontWeight:900, color: anchorAll?"#FFD60A":"#f3ead2" }}>Anchor chords</div>
+          <div style={{ fontSize:11.5, color:"#6f6749", marginTop:2 }}>Opens with G, C, Em, D in their anchored shapes</div>
+        </div>
+        <div style={{ width:26, height:26, borderRadius:8, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
+          border:`2px solid ${anchorAll?"rgba(255,190,11,0.6)":"#2a2417"}`,
+          background: anchorAll ? "radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.22), rgba(255,140,0,0.12)), #16110a" : "#0e0b06" }}>
+          {anchorAll && <div style={{ width:9, height:5, borderLeft:"2px solid #FFD60A", borderBottom:"2px solid #FFD60A", transform:"rotate(-45deg) translate(1px,-1px)" }} />}
         </div>
       </div>
 
@@ -6447,7 +6468,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
   // "Anchor chords" toggle: each exercise panel applies the swap live via the
   // `anchored` prop (G/C/Em/D → anchored shapes), so it stays mounted and the
   // page doesn't reflow when toggled.
-  const [anchored, setAnchored] = useState(false);
+  const [anchored, setAnchored] = useState(!!pkg?.anchor);
 
   // Build the ordered list of tabs: each exercise item, then tracker (if on).
   const TYPE_META = {
