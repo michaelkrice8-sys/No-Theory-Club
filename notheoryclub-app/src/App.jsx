@@ -6122,7 +6122,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   const [name, setName] = useState("");
   const [day, setDay] = useState(0); // 0 = no day
   const [includeTracker, setIncludeTracker] = useState(false);
-  const [anchorAll, setAnchorAll] = useState(false); // save package so it opens with anchored chords
+  const [anchorAll, setAnchorAll] = useState(true); // "Allow anchor chords" — ON by default; off hides the button for users
   const [items, setItems] = useState([]); // [{ t, d, label }]
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteVal, setPasteVal] = useState("");
@@ -6209,7 +6209,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   const doReset = () => {
     if(!name.trim() && items.length===0 && !includeTracker && day===0){ return; } // nothing to clear
     if(!window.confirm("Clear this package and start over?")) return;
-    setName(""); setDay(0); setIncludeTracker(false); setAnchorAll(false); setItems([]);
+    setName(""); setDay(0); setIncludeTracker(false); setAnchorAll(true); setItems([]);
     setPasteOpen(false); setPasteVal(""); setBuildType(null);
     setSavedLink(null); setSaveErr(null);
   };
@@ -6269,8 +6269,8 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
         <div style={{ fontSize:22, width:44, height:44, borderRadius:12, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
           background:"rgba(255,190,11,0.06)", border:"1px solid rgba(255,190,11,0.12)" }}>⚓</div>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:15, fontWeight:900, color: anchorAll?"#FFD60A":"#f3ead2" }}>Anchor chords</div>
-          <div style={{ fontSize:11.5, color:"#6f6749", marginTop:2 }}>Opens with G, C, Em, D in their anchored shapes</div>
+          <div style={{ fontSize:15, fontWeight:900, color: anchorAll?"#FFD60A":"#f3ead2" }}>Allow anchor chords</div>
+          <div style={{ fontSize:11.5, color:"#6f6749", marginTop:2 }}>Shows an anchor button so users can switch G, C, Em, D to anchored shapes</div>
         </div>
         <div style={{ width:26, height:26, borderRadius:8, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center",
           border:`2px solid ${anchorAll?"rgba(255,190,11,0.6)":"#2a2417"}`,
@@ -6475,7 +6475,13 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
   // "Anchor chords" toggle: each exercise panel applies the swap live via the
   // `anchored` prop (G/C/Em/D → anchored shapes), so it stays mounted and the
   // page doesn't reflow when toggled.
-  const [anchored, setAnchored] = useState(!!pkg?.anchor);
+  // The anchor button shows by DEFAULT, so every existing package keeps it.
+  // An author can hide it for a specific package (e.g. a song that doesn't use
+  // G/C/Em/D) by turning the builder toggle off, which saves anchor:false.
+  // Absent flag (all older links) or anchor:true → button shows. Only an explicit
+  // anchor:false hides it. The button itself starts OFF; users opt in.
+  const allowAnchor = pkg?.anchor !== false;
+  const [anchored, setAnchored] = useState(false);
 
   // Build the ordered list of tabs: each exercise item, then tracker (if on).
   const TYPE_META = {
@@ -6582,7 +6588,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 
       {/* Anchor-chords toggle — swaps G/C/Em/D to their anchored voicings across
           all exercises. Hidden on the tracker tab (no chords there). */}
-      {activeKey !== "tracker" && (
+      {allowAnchor && activeKey !== "tracker" && (
         <div style={{ padding:"6px 16px 0", display:"flex", justifyContent:"center" }}>
           <button onClick={()=>{ try{ window.dispatchEvent(new Event("ntc-stop-playback")); }catch(e){} setAnchored(a=>!a); }}
             title="Switch G, C, Em and D to their anchored shapes"
