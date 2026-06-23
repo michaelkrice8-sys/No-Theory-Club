@@ -631,8 +631,8 @@ function App() {
 // snaps to the nearest card on release (a fast flick advances one). Tapping a
 // peeking side card or a dot slides+locks to it. Calls onChange with the locked
 // chord name. Uses regular (non-anchored) chord images.
-const CAROUSEL_CARD_W = 140;
-const CAROUSEL_CARD_MARGIN = 11;
+const CAROUSEL_CARD_W = 150;
+const CAROUSEL_CARD_MARGIN = 10;
 const CAROUSEL_STEP = CAROUSEL_CARD_W + CAROUSEL_CARD_MARGIN * 2;
 
 function ChordCarousel({ chords, value, onChange }) {
@@ -671,11 +671,11 @@ function ChordCarousel({ chords, value, onChange }) {
       const center = i * CAROUSEL_STEP + CAROUSEL_STEP / 2 + p;
       const dist = Math.abs(center - w / 2);
       const t = Math.min(1, dist / CAROUSEL_STEP);
-      c.style.transform = `scale(${(1 - 0.18 * t).toFixed(3)})`;
-      c.style.opacity = (1 - 0.55 * t).toFixed(3);
+      c.style.transform = `scale(${(1 - 0.16 * t).toFixed(3)})`;
+      c.style.opacity = (1 - 0.5 * t).toFixed(3);
       const on = i === n;
-      c.style.borderColor = on ? "rgba(255,190,11,0.6)" : "#2a2417";
-      c.style.boxShadow = on ? "0 0 26px rgba(255,160,20,0.26)" : "none";
+      c.style.borderColor = on ? "rgba(255,190,11,0.6)" : "#222";
+      c.style.boxShadow = on ? "0 0 22px rgba(255,160,20,0.26)" : "none";
     });
   };
 
@@ -763,7 +763,7 @@ function ChordCarousel({ chords, value, onChange }) {
           const card = e.target.closest("[data-cidx]");
           if (card) lockTo(Number(card.getAttribute("data-cidx")), true);
         }}
-        style={{ position:"relative", width:"100%", height:264, overflow:"hidden",
+        style={{ position:"relative", width:"100%", height:250, overflow:"hidden",
           touchAction:"pan-y", cursor:"grab", userSelect:"none", WebkitUserSelect:"none", marginBottom:4 }}>
         {/* edge fades */}
         <div style={{ position:"absolute", top:0, bottom:0, left:0, width:64, zIndex:5, pointerEvents:"none",
@@ -776,8 +776,8 @@ function ChordCarousel({ chords, value, onChange }) {
             const img = ALL_CHORD_IMAGES[c];
             return (
               <div key={c} data-cidx={i} ref={el=>cardRefs.current[i]=el}
-                style={{ flex:"0 0 auto", width:CAROUSEL_CARD_W, height:200,
-                  margin:`0 ${CAROUSEL_CARD_MARGIN}px`, borderRadius:16, border:"1px solid #2a2417",
+                style={{ flex:"0 0 auto", width:CAROUSEL_CARD_W, height:210,
+                  margin:`0 ${CAROUSEL_CARD_MARGIN}px`, borderRadius:14, border:"1px solid #222",
                   overflow:"hidden", background:"#000", display:"flex",
                   transition:"border-color 0.25s, box-shadow 0.25s" }}>
                 {img
