@@ -461,6 +461,24 @@ function App() {
   // hidden Build-a-Song (beta) view; the others are the 3 main tabs.
   const [dest, setDest] = useState(null); // "strum" | "chords" | "tracker" | "song"
 
+  // Paint the page background (html/body) with the same warm radial glow as the
+  // app, and tint the mobile browser chrome to match, so the top/bottom strips
+  // blend into the background's glow instead of reading as flat black.
+  useEffect(() => {
+    const GRADIENT = "radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)";
+    const TOP_TONE = "#14100a"; // warm tone for the browser chrome (between glow and base)
+    try {
+      document.documentElement.style.background = GRADIENT;
+      document.documentElement.style.backgroundColor = "#0d0d0a";
+      document.body.style.background = GRADIENT;
+      document.body.style.backgroundColor = "#0d0d0a";
+      document.body.style.margin = "0";
+      let meta = document.querySelector('meta[name="theme-color"]');
+      if (!meta) { meta = document.createElement("meta"); meta.name = "theme-color"; document.head.appendChild(meta); }
+      meta.setAttribute("content", TOP_TONE);
+    } catch (_) {}
+  }, []);
+
   // Streak shown on the landing tracker card (reads tracker's own storage).
   const [landingStreak, setLandingStreak] = useState(0);
   useEffect(() => {
