@@ -5765,6 +5765,8 @@ function TrackerTab() {
   const [loaded, setLoaded] = useState(false);
   const [celebrating, setCelebrating] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const celebratedRef = useRef(false);   // ensures the celebration fires only once
+  const celebrateTimerRef = useRef(null); // pending delayed-celebration timer
   const { canvasRef, launch } = useTrackerConfetti();
 
   // Load — reads ?d= (tracker share) then localStorage. Does NOT clear other
@@ -5789,12 +5791,26 @@ function TrackerTab() {
     try { localStorage.setItem(TRACKER_STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
   }, [data, loaded]);
 
-  // 30-day completion celebration
+  // 30-day completion celebration. Fire once, 2.5s after the challenge is first
+  // completed, so the user can finish ticking the rest of that day's boxes
+  // without the modal cutting them off.
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || celebratedRef.current) return;
     const allDaysActive = data.every(day => TRACKER_TASKS.some(t => day[t.id]));
-    if (allDaysActive) { setShowModal(true); launch(); }
+    if (allDaysActive) {
+      if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current);
+      celebrateTimerRef.current = setTimeout(() => {
+        celebratedRef.current = true;
+        setShowModal(true);
+        launch();
+      }, 2500);
+    } else if (celebrateTimerRef.current) {
+      // They dropped back below complete during the delay — cancel.
+      clearTimeout(celebrateTimerRef.current);
+      celebrateTimerRef.current = null;
+    }
   }, [data, loaded]); // eslint-disable-line
+  useEffect(() => () => { if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current); }, []);
 
   function toggle(dayIdx, taskId) {
     setData(prev => {
@@ -5843,7 +5859,9 @@ function TrackerTab() {
       {/* Completion modal */}
       {showModal && (
         <div onClick={()=>setShowModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)",
-          zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+          zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24,
+          animation:"ntcModalFade 0.4s ease both" }}>
+          <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#111", border:"1px solid #2a2a2a",
             borderRadius:24, padding:"40px 28px", maxWidth:420, width:"100%", textAlign:"center", position:"relative" }}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
