@@ -6389,6 +6389,34 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
   const items = Array.isArray(pkg?.items) ? pkg.items : [];
   const hasTracker = !!pkg?.tracker;
 
+  // "Anchor chords" toggle: swap the base voicings that have an anchored version.
+  const [anchored, setAnchored] = useState(false);
+  const ANCHOR_SWAP = { "G":"G_anchor", "C":"C_anchor", "Em":"Em_anchor", "D":"D_anchor" };
+  const anchorChord = (c) => (anchored ? (ANCHOR_SWAP[c] || c) : c);
+  // Return the item's payload, re-encoded with anchored chords when the toggle is on.
+  // Chords without an anchored voicing are left untouched. Decoders ignore unknown
+  // keys, so this only rewrites the chord list — everything else is preserved.
+  const anchorPayload = (it) => {
+    if(!anchored || !it) return it?.d;
+    try {
+      if(it.t === "drill"){
+        const d = decodeChordDrill(it.d);
+        if(!d) return it.d;
+        const chords = (d.chords||[]).map(anchorChord);
+        return encodeChordDrill(chords, d.bpm, d.beatsPerChord, d.name, d.chordVariants||{}, d.random);
+      }
+      if(it.t === "strum" || it.t === "strumprog"){
+        const d = decodeStrumDrill(it.d);
+        if(!d) return it.d;
+        const songChords = (d.songChords||[]).map(anchorChord);
+        const sizes = d.rowSizes && d.rowSizes.length ? d.rowSizes : [8];
+        return encodeStrumDrill(d.name, d.strumActive, sizes, songChords, d.bpm, d.beatsPerChord, d.chordVariants||{}, d.capo||0, d.random);
+      }
+      // "pattern" (advanced) uses a different encoder; leave as-is for now.
+      return it.d;
+    } catch(e){ return it.d; }
+  };
+
   // Build the ordered list of tabs: each exercise item, then tracker (if on).
   const TYPE_META = {
     drill:     { icon:"🤚", label:"Chords" },
@@ -6428,14 +6456,16 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
       </div>
     ) : null;
     let panel = null;
+    const d = anchorPayload(it);
+    const k = anchored ? "anchored" : "regular";
     if(it.t === "drill")
-      panel = <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} />;
+      panel = <ChordsTab key={"drill-"+k} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={d} hideTitle={true} />;
     else if(it.t === "strum")
-      panel = <StrummingTab audio={audio} sharedView={true} initialParam={it.d} hideTitle={true} />;
+      panel = <StrummingTab key={"strum-"+k} audio={audio} sharedView={true} initialParam={d} hideTitle={true} />;
     else if(it.t === "strumprog")
-      panel = <BuildSongTab audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} />;
+      panel = <BuildSongTab key={"simple-"+k} audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={d} hideTitle={true} />;
     else if(it.t === "pattern")
-      panel = <BuildSongTab audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} />;
+      panel = <BuildSongTab key={"adv-"+k} audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={d} hideTitle={true} />;
     return <>{title}{panel}</>;
   };
 
@@ -6489,6 +6519,23 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
             </div>
           </div>
           <div style={{ color:"#FFBE0B", fontSize:22, flexShrink:0, fontWeight:900 }}>›</div>
+        </div>
+      )}
+
+      {/* Anchor-chords toggle — swaps G/C/Em/D to their anchored voicings across
+          all exercises. Hidden on the tracker tab (no chords there). */}
+      {activeKey !== "tracker" && (
+        <div style={{ padding:"6px 16px 0", display:"flex", justifyContent:"center" }}>
+          <button onClick={()=>{ try{ window.dispatchEvent(new Event("ntc-stop-playback")); }catch(e){} setAnchored(a=>!a); }}
+            title="Switch G, C, Em and D to their anchored shapes"
+            style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer",
+              borderRadius:12, padding:"9px 16px", fontSize:13, fontWeight:800, letterSpacing:0.3,
+              border: anchored ? "1px solid #FFBE0B" : "1px solid #2a2a2a",
+              background: anchored ? "rgba(255,190,11,0.13)" : "#141414",
+              color: anchored ? "#FFBE0B" : "#888",
+              boxShadow: anchored ? "0 0 12px rgba(255,190,11,0.25)" : "none", transition:"all 0.15s" }}>
+            ⚓ {anchored ? "Anchored chords ON" : "Anchor chords"}
+          </button>
         </div>
       )}
 
