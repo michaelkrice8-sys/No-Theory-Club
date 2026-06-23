@@ -804,7 +804,7 @@ function ChordCarousel({ chords, value, onChange }) {
   );
 }
 
-function StrummingTab({ audio, sharedView=false, active=true, initialParam=null, onExport=null, hideTitle=false }) {
+function StrummingTab({ audio, sharedView=false, active=true, initialParam=null, onExport=null, hideTitle=false, anchored=false }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState(onExport ? "build" : "practice");
   const [pattern, setPattern] = useState(null);
@@ -847,6 +847,17 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
   useEffect(()=>{ patternRef.current=pattern; },[pattern]);
   useEffect(()=>{ buildActiveRef.current=buildActive; },[buildActive]);
   useEffect(()=>{ strumChordRef.current=strumChord; },[strumChord]);
+
+  // "Anchor chords" (package view): swap the strummed chord to its anchored shape.
+  const STRUM_ANCHOR = { "G":"G_anchor", "C":"C_anchor", "Em":"Em_anchor", "D":"D_anchor" };
+  const STRUM_UNANCHOR = { "G_anchor":"G", "C_anchor":"C", "Em_anchor":"Em", "D_anchor":"D" };
+  useEffect(()=>{
+    setStrumChord(prev => {
+      if(anchored) return STRUM_ANCHOR[prev] || prev;
+      return STRUM_UNANCHOR[prev] || prev;
+    });
+  // eslint-disable-next-line
+  },[anchored]);
   useEffect(()=>{ rowSizesRef.current=rowSizes; },[rowSizes]);
   useEffect(()=>{
     totalBeatsRef.current = mode==="build" ? rowSizes.reduce((a,b)=>a+b,0) : 8;
@@ -1006,7 +1017,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
           marginBottom:12, textTransform:"uppercase", fontWeight:700 }}>
           Strum Chord
         </div>
-        <ChordCarousel chords={STRUM_CHORDS} value={strumChord} onChange={setStrumChord} />
+        <ChordCarousel chords={anchored ? STRUM_CHORDS.map(c=>STRUM_ANCHOR[c]||c) : STRUM_CHORDS} value={strumChord} onChange={setStrumChord} />
         <div style={{ textAlign:"center", fontSize:11, color:"#5a5238", marginTop:2 }}>
           Swipe or tap to <b style={{ color:"#8a7f5e" }}>change the chord</b>
         </div>
@@ -1070,7 +1081,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
 }
 
 // ─── CHORDS TAB ─────────────────────────────────────────────────────────────
-function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true, initialParam=null, onExport=null }) {
+function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true, initialParam=null, onExport=null, anchored=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [viewMode, setViewMode] = useState(onExport ? "build" : "presets");
   const [selectedPack, setSelectedPack] = useState(null);
@@ -1156,6 +1167,22 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
   useEffect(()=>{ customRef.current=customChords; },[customChords]);
   useEffect(()=>{ vmRef.current=viewMode; },[viewMode]);
   useEffect(()=>{ randomOrderRef.current=randomOrder; },[randomOrder]);
+
+  // "Anchor chords" (package view): swap base chords to anchored shapes live,
+  // without remounting. We remember the un-anchored chords so toggling off restores
+  // them exactly. Only G/C/Em/D have an anchored shape; others are untouched.
+  const ANCHOR_SWAP = { "G":"G_anchor", "C":"C_anchor", "Em":"Em_anchor", "D":"D_anchor" };
+  const baseChordsRef = useRef(null);
+  useEffect(()=>{
+    if(baseChordsRef.current==null) baseChordsRef.current = customChords;
+  // eslint-disable-next-line
+  },[customChords.length]);
+  useEffect(()=>{
+    const base = baseChordsRef.current || customChords;
+    if(anchored) setCustomChords(base.map(c => ANCHOR_SWAP[c] || c));
+    else if(baseChordsRef.current) setCustomChords(baseChordsRef.current);
+  // eslint-disable-next-line
+  },[anchored]);
 
   // Fisher–Yates shuffle of [0..len-1]. If `avoidFirst` is given, ensures the
   // first element differs from it (so no repeat across a block seam).
@@ -1643,7 +1670,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
 }
 
 // ─── BUILD A SONG TAB ────────────────────────────────────────────────────────
-function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant, sharedView=false, initialParam=null, hideTitle=false }) {
+function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateVariant, sharedView=false, initialParam=null, hideTitle=false, anchored=false }) {
   const [buildMode, setBuildMode] = useState(initialBuildMode);
 
   return (
@@ -1660,7 +1687,7 @@ function BuildSongTab({ audio, initialBuildMode="simple", chordVariants, updateV
         </>
       )}
 
-      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} hideTitle={hideTitle} />}
+      {buildMode === "simple" && <SimpleBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} hideTitle={hideTitle} anchored={anchored} />}
       {buildMode === "advanced" && <AdvancedBuildSong audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={sharedView} initialParam={initialParam} hideTitle={hideTitle} />}
       {buildMode === "song" && <SongBuilder audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
       {buildMode === "package" && <PackageBuilderTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />}
@@ -2814,7 +2841,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   );
 }
 
-function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null, hideTitle=false }) {
+function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false, initialParam=null, onExport=null, hideTitle=false, anchored=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [songChords, setSongChords] = useState([]);
   const [strumActive, setStrumActive] = useState(defaultBuild(8).concat(Array(8).fill(false)));
@@ -2886,6 +2913,21 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
   useEffect(()=>{ bpmRef.current=bpm; },[bpm]);
   useEffect(()=>{ bpcRef.current=beatsPerChord; },[beatsPerChord]);
   useEffect(()=>{ chordsRef.current=songChords; },[songChords]);
+
+  // "Anchor chords" (package view): swap song chords to anchored shapes live.
+  // Remember the un-anchored chords so toggling off restores them.
+  const SONG_ANCHOR_SWAP = { "G":"G_anchor", "C":"C_anchor", "Em":"Em_anchor", "D":"D_anchor" };
+  const baseSongChordsRef = useRef(null);
+  useEffect(()=>{
+    if(baseSongChordsRef.current==null && songChords.length) baseSongChordsRef.current = songChords;
+  // eslint-disable-next-line
+  },[songChords.length]);
+  useEffect(()=>{
+    const base = baseSongChordsRef.current || songChords;
+    if(anchored) setSongChords(base.map(c => SONG_ANCHOR_SWAP[c] || c));
+    else if(baseSongChordsRef.current) setSongChords(baseSongChordsRef.current);
+  // eslint-disable-next-line
+  },[anchored]);
   useEffect(()=>{ strumRef.current=strumActive; },[strumActive]);
   useEffect(()=>{
     row1SizeRef.current=row1Size; row2SizeRef.current=row2Size;
@@ -6389,33 +6431,10 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
   const items = Array.isArray(pkg?.items) ? pkg.items : [];
   const hasTracker = !!pkg?.tracker;
 
-  // "Anchor chords" toggle: swap the base voicings that have an anchored version.
+  // "Anchor chords" toggle: each exercise panel applies the swap live via the
+  // `anchored` prop (G/C/Em/D → anchored shapes), so it stays mounted and the
+  // page doesn't reflow when toggled.
   const [anchored, setAnchored] = useState(false);
-  const ANCHOR_SWAP = { "G":"G_anchor", "C":"C_anchor", "Em":"Em_anchor", "D":"D_anchor" };
-  const anchorChord = (c) => (anchored ? (ANCHOR_SWAP[c] || c) : c);
-  // Return the item's payload, re-encoded with anchored chords when the toggle is on.
-  // Chords without an anchored voicing are left untouched. Decoders ignore unknown
-  // keys, so this only rewrites the chord list — everything else is preserved.
-  const anchorPayload = (it) => {
-    if(!anchored || !it) return it?.d;
-    try {
-      if(it.t === "drill"){
-        const d = decodeChordDrill(it.d);
-        if(!d) return it.d;
-        const chords = (d.chords||[]).map(anchorChord);
-        return encodeChordDrill(chords, d.bpm, d.beatsPerChord, d.name, d.chordVariants||{}, d.random);
-      }
-      if(it.t === "strum" || it.t === "strumprog"){
-        const d = decodeStrumDrill(it.d);
-        if(!d) return it.d;
-        const songChords = (d.songChords||[]).map(anchorChord);
-        const sizes = d.rowSizes && d.rowSizes.length ? d.rowSizes : [8];
-        return encodeStrumDrill(d.name, d.strumActive, sizes, songChords, d.bpm, d.beatsPerChord, d.chordVariants||{}, d.capo||0, d.random);
-      }
-      // "pattern" (advanced) uses a different encoder; leave as-is for now.
-      return it.d;
-    } catch(e){ return it.d; }
-  };
 
   // Build the ordered list of tabs: each exercise item, then tracker (if on).
   const TYPE_META = {
@@ -6456,16 +6475,14 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
       </div>
     ) : null;
     let panel = null;
-    const d = anchorPayload(it);
-    const k = anchored ? "anchored" : "regular";
     if(it.t === "drill")
-      panel = <ChordsTab key={"drill-"+k} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={d} hideTitle={true} />;
+      panel = <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
     else if(it.t === "strum")
-      panel = <StrummingTab key={"strum-"+k} audio={audio} sharedView={true} initialParam={d} hideTitle={true} />;
+      panel = <StrummingTab audio={audio} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
     else if(it.t === "strumprog")
-      panel = <BuildSongTab key={"simple-"+k} audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={d} hideTitle={true} />;
+      panel = <BuildSongTab audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
     else if(it.t === "pattern")
-      panel = <BuildSongTab key={"adv-"+k} audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={d} hideTitle={true} />;
+      panel = <BuildSongTab audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
     return <>{title}{panel}</>;
   };
 
