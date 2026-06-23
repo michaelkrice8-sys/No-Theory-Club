@@ -913,7 +913,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
         setSharedViewName(d.name||"Shared Pattern");
         setStrumSaveName(d.name||"Shared Pattern");
         setBuilderOpen(onExport ? true : false);
-        if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
+        // Keep the share param in the URL so a refresh reloads this, not the home page.
       }
     }
   // eslint-disable-next-line
@@ -1126,7 +1126,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
         randomOrderRef.current = !!decoded.random;
         if(decoded.chordVariants && Object.keys(decoded.chordVariants).length > 0)
           Object.entries(decoded.chordVariants).forEach(([c,v])=>updateVariant(c,v));
-        if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
+        // Keep the share param in the URL so a refresh reloads this, not the home page.
       }
     }
   // eslint-disable-next-line
@@ -2045,7 +2045,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         if(d.ss !== undefined) setScrollSpeed(d.ss);
         setLoadedSongName(d.n||row.name||"Shared Song");
         setSongViewMode(true);
-        window.history.replaceState({}, "", window.location.pathname);
+        // Keep the share param so a refresh reloads this, not the home page.
         window.scrollTo(0,0);
       }).catch(e=>console.error("Failed to load song:", e));
     } else if(encoded) {
@@ -2058,7 +2058,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
         if(d.ss !== undefined) setScrollSpeed(d.ss);
         setLoadedSongName(d.n||"Shared Song");
         setSongViewMode(true);
-        window.history.replaceState({}, "", window.location.pathname);
+        // Keep the share param so a refresh reloads this, not the home page.
         window.scrollTo(0,0);
       } catch(e){}
     }
@@ -2909,7 +2909,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
         setLoadedName(d.name); setSaveName(d.name);
         setPickerOpen(onExport ? true : false);
         if(d.chordVariants) Object.entries(d.chordVariants).forEach(([c,v])=>updateVariant(c,v));
-        if(initialParam==null) window.history.replaceState({}, "", window.location.pathname);
+        // Keep the share param in the URL so a refresh reloads this, not the home page.
       }
     }
   // eslint-disable-next-line
@@ -3888,7 +3888,8 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       setLoadedPatternName(d.n||"Shared Pattern");
       setSaveName(d.n||"Shared Pattern");
       setBuilderOpen(onExport ? true : false);
-      if(initialParam==null){ window.history.replaceState({}, "", window.location.pathname); window.scrollTo(0, 0); }
+      if(initialParam==null){ window.scrollTo(0, 0); }
+      // Keep the share param in the URL so a refresh reloads this, not the home page.
     } catch(e) {}
   }, []);
 
@@ -6305,8 +6306,8 @@ function PackageShareView({ audio, chordVariants, updateVariant }) {
         if(!row){ setStatus("notfound"); return; }
         setPkg(row.data || null);
         setStatus("ready");
-        // Strip the param so a refresh/clean reload doesn't re-trigger.
-        try { window.history.replaceState({}, "", window.location.pathname); } catch(e){}
+        // Keep the ?pkg= param in the URL so a refresh reloads this package
+        // instead of dropping the member back to the home page.
       })
       .catch(err => {
         if(cancelled) return;
