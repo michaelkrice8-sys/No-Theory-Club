@@ -34,7 +34,17 @@ class ErrorBoundary extends Component {
           <div style={{ fontSize:13, color:"#888", lineHeight:1.6, maxWidth:320, marginBottom:20 }}>
             The app hit an unexpected error. Reloading usually fixes it. If you opened a shared link, it may be from an older version.
           </div>
-          <button onClick={()=>{ window.location.href = window.location.origin + window.location.pathname; }}
+          <button onClick={()=>{
+              // Recover from a render crash. For a shared package link (?pkg=) keep
+              // the query string so the user reloads INTO their package instead of
+              // being dropped onto the full-app landing page (free-access seal).
+              // For any other view, reset to the clean home URL as before.
+              const isPkg = typeof window !== "undefined" &&
+                new URLSearchParams(window.location.search).has("pkg");
+              window.location.href = isPkg
+                ? window.location.href
+                : window.location.origin + window.location.pathname;
+            }}
             style={{ padding:"11px 22px", borderRadius:12, border:"none",
               background:"linear-gradient(135deg,#FFD60A,#F77F00)",
               color:"#111", fontSize:14, fontWeight:800, cursor:"pointer" }}>
@@ -6563,7 +6573,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 
       {/* Centered column — matches the rest of the app's max width. Bottom padding
           leaves room for the fixed nav so content never hides behind it. */}
-      <div style={{ maxWidth:560, margin:"0 auto", paddingBottom:96 }}>
+      <div style={{ maxWidth:560, margin:"0 auto", paddingBottom: tabs.length > 1 ? 96 : 24 }}>
 
       {/* Brand header */}
       <div style={{ textAlign:"center", padding:"14px 16px 8px", flexShrink:0 }}>
@@ -6651,7 +6661,10 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 
       </div>{/* end centered column */}
 
-      {/* Bottom nav — fixed to the screen, centered to the same column width */}
+      {/* Bottom nav — fixed to the screen, centered to the same column width.
+          Hidden when there's only one tab (single-exercise package): a one-button
+          switcher serves no purpose and looks unfinished. */}
+      {tabs.length > 1 && (
       <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:200,
         background:"linear-gradient(0deg, rgba(13,11,8,0.98) 0%, rgba(13,11,8,0.92) 70%, rgba(13,11,8,0) 100%)",
         backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)",
@@ -6675,6 +6688,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
           })}
         </div>
       </div>
+      )}
     </div>
   );
 }
