@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, Component } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { CHORD_IMAGES } from "./chordImages";
 import { CHORD_AUDIO, DOWN_WAV, UP_WAV } from "./chordAudio";
 import { CHORD_IMAGES_ANCHORS } from "./chordImages_anchors";
@@ -110,6 +111,183 @@ const STRUM_PATTERNS = {
 
 const SUPABASE_URL = "https://midwiwtywipemlyxcvau.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZHdpd3R5d2lwZW1seXhjdmF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3NzQ4NDQsImV4cCI6MjA5NDM1MDg0NH0.S68BZdL37HxQHKyZCNu1pOJIJkTqkxZJznyvhjHntK8";
+
+// ─── ACCESS CONTROL ──────────────────────────────────────────────────────────
+// Auth client (magic-link login + session persistence). Separate from the raw
+// REST helpers below, which continue to power Song Builder share links.
+const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Package links that are open to EVERYONE, no login required. The free-course
+// trial package lives here. Add more IDs to open more packages.
+const PUBLIC_PACKAGES = ["983c3ac1"];
+
+// Where the upgrade button sends non-premium users.
+const UPGRADE_URL = "https://www.skool.com/notheoryclub";
+
+// Shared chrome for the gate screens (login / wall) — matches app branding.
+function GateShell({ children }) {
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center", padding:"24px",
+      background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff", textAlign:"center" }}>
+      <div style={{ fontSize:13, fontWeight:700, letterSpacing:1.5, marginBottom:4 }}>NO THEORY CLUB</div>
+      <div style={{ fontSize:11, color:"#555", marginBottom:22 }}>Guitar Practice Tool</div>
+      {children}
+    </div>
+  );
+}
+
+function GateButton({ onClick, children, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled}
+      style={{ padding:"13px 26px", borderRadius:12, border:"none",
+        background: disabled ? "#3a3020" : "linear-gradient(135deg,#FFD60A,#F77F00)",
+        color: disabled ? "#776" : "#111", fontSize:15, fontWeight:800,
+        cursor: disabled ? "default" : "pointer", minWidth:220 }}>
+      {children}
+    </button>
+  );
+}
+
+// Login screen — email in, magic link out. No passwords.
+function GateLogin() {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const send = async () => {
+    const e = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { setError("Please enter a valid email address."); return; }
+    setBusy(true); setError("");
+    try {
+      const { error: err } = await supabaseAuth.auth.signInWithOtp({
+        email: e,
+        options: { emailRedirectTo: window.location.origin }
+      });
+      if (err) throw err;
+      setSent(true);
+    } catch (ex) {
+      setError("Couldn't send the link. Please try again in a minute.");
+    }
+    setBusy(false);
+  };
+
+  if (sent) return (
+    <GateShell>
+      <div style={{ fontSize:40, marginBottom:14 }}>📬</div>
+      <div style={{ fontSize:19, fontWeight:900, marginBottom:10 }}>Check your email</div>
+      <div style={{ fontSize:14, color:"#999", lineHeight:1.7, maxWidth:340 }}>
+        We sent a sign-in link to <span style={{ color:"#FFD166", fontWeight:700 }}>{email.trim()}</span>.<br/>
+        Open it on this device and you'll be signed in automatically.<br/><br/>
+        <span style={{ fontSize:12.5, color:"#666" }}>No email after a couple of minutes? Check your spam folder.</span>
+      </div>
+    </GateShell>
+  );
+
+  return (
+    <GateShell>
+      <div style={{ fontSize:40, marginBottom:14 }}>🎸</div>
+      <div style={{ fontSize:20, fontWeight:900, marginBottom:8 }}>Members sign in here</div>
+      <div style={{ fontSize:14, color:"#999", lineHeight:1.7, maxWidth:340, marginBottom:22 }}>
+        Enter the email you use for your <b style={{color:"#ccc"}}>Skool account</b> and
+        we'll send you a sign-in link. No password needed.
+      </div>
+      <input type="email" value={email} placeholder="you@example.com"
+        onChange={(e)=>setEmail(e.target.value)}
+        onKeyDown={(e)=>{ if(e.key==="Enter") send(); }}
+        style={{ width:"100%", maxWidth:320, padding:"13px 16px", borderRadius:12,
+          border:"1px solid #3a3020", background:"#14100a", color:"#fff",
+          fontSize:15, marginBottom:12, outline:"none", textAlign:"center",
+          fontFamily:"'Trebuchet MS', sans-serif", boxSizing:"border-box" }} />
+      {error && <div style={{ fontSize:12.5, color:"#ff7a6b", marginBottom:10 }}>{error}</div>}
+      <GateButton onClick={send} disabled={busy}>{busy ? "Sending…" : "Email me a sign-in link"}</GateButton>
+    </GateShell>
+  );
+}
+
+// The wall — signed in, but not premium.
+function GateWall({ email, onSignOut }) {
+  return (
+    <GateShell>
+      <div style={{ fontSize:40, marginBottom:14 }}>🔒</div>
+      <div style={{ fontSize:20, fontWeight:900, marginBottom:8 }}>The Practice App is for Premium members</div>
+      <div style={{ fontSize:14, color:"#999", lineHeight:1.7, maxWidth:360, marginBottom:22 }}>
+        Unlimited practice drills, the 30 Day Tracker, the Song Builder, and
+        everything else — it all comes with No Theory Club Premium.
+      </div>
+      <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
+      <div style={{ fontSize:12.5, color:"#666", lineHeight:1.8, marginTop:22, maxWidth:340 }}>
+        Already Premium? Make sure you signed in with your <b style={{color:"#999"}}>Skool account email</b>.<br/>
+        Signed in as <span style={{ color:"#998" }}>{email}</span> —{" "}
+        <span onClick={onSignOut} style={{ color:"#FFD166", cursor:"pointer", textDecoration:"underline" }}>
+          use a different email
+        </span>
+      </div>
+    </GateShell>
+  );
+}
+
+// AccessGate — decides what renders:
+//   • Public package link (?pkg= on the allowlist)  → app, no login
+//   • Not signed in                                  → login screen
+//   • Signed in, premium                             → app
+//   • Signed in, not premium                         → the wall
+function AccessGate({ children }) {
+  const [phase, setPhase] = useState("checking"); // checking | login | wall | open
+  const [userEmail, setUserEmail] = useState("");
+
+  // Public trial package bypasses everything.
+  const isPublicPkg = (() => {
+    try {
+      const pkg = new URLSearchParams(window.location.search).get("pkg");
+      return pkg != null && PUBLIC_PACKAGES.includes(pkg);
+    } catch (_) { return false; }
+  })();
+
+  useEffect(() => {
+    if (isPublicPkg) { setPhase("open"); return; }
+    let cancelled = false;
+
+    const evaluate = async (session) => {
+      if (cancelled) return;
+      if (!session) { setPhase("login"); return; }
+      const email = (session.user?.email || "").toLowerCase();
+      setUserEmail(email);
+      try {
+        const { data, error } = await supabaseAuth
+          .from("members").select("tier").maybeSingle();
+        if (error) throw error;
+        if (cancelled) return;
+        setPhase(data && data.tier === "premium" ? "open" : "wall");
+      } catch (_) {
+        // If the membership check itself fails (network blip), fail CLOSED to
+        // the wall rather than granting access — but never crash the app.
+        if (!cancelled) setPhase("wall");
+      }
+    };
+
+    supabaseAuth.auth.getSession().then(({ data }) => evaluate(data.session));
+    const { data: sub } = supabaseAuth.auth.onAuthStateChange((_event, session) => evaluate(session));
+    return () => { cancelled = true; sub?.subscription?.unsubscribe(); };
+  }, [isPublicPkg]);
+
+  const signOut = async () => {
+    try { await supabaseAuth.auth.signOut(); } catch (_) {}
+    setPhase("login");
+  };
+
+  if (phase === "open") return children;
+  if (phase === "login") return <GateLogin />;
+  if (phase === "wall") return <GateWall email={userEmail} onSignOut={signOut} />;
+  return (
+    <GateShell>
+      <div style={{ fontSize:34, marginBottom:12 }}>🎸</div>
+      <div style={{ fontSize:13, color:"#777" }}>Loading…</div>
+    </GateShell>
+  );
+}
 
 async function supabaseInsert(name, data) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/songs`, {
@@ -6846,11 +7024,13 @@ function LandingScreen({ onPick, streak }) {
   );
 }
 
-// ─── DEFAULT EXPORT — App wrapped in the error boundary ──────────────────────
+// ─── DEFAULT EXPORT — App wrapped in access gate + error boundary ─────────────
 export default function AppWithBoundary() {
   return (
     <ErrorBoundary>
-      <App />
+      <AccessGate>
+        <App />
+      </AccessGate>
     </ErrorBoundary>
   );
 }
