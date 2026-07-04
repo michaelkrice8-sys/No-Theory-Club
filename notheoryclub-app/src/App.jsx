@@ -186,7 +186,7 @@ function GateLogin() {
 
       const { error: err } = await supabaseAuth.auth.signInWithOtp({
         email: e,
-        options: { emailRedirectTo: window.location.origin }
+        options: { emailRedirectTo: window.location.href }
       });
       if (err) throw err;
       setSent(true);
