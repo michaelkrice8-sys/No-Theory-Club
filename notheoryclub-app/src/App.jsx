@@ -172,7 +172,7 @@ function GateLogin() {
   // in whatever browser they're standing in. No link, no browser roulette.
   const verifyCode = async () => {
     const token = code.replace(/\D/g, "");
-    if (token.length !== 6) { setCodeError("The code is 6 digits — check the email."); return; }
+    if (token.length < 6 || token.length > 8) { setCodeError("Enter the code exactly as it appears in the email."); return; }
     setVerifying(true); setCodeError("");
     try {
       const { error: err } = await supabaseAuth.auth.verifyOtp({
@@ -243,17 +243,17 @@ function GateLogin() {
       <div style={{ fontSize:52, marginBottom:16 }}>📬</div>
       <div style={{ fontSize:26, fontWeight:900, marginBottom:14 }}>Check your email</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:22 }}>
-        We sent a <b style={{color:"#e8e2d2"}}>6-digit code</b> to{" "}
+        We sent a <b style={{color:"#e8e2d2"}}>sign-in code</b> to{" "}
         <span style={{ color:"#FFD166", fontWeight:700 }}>{email.trim()}</span>.<br/>
         Type it below and you're in.
       </div>
       <input type="text" inputMode="numeric" autoComplete="one-time-code"
-        value={code} placeholder="123456" maxLength={6}
+        value={code} placeholder="123456" maxLength={8}
         onChange={(e)=>setCode(e.target.value.replace(/\D/g, ""))}
         onKeyDown={(e)=>{ if(e.key==="Enter") verifyCode(); }}
-        style={{ width:"100%", maxWidth:260, padding:"16px 18px", borderRadius:16,
+        style={{ width:"100%", maxWidth:320, padding:"16px 18px", borderRadius:16,
           border:"1px solid rgba(255,209,102,0.35)", background:"rgba(255,209,102,0.04)",
-          color:"#FFD166", fontSize:30, fontWeight:800, letterSpacing:10, marginBottom:16,
+          color:"#FFD166", fontSize:28, fontWeight:800, letterSpacing:6, marginBottom:16,
           outline:"none", textAlign:"center",
           fontFamily:"'Trebuchet MS', sans-serif", boxSizing:"border-box" }} />
       {codeError && <div style={{ fontSize:15, color:"#ff7a6b", marginBottom:12, maxWidth:380 }}>{codeError}</div>}
@@ -272,7 +272,7 @@ function GateLogin() {
       <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>Members sign in here</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:26 }}>
         Enter the email you use for your <b style={{color:"#e8e2d2"}}>Skool account</b> and
-        we'll send you a sign-in link. No password needed.
+        we'll email you a sign-in code. No password needed.
       </div>
       <input type="email" value={email} placeholder="you@example.com"
         onChange={(e)=>setEmail(e.target.value)}
@@ -282,7 +282,7 @@ function GateLogin() {
           color:"#fff", fontSize:18, marginBottom:16, outline:"none", textAlign:"center",
           fontFamily:"'Trebuchet MS', sans-serif", boxSizing:"border-box" }} />
       {error && <div style={{ fontSize:15, color:"#ff7a6b", marginBottom:12 }}>{error}</div>}
-      <GateButton onClick={send} disabled={busy}>{busy ? "Sending…" : "Email me a sign-in link"}</GateButton>
+      <GateButton onClick={send} disabled={busy}>{busy ? "Sending…" : "Email me a sign-in code"}</GateButton>
       <div style={{ fontSize:15, color:"#8a8578", marginTop:22, maxWidth:380, lineHeight:1.7 }}>
         Don't receive the link? DM me on Skool and I'll sort you out.
       </div>
