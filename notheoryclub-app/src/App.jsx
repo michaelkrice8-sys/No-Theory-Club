@@ -128,11 +128,13 @@ const UPGRADE_URL = "https://www.skool.com/notheoryclub/plans";
 function GateShell({ children }) {
   return (
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"center", padding:"24px",
+      alignItems:"center", justifyContent:"center", padding:"28px",
       background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff", textAlign:"center" }}>
-      <div style={{ fontSize:13, fontWeight:700, letterSpacing:1.5, marginBottom:4 }}>NO THEORY CLUB</div>
-      <div style={{ fontSize:11, color:"#555", marginBottom:22 }}>Guitar Practice Tool</div>
+      <div style={{ fontSize:22, fontWeight:800, letterSpacing:3, marginBottom:6,
+        background:"linear-gradient(135deg,#FFD166,#F77F00)",
+        WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>NO THEORY CLUB</div>
+      <div style={{ fontSize:13, color:"#8a8578", letterSpacing:2.5, textTransform:"uppercase", marginBottom:30 }}>Guitar Practice Tool</div>
       {children}
     </div>
   );
@@ -141,10 +143,13 @@ function GateShell({ children }) {
 function GateButton({ onClick, children, disabled }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      style={{ padding:"13px 26px", borderRadius:12, border:"none",
-        background: disabled ? "#3a3020" : "linear-gradient(135deg,#FFD60A,#F77F00)",
-        color: disabled ? "#776" : "#111", fontSize:15, fontWeight:800,
-        cursor: disabled ? "default" : "pointer", minWidth:220 }}>
+      style={{ padding:"16px 34px", borderRadius:16,
+        border:"1px solid " + (disabled ? "rgba(255,209,102,0.25)" : "rgba(255,209,102,0.6)"),
+        background: disabled ? "rgba(255,209,102,0.03)" : "rgba(255,209,102,0.07)",
+        boxShadow: disabled ? "none" : "0 0 24px rgba(247,127,0,0.18)",
+        color: disabled ? "#9a8f70" : "#FFD166", fontSize:19, fontWeight:800,
+        fontFamily:"'Trebuchet MS', sans-serif",
+        cursor: disabled ? "default" : "pointer", minWidth:250 }}>
       {children}
     </button>
   );
@@ -176,32 +181,32 @@ function GateLogin() {
 
   if (sent) return (
     <GateShell>
-      <div style={{ fontSize:40, marginBottom:14 }}>📬</div>
-      <div style={{ fontSize:19, fontWeight:900, marginBottom:10 }}>Check your email</div>
-      <div style={{ fontSize:14, color:"#999", lineHeight:1.7, maxWidth:340 }}>
+      <div style={{ fontSize:52, marginBottom:16 }}>📬</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:14 }}>Check your email</div>
+      <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400 }}>
         We sent a sign-in link to <span style={{ color:"#FFD166", fontWeight:700 }}>{email.trim()}</span>.<br/>
         Open it on this device and you'll be signed in automatically.<br/><br/>
-        <span style={{ fontSize:12.5, color:"#666" }}>No email after a couple of minutes? Check your spam folder.</span>
+        <span style={{ fontSize:15, color:"#8a8578" }}>No email after a couple of minutes? Check your spam folder.</span>
       </div>
     </GateShell>
   );
 
   return (
     <GateShell>
-      <div style={{ fontSize:40, marginBottom:14 }}>🎸</div>
-      <div style={{ fontSize:20, fontWeight:900, marginBottom:8 }}>Members sign in here</div>
-      <div style={{ fontSize:14, color:"#999", lineHeight:1.7, maxWidth:340, marginBottom:22 }}>
-        Enter the email you use for your <b style={{color:"#ccc"}}>Skool account</b> and
+      <div style={{ fontSize:52, marginBottom:16 }}>🎸</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>Members sign in here</div>
+      <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:26 }}>
+        Enter the email you use for your <b style={{color:"#e8e2d2"}}>Skool account</b> and
         we'll send you a sign-in link. No password needed.
       </div>
       <input type="email" value={email} placeholder="you@example.com"
         onChange={(e)=>setEmail(e.target.value)}
         onKeyDown={(e)=>{ if(e.key==="Enter") send(); }}
-        style={{ width:"100%", maxWidth:320, padding:"13px 16px", borderRadius:12,
-          border:"1px solid #3a3020", background:"#14100a", color:"#fff",
-          fontSize:15, marginBottom:12, outline:"none", textAlign:"center",
+        style={{ width:"100%", maxWidth:380, padding:"16px 18px", borderRadius:16,
+          border:"1px solid rgba(255,209,102,0.35)", background:"rgba(255,209,102,0.04)",
+          color:"#fff", fontSize:18, marginBottom:16, outline:"none", textAlign:"center",
           fontFamily:"'Trebuchet MS', sans-serif", boxSizing:"border-box" }} />
-      {error && <div style={{ fontSize:12.5, color:"#ff7a6b", marginBottom:10 }}>{error}</div>}
+      {error && <div style={{ fontSize:15, color:"#ff7a6b", marginBottom:12 }}>{error}</div>}
       <GateButton onClick={send} disabled={busy}>{busy ? "Sending…" : "Email me a sign-in link"}</GateButton>
     </GateShell>
   );
@@ -211,16 +216,16 @@ function GateLogin() {
 function GateWall({ email, onSignOut }) {
   return (
     <GateShell>
-      <div style={{ fontSize:40, marginBottom:14 }}>🔒</div>
-      <div style={{ fontSize:20, fontWeight:900, marginBottom:8 }}>The Practice App is for Premium members</div>
-      <div style={{ fontSize:14, color:"#999", lineHeight:1.7, maxWidth:360, marginBottom:22 }}>
+      <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>The Practice App is for Premium members</div>
+      <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
         Unlimited practice drills, the 30 Day Tracker, the Song Builder, and
         everything else — it all comes with No Theory Club Premium.
       </div>
       <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
-      <div style={{ fontSize:12.5, color:"#666", lineHeight:1.8, marginTop:22, maxWidth:340 }}>
-        Already Premium? Make sure you signed in with your <b style={{color:"#999"}}>Skool account email</b>.<br/>
-        Signed in as <span style={{ color:"#998" }}>{email}</span> —{" "}
+      <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
+        Already Premium? Make sure you signed in with your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
+        Signed in as <span style={{ color:"#b5ae9d" }}>{email}</span> —{" "}
         <span onClick={onSignOut} style={{ color:"#FFD166", cursor:"pointer", textDecoration:"underline" }}>
           use a different email
         </span>
@@ -283,8 +288,8 @@ function AccessGate({ children }) {
   if (phase === "wall") return <GateWall email={userEmail} onSignOut={signOut} />;
   return (
     <GateShell>
-      <div style={{ fontSize:34, marginBottom:12 }}>🎸</div>
-      <div style={{ fontSize:13, color:"#777" }}>Loading…</div>
+      <div style={{ fontSize:44, marginBottom:14 }}>🎸</div>
+      <div style={{ fontSize:16, color:"#8a8578" }}>Loading…</div>
     </GateShell>
   );
 }
