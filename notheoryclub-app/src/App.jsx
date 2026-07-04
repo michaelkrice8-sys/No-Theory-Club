@@ -119,7 +119,7 @@ const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Package links that are open to EVERYONE, no login required. The free-course
 // trial package lives here. Add more IDs to open more packages.
-const PUBLIC_PACKAGES = ["983c3ac1"];
+const PUBLIC_PACKAGES = ["983c3ac1", "7cb3898c", "e44930d9", "d1a9001e"];
 
 // Where the upgrade button sends non-premium users.
 const UPGRADE_URL = "https://www.skool.com/notheoryclub/plans";
