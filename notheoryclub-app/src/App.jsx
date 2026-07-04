@@ -156,17 +156,34 @@ function GateButton({ onClick, children, disabled }) {
 }
 
 // Login screen — email in, magic link out. No passwords.
+// Pre-checks membership so free members see the upgrade screen
+// immediately instead of receiving a pointless email.
 function GateLogin() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notPremium, setNotPremium] = useState(false);
 
   const send = async () => {
     const e = email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { setError("Please enter a valid email address."); return; }
     setBusy(true); setError("");
     try {
+      // Pre-flight: is this email premium? If the check itself fails,
+      // proceed with the normal flow (never block a real member).
+      try {
+        const chk = await fetch("https://notheoryclub.com/.netlify/functions/check-member?email=" + encodeURIComponent(e));
+        if (chk.ok) {
+          const info = await chk.json();
+          if (info && info.premium === false) {
+            setNotPremium(true);
+            setBusy(false);
+            return;
+          }
+        }
+      } catch (_) { /* check unavailable — carry on */ }
+
       const { error: err } = await supabaseAuth.auth.signInWithOtp({
         email: e,
         options: { emailRedirectTo: window.location.origin }
@@ -179,6 +196,25 @@ function GateLogin() {
     setBusy(false);
   };
 
+  if (notPremium) return (
+    <GateShell>
+      <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>The Practice App is for Premium members</div>
+      <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
+        Unlimited practice drills, the 30 Day Tracker, the Song Builder, and
+        everything else — it all comes with No Theory Club Premium.
+      </div>
+      <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
+      <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
+        Already Premium? Make sure you use your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
+        <span onClick={()=>{ setNotPremium(false); setEmail(""); }}
+          style={{ color:"#FFD166", cursor:"pointer", textDecoration:"underline" }}>
+          Try a different email
+        </span>
+      </div>
+    </GateShell>
+  );
+
   if (sent) return (
     <GateShell>
       <div style={{ fontSize:52, marginBottom:16 }}>📬</div>
@@ -186,7 +222,8 @@ function GateLogin() {
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400 }}>
         We sent a sign-in link to <span style={{ color:"#FFD166", fontWeight:700 }}>{email.trim()}</span>.<br/>
         Open it on this device and you'll be signed in automatically.<br/><br/>
-        <span style={{ fontSize:15, color:"#8a8578" }}>No email after a couple of minutes? Check your spam folder.</span>
+        <span style={{ fontSize:15, color:"#8a8578" }}>No email after a couple of minutes? Check your spam folder —
+        or DM me on Skool and I'll sort you out.</span>
       </div>
     </GateShell>
   );
@@ -208,6 +245,9 @@ function GateLogin() {
           fontFamily:"'Trebuchet MS', sans-serif", boxSizing:"border-box" }} />
       {error && <div style={{ fontSize:15, color:"#ff7a6b", marginBottom:12 }}>{error}</div>}
       <GateButton onClick={send} disabled={busy}>{busy ? "Sending…" : "Email me a sign-in link"}</GateButton>
+      <div style={{ fontSize:15, color:"#8a8578", marginTop:22, maxWidth:380, lineHeight:1.7 }}>
+        Don't receive the link? DM me on Skool and I'll sort you out.
+      </div>
     </GateShell>
   );
 }
