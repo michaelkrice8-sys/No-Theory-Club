@@ -445,7 +445,10 @@ function AccessGate({ children }) {
           // Pull cloud progress and merge BEFORE the app renders, so streaks
           // and saved items are present on first paint on any device.
           setPhase("syncing");
-          await syncPullAndMerge(session.user.id);
+          await Promise.race([
+            syncPullAndMerge(session.user.id),
+            new Promise((res) => setTimeout(res, 6000)) // never block practice
+          ]);
           if (cancelled) return;
           if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
           setPhase("open");
@@ -459,8 +462,18 @@ function AccessGate({ children }) {
       }
     };
 
-    supabaseAuth.auth.getSession().then(({ data }) => evaluate(data.session));
-    const { data: sub } = supabaseAuth.auth.onAuthStateChange((_event, session) => evaluate(session));
+    // NOTE: never run Supabase queries synchronously inside the auth callback —
+    // it holds an internal lock and deadlocks the client. Defer with setTimeout.
+    let running = false;
+    const evaluateDeferred = (session) => {
+      setTimeout(async () => {
+        if (running || cancelled) return;
+        running = true;
+        try { await evaluate(session); } finally { running = false; }
+      }, 0);
+    };
+    supabaseAuth.auth.getSession().then(({ data }) => evaluateDeferred(data.session));
+    const { data: sub } = supabaseAuth.auth.onAuthStateChange((_event, session) => evaluateDeferred(session));
     return () => { cancelled = true; sub?.subscription?.unsubscribe(); };
   }, [isPublicPkg]);
 
