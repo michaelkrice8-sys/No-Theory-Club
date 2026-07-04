@@ -164,6 +164,29 @@ function GateLogin() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notPremium, setNotPremium] = useState(false);
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [codeError, setCodeError] = useState("");
+
+  // Verify the 6-digit code from the email — signs the member in RIGHT HERE,
+  // in whatever browser they're standing in. No link, no browser roulette.
+  const verifyCode = async () => {
+    const token = code.replace(/\D/g, "");
+    if (token.length !== 6) { setCodeError("The code is 6 digits — check the email."); return; }
+    setVerifying(true); setCodeError("");
+    try {
+      const { error: err } = await supabaseAuth.auth.verifyOtp({
+        email: email.trim().toLowerCase(),
+        token,
+        type: "email"
+      });
+      if (err) throw err;
+      // Success: onAuthStateChange fires and the gate takes over from here.
+    } catch (ex) {
+      setCodeError("That code didn't work — double-check it, or request a fresh one. Codes expire after a few minutes.");
+      setVerifying(false);
+    }
+  };
 
   const send = async () => {
     const e = email.trim().toLowerCase();
@@ -219,11 +242,26 @@ function GateLogin() {
     <GateShell>
       <div style={{ fontSize:52, marginBottom:16 }}>📬</div>
       <div style={{ fontSize:26, fontWeight:900, marginBottom:14 }}>Check your email</div>
-      <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400 }}>
-        We sent a sign-in link to <span style={{ color:"#FFD166", fontWeight:700 }}>{email.trim()}</span>.<br/>
-        Open it on this device and you'll be signed in automatically.<br/><br/>
-        <span style={{ fontSize:15, color:"#8a8578" }}>No email after a couple of minutes? Check your spam folder —
-        or DM me on Skool and I'll sort you out.</span>
+      <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:22 }}>
+        We sent a <b style={{color:"#e8e2d2"}}>6-digit code</b> to{" "}
+        <span style={{ color:"#FFD166", fontWeight:700 }}>{email.trim()}</span>.<br/>
+        Type it below and you're in.
+      </div>
+      <input type="text" inputMode="numeric" autoComplete="one-time-code"
+        value={code} placeholder="123456" maxLength={6}
+        onChange={(e)=>setCode(e.target.value.replace(/\D/g, ""))}
+        onKeyDown={(e)=>{ if(e.key==="Enter") verifyCode(); }}
+        style={{ width:"100%", maxWidth:260, padding:"16px 18px", borderRadius:16,
+          border:"1px solid rgba(255,209,102,0.35)", background:"rgba(255,209,102,0.04)",
+          color:"#FFD166", fontSize:30, fontWeight:800, letterSpacing:10, marginBottom:16,
+          outline:"none", textAlign:"center",
+          fontFamily:"'Trebuchet MS', sans-serif", boxSizing:"border-box" }} />
+      {codeError && <div style={{ fontSize:15, color:"#ff7a6b", marginBottom:12, maxWidth:380 }}>{codeError}</div>}
+      <GateButton onClick={verifyCode} disabled={verifying}>{verifying ? "Checking…" : "Sign in"}</GateButton>
+      <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.8, marginTop:24, maxWidth:400 }}>
+        The email also has a sign-in link — the code and the link both work.<br/>
+        No email after a couple of minutes? Check your spam folder —
+        or DM me on Skool and I'll sort you out.
       </div>
     </GateShell>
   );
