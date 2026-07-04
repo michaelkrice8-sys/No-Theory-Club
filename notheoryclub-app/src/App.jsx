@@ -274,14 +274,150 @@ function GateWall({ email, onSignOut }) {
   );
 }
 
+// ─── PROGRESS SYNC ───────────────────────────────────────────────────────────
+// Mirrors the app's localStorage progress to the Supabase `progress` table for
+// logged-in premium members, so streaks/drills/songs follow them across
+// devices and survive cleared caches. localStorage stays the working copy;
+// the cloud is the durable one.
+
+const SYNC_KEYS = [
+  "ntc_drills", "ntc_patterns", "ntc_songs", "ntc_strum", "ntc_strum_tab",
+  "ntc-30day-tracker-v1"
+];
+const TRACKER_KEY = "ntc-30day-tracker-v1";
+
+function syncReadLocal(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+
+// Tracker merge: union of completed tasks, day by day. Practising on two
+// devices should never erase a ticked box on either.
+function mergeTracker(local, cloud) {
+  if (!Array.isArray(local)) return Array.isArray(cloud) ? cloud : null;
+  if (!Array.isArray(cloud)) return local;
+  const len = Math.max(local.length, cloud.length);
+  const merged = [];
+  for (let i = 0; i < len; i++) {
+    const a = local[i] || {}, b = cloud[i] || {};
+    const day = {};
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      day[k] = Boolean(a[k]) || Boolean(b[k]);
+    }
+    merged.push(day);
+  }
+  return merged;
+}
+
+// List merge: union with de-duplication (by exact content). Never loses a
+// saved item; a deletion made on one device may reappear from another —
+// the safe direction for practice data.
+function mergeList(local, cloud) {
+  if (!Array.isArray(local)) return Array.isArray(cloud) ? cloud : null;
+  if (!Array.isArray(cloud)) return local;
+  const seen = new Set();
+  const merged = [];
+  for (const item of [...local, ...cloud]) {
+    const sig = JSON.stringify(item);
+    if (!seen.has(sig)) { seen.add(sig); merged.push(item); }
+  }
+  return merged;
+}
+
+// Pull cloud progress, merge with local, write back to BOTH sides.
+// Runs once per login, before the app renders.
+async function syncPullAndMerge(userId) {
+  try {
+    const { data: rows, error } = await supabaseAuth
+      .from("progress").select("key, data");
+    if (error) throw error;
+
+    const cloud = {};
+    for (const r of (rows || [])) cloud[r.key] = r.data;
+
+    const toPush = [];
+    for (const key of SYNC_KEYS) {
+      const local = syncReadLocal(key);
+      const remote = key in cloud ? cloud[key] : null;
+      const merged = key === TRACKER_KEY
+        ? mergeTracker(local, remote)
+        : mergeList(local, remote);
+      if (merged == null) continue;
+      try { localStorage.setItem(key, JSON.stringify(merged)); } catch (_) {}
+      if (JSON.stringify(merged) !== JSON.stringify(remote)) {
+        toPush.push({ user_id: userId, key, data: merged, updated_at: new Date().toISOString() });
+      }
+    }
+    if (toPush.length) {
+      await supabaseAuth.from("progress").upsert(toPush, { onConflict: "user_id,key" });
+    }
+  } catch (e) {
+    console.log("progress sync (pull) skipped:", e && e.message ? e.message : e);
+  }
+}
+
+// Watch localStorage for changes and push them up, debounced. Uses snapshot
+// comparison so the app's existing save code needs no changes at all.
+function startSyncWatcher(userId) {
+  const snapshots = {};
+  for (const key of SYNC_KEYS) {
+    snapshots[key] = localStorage.getItem(key) || "";
+  }
+
+  let pending = {};
+  let pushTimer = null;
+
+  const flush = async () => {
+    const rows = Object.keys(pending).map((key) => ({
+      user_id: userId, key,
+      data: (() => { try { return JSON.parse(pending[key]); } catch (_) { return null; } })(),
+      updated_at: new Date().toISOString()
+    })).filter(r => r.data != null);
+    pending = {};
+    if (!rows.length) return;
+    try {
+      await supabaseAuth.from("progress").upsert(rows, { onConflict: "user_id,key" });
+    } catch (e) {
+      console.log("progress sync (push) failed:", e && e.message ? e.message : e);
+    }
+  };
+
+  const check = () => {
+    for (const key of SYNC_KEYS) {
+      const now = localStorage.getItem(key) || "";
+      if (now !== snapshots[key]) {
+        snapshots[key] = now;
+        if (now) pending[key] = now;
+        clearTimeout(pushTimer);
+        pushTimer = setTimeout(flush, 2500);
+      }
+    }
+  };
+
+  const interval = setInterval(check, 3000);
+  const onHide = () => { check(); clearTimeout(pushTimer); flush(); };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") onHide();
+  });
+  window.addEventListener("beforeunload", onHide);
+
+  return () => { clearInterval(interval); clearTimeout(pushTimer); };
+}
+
 // AccessGate — decides what renders:
 //   • Public package link (?pkg= on the allowlist)  → app, no login
 //   • Not signed in                                  → login screen
 //   • Signed in, premium                             → app
 //   • Signed in, not premium                         → the wall
 function AccessGate({ children }) {
-  const [phase, setPhase] = useState("checking"); // checking | login | wall | open
+  const [phase, setPhase] = useState("checking"); // checking | login | syncing | wall | open
   const [userEmail, setUserEmail] = useState("");
+  const watcherRef = useRef(null);
+
+  // Stop the sync watcher if the gate ever unmounts.
+  useEffect(() => () => { if (watcherRef.current) watcherRef.current(); }, []);
 
   // Public trial package bypasses everything.
   const isPublicPkg = (() => {
@@ -305,7 +441,17 @@ function AccessGate({ children }) {
           .from("members").select("tier").maybeSingle();
         if (error) throw error;
         if (cancelled) return;
-        setPhase(data && data.tier === "premium" ? "open" : "wall");
+        if (data && data.tier === "premium") {
+          // Pull cloud progress and merge BEFORE the app renders, so streaks
+          // and saved items are present on first paint on any device.
+          setPhase("syncing");
+          await syncPullAndMerge(session.user.id);
+          if (cancelled) return;
+          if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
+          setPhase("open");
+        } else {
+          setPhase("wall");
+        }
       } catch (_) {
         // If the membership check itself fails (network blip), fail CLOSED to
         // the wall rather than granting access — but never crash the app.
@@ -326,6 +472,12 @@ function AccessGate({ children }) {
   if (phase === "open") return children;
   if (phase === "login") return <GateLogin />;
   if (phase === "wall") return <GateWall email={userEmail} onSignOut={signOut} />;
+  if (phase === "syncing") return (
+    <GateShell>
+      <div style={{ fontSize:44, marginBottom:14 }}>🎸</div>
+      <div style={{ fontSize:16, color:"#8a8578" }}>Loading your progress…</div>
+    </GateShell>
+  );
   return (
     <GateShell>
       <div style={{ fontSize:44, marginBottom:14 }}>🎸</div>
