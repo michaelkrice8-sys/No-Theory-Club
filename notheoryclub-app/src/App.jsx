@@ -453,6 +453,7 @@ function AccessGate({ children }) {
   const [phase, setPhase] = useState("checking"); // checking | login | syncing | wall | open
   const [userEmail, setUserEmail] = useState("");
   const watcherRef = useRef(null);
+  const openedForRef = useRef(null); // user id the gate has already evaluated
 
   // Stop the sync watcher if the gate ever unmounts.
   useEffect(() => () => { if (watcherRef.current) watcherRef.current(); }, []);
@@ -471,7 +472,11 @@ function AccessGate({ children }) {
 
     const evaluate = async (session) => {
       if (cancelled) return;
-      if (!session) { setPhase("login"); return; }
+      if (!session) { openedForRef.current = null; setPhase("login"); return; }
+      // Same user, already evaluated (e.g. token refresh on tab focus):
+      // do nothing — never unmount the app underneath the member.
+      if (openedForRef.current === session.user.id) return;
+      openedForRef.current = session.user.id;
       const email = (session.user?.email || "").toLowerCase();
       setUserEmail(email);
       try {
@@ -517,6 +522,7 @@ function AccessGate({ children }) {
 
   const signOut = async () => {
     try { await supabaseAuth.auth.signOut(); } catch (_) {}
+    openedForRef.current = null;
     setPhase("login");
   };
 
