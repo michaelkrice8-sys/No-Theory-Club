@@ -7425,7 +7425,9 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     strumBeatRef.current = nextRaw;
     const strumIdx = nextRaw < r1 ? nextRaw : 8 + (nextRaw - r1);
     setCurrentStrum(strumIdx);
-    const isBarStart = nextRaw === 0 || (has2 && nextRaw === r1);
+    // One bar = the FULL pattern (all rows together), so a 2-row pattern never
+    // changes chords mid-pattern. "Bars per chord" counts whole cycles.
+    const isBarStart = nextRaw === 0;
     if (isBarStart && !firstTickRef.current) {
       const nextChordBeat = (chordBeatRef.current + 1) % bpcRef.current;
       chordBeatRef.current = nextChordBeat;
@@ -7544,7 +7546,6 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
 
   const curChord = songChords[chordIndex] || songChords[0];
   const nextChord = songChords.length > 1 ? songChords[upcoming] : null;
-  const rowSizeSetters = [setRow1Size, setRow2Size];
 
   return (
     <div style={{ maxWidth:560, margin:"0 auto", paddingBottom:30 }}>
@@ -7626,19 +7627,33 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                 const allowed = getAllowedChords([...new Set(songChords.map(slotBase))]);
                 const outside = allowed && !allowed.has(chord);
                 const full = songChords.length >= 10;
+                // Slots this chord already occupies (1-based) — duplicates allowed.
+                const positions = songChords.reduce((a, c, i) => slotBase(c) === chord ? [...a, i + 1] : a, []);
+                const isSel = positions.length > 0;
                 return (
-                  <button key={chord} disabled={full} onClick={()=>{
+                  <button key={chord} disabled={full} aria-pressed={isSel} onClick={()=>{
                     stopIfPlaying();
                     setSongChords(prev => prev.length >= 10 ? prev : [...prev, chord]);
-                  }} style={{ borderRadius:14, padding:"6px 4px 8px", cursor: full ? "default" : "pointer",
-                    border:"1px solid #241d10", background:"#0c0a06", fontFamily:"inherit",
-                    opacity: full ? 0.4 : 1, filter: outside ? "grayscale(55%) brightness(0.75)" : "none",
+                  }} style={{ position:"relative", borderRadius:14, padding:"6px 4px 8px",
+                    cursor: full ? "default" : "pointer", fontFamily:"inherit",
+                    border: isSel ? "2px solid rgba(255,190,11,0.75)" : "1px solid #241d10",
+                    background: isSel ? "rgba(255,190,11,0.06)" : "#0c0a06",
+                    boxShadow: isSel ? "0 0 14px rgba(255,170,20,0.3)" : "none",
+                    opacity: full ? 0.4 : 1, filter: outside && !isSel ? "grayscale(55%) brightness(0.75)" : "none",
                     transition:"all 0.15s" }}>
+                    {isSel && (
+                      <span style={{ position:"absolute", top:5, right:5, zIndex:2,
+                        background:"linear-gradient(135deg,#FFD60A,#F77F00)", color:"#111",
+                        borderRadius:9, padding:"2px 7px", fontSize:11, fontWeight:900,
+                        boxShadow:"0 1px 6px rgba(0,0,0,0.6)" }}>
+                        {positions.join(" ")}
+                      </span>
+                    )}
                     {getChordImg(chord, {})
                       ? <img src={getChordImg(chord, {})} alt={chord} style={{ width:"100%", display:"block", borderRadius:8 }} />
                       : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
                           justifyContent:"center", fontSize:20, fontWeight:900, color:"#d8cba0" }}>{chord}</div>}
-                    <div style={{ fontSize:12, fontWeight:900, color:"#d8cba0", marginTop:4 }}>{chord}</div>
+                    <div style={{ fontSize:12, fontWeight:900, color: isSel ? "#FFD60A" : "#d8cba0", marginTop:4 }}>{chord}</div>
                   </button>
                 );
               })}
@@ -7741,22 +7756,27 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
       {/* ── Practice — strumming, settings and metronome in ONE card ── */}
       <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
         padding:"16px 14px", marginBottom:16, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
-        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
-          STRUM PATTERN
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:12 }}>
+          <div style={{ fontSize:11, color:"#888", letterSpacing:2 }}>STRUM PATTERN</div>
+          {/* One length control for the whole pattern — applies to every row */}
+          <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+            const ns = cycleRowSize(row1Size);
+            setRow1Size(ns); setRow2Size(ns);
+            setStrumActive(p=>{ const n=[...p];
+              for(let i=ns;i<8;i++) n[i]=false;
+              for(let i=8+ns;i<16;i++) n[i]=false;
+              return n; });
+          }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+            background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+            {rowSizeLabel(row1Size)} ↻
+          </button>
         </div>
         {[0, ...(hasSecondRow ? [1] : [])].map(row => {
           const size = row === 0 ? row1Size : row2Size;
           return (
             <div key={row} style={{ marginBottom:10 }}>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
-                <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW {row + 1}</div>
-                <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                  const ns = cycleRowSize(size); rowSizeSetters[row](ns);
-                  setStrumActive(p=>{ const n=[...p]; for(let i=row*8+ns;i<row*8+8;i++) n[i]=false; return n; });
-                }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
-                  background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
-                  {rowSizeLabel(size)} ↻
-                </button>
+              <div style={{ textAlign:"center", fontSize:10, color:"#444", letterSpacing:1, marginBottom:5 }}>
+                ROW {row + 1}
               </div>
               <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"nowrap" }}>
                 {Array(size).fill(null).map((_, i) => {
@@ -7791,10 +7811,10 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
 
         <div style={{ height:1, background:"#1c1710", margin:"2px 0 14px" }} />
 
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1.15fr 1fr 0.75fr", gap:10, marginBottom:14 }}>
           <div>
-            <div style={{ fontSize:10, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:7 }}>BARS PER CHORD</div>
-            <div style={{ display:"flex", gap:6 }}>
+            <div style={{ fontSize:9.5, color:"#888", letterSpacing:1.5, textAlign:"center", marginBottom:7 }}>BARS PER CHORD</div>
+            <div style={{ display:"flex", gap:5 }}>
               {BEATS_OPTIONS.map(v => (
                 <button key={v} onClick={() => setBeatsPerChord(v)} style={{ flex:1, padding:"10px 0",
                   borderRadius:11, border:`1px solid ${beatsPerChord === v ? "rgba(255,190,11,0.55)" : "#241d10"}`,
@@ -7805,27 +7825,30 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
             </div>
           </div>
           <div>
-            <div style={{ fontSize:10, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:7 }}>CAPO</div>
-            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-              <button onClick={() => setCapo(c => Math.max(0, c - 1))} style={{ width:40, height:40,
+            <div style={{ fontSize:9.5, color:"#888", letterSpacing:1.5, textAlign:"center", marginBottom:7 }}>CAPO</div>
+            <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+              <button onClick={() => setCapo(c => Math.max(0, c - 1))} style={{ width:36, height:40,
                 borderRadius:11, border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B",
                 fontSize:16, fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>−</button>
               <div style={{ flex:1, textAlign:"center", fontSize:16, fontWeight:900, color:"#FFBE0B",
                 background:"#100d09", border:"1px solid #241d10", borderRadius:11, padding:"9px 0" }}>{capo}</div>
-              <button onClick={() => setCapo(c => Math.min(7, c + 1))} style={{ width:40, height:40,
+              <button onClick={() => setCapo(c => Math.min(7, c + 1))} style={{ width:36, height:40,
                 borderRadius:11, border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B",
                 fontSize:16, fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>+</button>
             </div>
           </div>
+          <div>
+            <div style={{ fontSize:9.5, color:"#888", letterSpacing:1.5, textAlign:"center", marginBottom:7 }}>RANDOM</div>
+            <button onClick={() => setSongRandom(v => !v)} aria-pressed={songRandom} style={{ width:"100%",
+              height:40, borderRadius:11,
+              border:`1px solid ${songRandom ? "rgba(255,190,11,0.55)" : "#241d10"}`,
+              background: songRandom ? "rgba(255,190,11,0.1)" : "#100d09",
+              color: songRandom ? "#FFD60A" : "#8a7f5e", fontSize:13, fontWeight:900,
+              cursor:"pointer", fontFamily:"inherit" }}>
+              🎲 {songRandom ? "ON" : "OFF"}
+            </button>
+          </div>
         </div>
-        <button onClick={() => setSongRandom(v => !v)} aria-pressed={songRandom} style={{ width:"100%",
-          padding:"10px", borderRadius:12, marginBottom:14,
-          border:`1px solid ${songRandom ? "rgba(255,190,11,0.55)" : "#241d10"}`,
-          background: songRandom ? "rgba(255,190,11,0.1)" : "#100d09",
-          color: songRandom ? "#FFD60A" : "#8a7f5e", fontSize:13, fontWeight:800,
-          cursor:"pointer", fontFamily:"inherit" }}>
-          🎲 Random chord order {songRandom ? "· ON" : "· OFF"}
-        </button>
 
         <div style={{ height:1, background:"#1c1710", margin:"2px 0 14px" }} />
 
