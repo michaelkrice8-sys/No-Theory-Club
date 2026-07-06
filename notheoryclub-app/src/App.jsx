@@ -6279,7 +6279,10 @@ function persistCelebrated()    { persistFlag(CELEBRATED_KEY); }
 // "fixed" overlays center on the tall tracker column instead of the screen.
 function FixedLayer({ children }) {
   if (typeof document === "undefined") return children;
-  return createPortal(children, document.body);
+  return createPortal(
+    <div style={{ fontFamily:"'Trebuchet MS', sans-serif" }}>{children}</div>,
+    document.body
+  );
 }
 
 // Same bit-packing encode/decode as the original standalone tracker — kept
@@ -7625,8 +7628,14 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
           <div onClick={e=>e.stopPropagation()} style={{ background:"#100d09",
             border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px",
             maxWidth:420, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
-            <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>
-              ADD A CHORD
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+              <div style={{ width:36 }} />
+              <div style={{ fontSize:11, color:"#888", letterSpacing:2 }}>ADD A CHORD</div>
+              {songChords.length > 0
+                ? <button onClick={()=>{ stopIfPlaying(); setSongChords([]); }}
+                    style={{ background:"none", border:"none", color:"#e74c3c", fontSize:11,
+                    fontWeight:700, cursor:"pointer", letterSpacing:0.5, fontFamily:"inherit" }}>Reset</button>
+                : <div style={{ width:36 }} />}
             </div>
             <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12 }}>
               {songChords.length}/10 · basic shape added — tap a chip's ⚙ to change voicing
@@ -7758,11 +7767,12 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
             )}
           </div>
           {beatsPerChord > 1 && (
-            <div style={{ display:"flex", justifyContent:"center", gap:6, marginTop:10 }}>
+            <div style={{ display:"flex", justifyContent:"center", gap:9, marginTop:12 }}>
               {Array.from({ length: beatsPerChord }, (_, i) => (
-                <div key={i} style={{ width:8, height:8, borderRadius:"50%",
-                  background: isPlaying && i <= beatCount ? "#FFBE0B" : "#241d10",
-                  boxShadow: isPlaying && i <= beatCount ? "0 0 8px rgba(255,170,20,0.5)" : "none",
+                <div key={i} style={{ width:14, height:14, borderRadius:"50%",
+                  border:"1px solid #2a2417",
+                  background: isPlaying && i <= beatCount ? "#FFBE0B" : "#1a160d",
+                  boxShadow: isPlaying && i <= beatCount ? "0 0 12px rgba(255,170,20,0.6)" : "none",
                   transition:"all 0.2s" }} />
               ))}
             </div>
