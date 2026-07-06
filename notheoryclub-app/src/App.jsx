@@ -7361,9 +7361,10 @@ const SONGBUILDER_KEY = "ntc-songbuilder-v1";
 function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, onOpenDev = null }) {
   const { init, playClick, playChordStrum, playChordClick } = audio;
 
-  // Song chords: per-slot keys (base chord or variant key), managed by
-  // ChordPickerPanel in ordered-sequence mode — max 10 slots like the builder.
+  // Song chords: per-slot keys (base chord or variant key), max 10 slots.
   const [songChords, setSongChords] = useState(["G", "C", "D"]);
+  const [addOpen, setAddOpen] = useState(false);      // add-chord visual popup
+  const [voicingFor, setVoicingFor] = useState(null); // slot index for voicing popup
 
   // Strum pattern: up to 2 rows of 8 slots (row 2 = indices 8-15).
   const [strumActive, setStrumActive] = useState(() => defaultBuild(8).concat(Array(8).fill(false)));
@@ -7505,6 +7506,13 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     }, 1000);
   };
 
+  const stopIfPlaying = () => {
+    if (isPlaying || countdown > 0) {
+      clearInterval(countdownRef.current); countdownRef.current = null; setCountdown(0);
+      stopMetronome(); setIsPlaying(false);
+    }
+  };
+
   // ── Save / load ──
   const persistSaved = (list) => {
     setSaved(list);
@@ -7543,25 +7551,154 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
       <style>{`@keyframes ntcSongSlide { from { opacity:0; transform:translateX(42px) scale(0.97); }
         to { opacity:1; transform:none; } }`}</style>
 
-      {/* ── Chord set — the SAME builder panel as the Chords tab ── */}
-      <ChordPickerPanel customChords={songChords} setCustomChords={setSongChords}
-        maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
-        stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
-        setChordIndex={setChordIndex} setBeatCount={setBeatCount}
-        beatRef={chordIdxRef} chordRef={chordIdxRef}
-        chordVariants={chordVariants} updateVariant={updateVariant}
-        allowDuplicates={true} onReset={()=>{}} />
+      {/* ── Your song — compact chips; chord picking happens in a portaled
+          popup so it centers on the SCREEN (the tab's transform-animated
+          wrapper hijacks position:fixed, which is why the old voicing modal
+          landed mid-column). ── */}
+      <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
+        padding:"16px 14px", marginBottom:16, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
+          YOUR SONG · {songChords.length}/10
+        </div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, justifyContent:"center" }}>
+          {songChords.map((c, i) => {
+            const base = slotBase(c);
+            const isVar = base !== c;
+            const active = isPlaying && i === chordIndex;
+            return (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:4, padding:"4px 6px 4px 10px",
+                borderRadius:20, background: active ? "rgba(255,190,11,0.2)" : "rgba(255,190,11,0.1)",
+                border:`1px solid ${active ? "rgba(255,190,11,0.7)" : "rgba(255,190,11,0.3)"}`,
+                fontSize:12, fontWeight:800, color:"#FFBE0B",
+                boxShadow: active ? "0 0 12px rgba(255,170,20,0.3)" : "none", transition:"all 0.2s" }}>
+                <span style={{ fontSize:9, color:"#888", marginRight:1 }}>{i + 1}</span>
+                {slotLabel(c)}
+                {HAS_VARIATIONS.has(base) && (
+                  <button onClick={()=>{ setVoicingFor(i); }} aria-label={`${slotLabel(c)} voicings`}
+                    style={{ minWidth:30, height:26, borderRadius:8, padding:"0 6px",
+                      border:`1px solid ${isVar ? "rgba(255,190,11,0.65)" : "rgba(255,190,11,0.35)"}`,
+                      background: isVar ? "rgba(255,190,11,0.15)" : "rgba(10,8,4,0.6)",
+                      color: isVar ? "#FFD60A" : "#c9a03a", fontSize:13, cursor:"pointer",
+                      lineHeight:1, fontFamily:"inherit" }}>⚙</button>
+                )}
+                <button onClick={()=>{ stopIfPlaying(); setSongChords(prev => prev.filter((_, x) => x !== i)); }}
+                  aria-label={`Remove ${slotLabel(c)}`} style={{ background:"none", border:"none",
+                  color:"#666", fontSize:13, cursor:"pointer", padding:"0 2px", lineHeight:1 }}>×</button>
+              </div>
+            );
+          })}
+          {songChords.length < 10 && (
+            <button onClick={()=>setAddOpen(true)} style={{ padding:"7px 14px", borderRadius:20,
+              border:"1px dashed rgba(255,190,11,0.4)", background:"transparent", color:"#FFBE0B",
+              fontSize:12.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+              + Chord
+            </button>
+          )}
+        </div>
+        {songChords.length > 0 && (
+          <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginTop:10, letterSpacing:0.5 }}>
+            {(() => {
+              const keys = getPossibleKeys([...new Set(songChords.map(slotBase))]);
+              return keys.length ? `KEY: ${keys.map(k => k.label).join(" · ")}` : "Outside a single key — that's allowed";
+            })()}
+          </div>
+        )}
+      </div>
+
+      {/* ── Add-chord popup — chord VISUALS, basic voicing auto-selected ── */}
+      {addOpen && (
+        <FixedLayer>
+        <div onClick={()=>setAddOpen(false)} style={{ position:"fixed", inset:0, zIndex:1000,
+          background:"rgba(0,0,0,0.78)", display:"flex", alignItems:"center", justifyContent:"center",
+          padding:20, animation:"ntcModalFade 0.25s ease both" }}>
+          <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#100d09",
+            border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px",
+            maxWidth:420, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
+            <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>
+              ADD A CHORD
+            </div>
+            <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12 }}>
+              {songChords.length}/10 · basic shape added — tap a chip's ⚙ to change voicing
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+              {ALL_CHORDS.map(chord => {
+                const allowed = getAllowedChords([...new Set(songChords.map(slotBase))]);
+                const outside = allowed && !allowed.has(chord);
+                const full = songChords.length >= 10;
+                return (
+                  <button key={chord} disabled={full} onClick={()=>{
+                    stopIfPlaying();
+                    setSongChords(prev => prev.length >= 10 ? prev : [...prev, chord]);
+                  }} style={{ borderRadius:14, padding:"6px 4px 8px", cursor: full ? "default" : "pointer",
+                    border:"1px solid #241d10", background:"#0c0a06", fontFamily:"inherit",
+                    opacity: full ? 0.4 : 1, filter: outside ? "grayscale(55%) brightness(0.75)" : "none",
+                    transition:"all 0.15s" }}>
+                    {getChordImg(chord, {})
+                      ? <img src={getChordImg(chord, {})} alt={chord} style={{ width:"100%", display:"block", borderRadius:8 }} />
+                      : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
+                          justifyContent:"center", fontSize:20, fontWeight:900, color:"#d8cba0" }}>{chord}</div>}
+                    <div style={{ fontSize:12, fontWeight:900, color:"#d8cba0", marginTop:4 }}>{chord}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={()=>setAddOpen(false)} style={{ ...GLOW_BTN, width:"100%", marginTop:14,
+              borderRadius:12, padding:"12px", fontSize:14 }}>Done</button>
+          </div>
+        </div>
+        </FixedLayer>
+      )}
+
+      {/* ── Voicing popup — visual tiles, current highlighted ── */}
+      {voicingFor != null && songChords[voicingFor] != null && (
+        <FixedLayer>
+        <div onClick={()=>setVoicingFor(null)} style={{ position:"fixed", inset:0, zIndex:1000,
+          background:"rgba(0,0,0,0.78)", display:"flex", alignItems:"center", justifyContent:"center",
+          padding:20, animation:"ntcModalFade 0.25s ease both" }}>
+          <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#100d09",
+            border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px",
+            maxWidth:420, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
+            <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
+              {slotBase(songChords[voicingFor])} VOICINGS
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+              {(CHORD_VARIATION_MAP[slotBase(songChords[voicingFor])] || []).map(opt => {
+                const on = songChords[voicingFor] === opt.key;
+                return (
+                  <button key={opt.key} onClick={()=>{
+                    stopIfPlaying();
+                    setSongChords(prev => prev.map((c, x) => x === voicingFor ? opt.key : c));
+                    setVoicingFor(null);
+                  }} style={{ borderRadius:14, padding:"6px 4px 8px", cursor:"pointer", fontFamily:"inherit",
+                    border:`2px solid ${on ? "rgba(255,190,11,0.75)" : "#241d10"}`,
+                    background: on ? "rgba(255,190,11,0.08)" : "#0c0a06",
+                    boxShadow: on ? "0 0 14px rgba(255,170,20,0.3)" : "none", transition:"all 0.15s" }}>
+                    {slotImg(opt.key)
+                      ? <img src={slotImg(opt.key)} alt={opt.label} style={{ width:"100%", display:"block", borderRadius:8 }} />
+                      : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
+                          justifyContent:"center", fontSize:16, fontWeight:900, color:"#d8cba0" }}>{opt.label}</div>}
+                    <div style={{ fontSize:12, fontWeight:900, color: on ? "#FFD60A" : "#d8cba0", marginTop:4 }}>{opt.label}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        </FixedLayer>
+      )}
 
       {/* ── Now playing — re-keyed card, correct animation by construction ── */}
       {songChords.length > 0 && (
         <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
-          padding:"18px 14px", marginBottom:20, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
+          padding:"16px 14px", marginBottom:16, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
           <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
             NOW PLAYING
           </div>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:14 }}>
             <div key={changeSeq} style={{ textAlign:"center", animation:"ntcSongSlide 0.32s ease both" }}>
-              <div style={{ width:190, borderRadius:18, overflow:"hidden",
+              <div style={{ width:170, borderRadius:18, overflow:"hidden",
                 border:"2px solid rgba(255,190,11,0.7)", boxShadow:"0 0 26px rgba(255,170,20,0.28)",
                 background:"#14100a" }}>
                 {curChord && slotImg(curChord)
@@ -7569,7 +7706,7 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                   : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center", justifyContent:"center",
                       fontSize:34, fontWeight:900, color:"#FFD60A" }}>{curChord ? slotLabel(curChord) : "—"}</div>}
               </div>
-              <div style={{ marginTop:9, fontSize:19, fontWeight:900, color:"#FFD60A", letterSpacing:0.5 }}>
+              <div style={{ marginTop:8, fontSize:18, fontWeight:900, color:"#FFD60A", letterSpacing:0.5 }}>
                 {curChord ? slotLabel(curChord) : ""}
               </div>
             </div>
@@ -7577,19 +7714,19 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
               <div style={{ textAlign:"center", opacity:0.75 }}>
                 <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
                   fontWeight:800, marginBottom:6 }}>Next</div>
-                <div style={{ width:86, borderRadius:12, overflow:"hidden", border:"1px solid #2a2417",
+                <div style={{ width:80, borderRadius:12, overflow:"hidden", border:"1px solid #2a2417",
                   background:"#100d09" }}>
                   {slotImg(nextChord)
                     ? <img src={slotImg(nextChord)} alt={slotLabel(nextChord)} style={{ width:"100%", display:"block" }} />
                     : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center", justifyContent:"center",
-                        fontSize:17, fontWeight:900, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>}
+                        fontSize:16, fontWeight:900, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>}
                 </div>
                 <div style={{ marginTop:5, fontSize:12, fontWeight:800, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>
               </div>
             )}
           </div>
           {beatsPerChord > 1 && (
-            <div style={{ display:"flex", justifyContent:"center", gap:6, marginTop:12 }}>
+            <div style={{ display:"flex", justifyContent:"center", gap:6, marginTop:10 }}>
               {Array.from({ length: beatsPerChord }, (_, i) => (
                 <div key={i} style={{ width:8, height:8, borderRadius:"50%",
                   background: isPlaying && i <= beatCount ? "#FFBE0B" : "#241d10",
@@ -7601,9 +7738,9 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
         </div>
       )}
 
-      {/* ── Strum pattern — the SAME rows as the strum builder ── */}
+      {/* ── Practice — strumming, settings and metronome in ONE card ── */}
       <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
-        padding:"16px 14px", marginBottom:20, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
+        padding:"16px 14px", marginBottom:16, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
         <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
           STRUM PATTERN
         </div>
@@ -7621,11 +7758,11 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                   {rowSizeLabel(size)} ↻
                 </button>
               </div>
-              <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap" }}>
+              <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"nowrap" }}>
                 {Array(size).fill(null).map((_, i) => {
                   const idx = row * 8 + i;
                   return (
-                    <div key={idx} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+                    <div key={idx} style={{ flex:"1 1 0", minWidth:0, maxWidth:54, aspectRatio:"1/1", display:"flex" }}>
                       <BuildBlock dir={DIRS16[i % 8]} active={strumActive[idx]} beat={currentStrum===idx&&isPlaying} fluid
                         onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
                           setStrumActive(p=>p.map((v,x)=>x===idx?!v:v)); }} />
@@ -7636,27 +7773,25 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
             </div>
           );
         })}
-        <div style={{ display:"flex", justifyContent:"center", marginTop:8 }}>
+        <div style={{ display:"flex", justifyContent:"center", marginBottom:14 }}>
           {hasSecondRow ? (
             <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
               setHasSecondRow(false);
               setStrumActive(p=>{ const n=[...p]; for(let i=8;i<16;i++) n[i]=false; return n; });
-            }} style={{ padding:"7px 14px", borderRadius:9, border:"1px solid #333",
+            }} style={{ padding:"6px 14px", borderRadius:9, border:"1px solid #333",
               background:"transparent", color:"#8a7f5e", fontSize:12, fontWeight:700,
               cursor:"pointer", fontFamily:"inherit" }}>× Remove Row 2</button>
           ) : (
             <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setHasSecondRow(true); }}
-              style={{ padding:"7px 14px", borderRadius:9, border:"1px dashed rgba(255,190,11,0.4)",
+              style={{ padding:"6px 14px", borderRadius:9, border:"1px dashed rgba(255,190,11,0.4)",
               background:"transparent", color:"#FFBE0B", fontSize:12, fontWeight:700,
               cursor:"pointer", fontFamily:"inherit" }}>+ Add Row</button>
           )}
         </div>
-      </div>
 
-      {/* ── Bars per chord / capo / random ── */}
-      <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
-        padding:"16px 14px", marginBottom:20, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+        <div style={{ height:1, background:"#1c1710", margin:"2px 0 14px" }} />
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
           <div>
             <div style={{ fontSize:10, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:7 }}>BARS PER CHORD</div>
             <div style={{ display:"flex", gap:6 }}>
@@ -7684,20 +7819,55 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
           </div>
         </div>
         <button onClick={() => setSongRandom(v => !v)} aria-pressed={songRandom} style={{ width:"100%",
-          padding:"11px", borderRadius:12,
+          padding:"10px", borderRadius:12, marginBottom:14,
           border:`1px solid ${songRandom ? "rgba(255,190,11,0.55)" : "#241d10"}`,
           background: songRandom ? "rgba(255,190,11,0.1)" : "#100d09",
           color: songRandom ? "#FFD60A" : "#8a7f5e", fontSize:13, fontWeight:800,
           cursor:"pointer", fontFamily:"inherit" }}>
           🎲 Random chord order {songRandom ? "· ON" : "· OFF"}
         </button>
-      </div>
 
-      {/* ── BPM + Start — the SAME metronome panel as the other builders ── */}
-      <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
-        totalBlocks={hasSecondRow ? row1Size + row2Size : row1Size} currentBeat={currentStrum}
-        accentColor="#FFBE0B" onToggle={handleTogglePlay} countdown={countdown}
-        canPlay={songChords.length > 0} disabledLabel="Add a chord to start" />
+        <div style={{ height:1, background:"#1c1710", margin:"2px 0 14px" }} />
+
+        {/* Metronome — same controls/styles as MetronomePanel, inlined to fit */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <span style={{ fontSize:13, fontWeight:800 }}>Metronome</span>
+          <span style={{ fontSize:15, fontWeight:900, color:"#FFBE0B" }}>{bpm} BPM</span>
+        </div>
+        <input type="range" min={20} max={160} value={bpm} className="ntc-bpm-slider"
+          onChange={e=>setBpm(Number(e.target.value))} style={{ marginBottom:6, width:"100%" }} />
+        <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:14 }}>
+          {[40,60,80,100].map(b=>(
+            <button key={b} onClick={()=>setBpm(b)} style={{
+              flex:1, maxWidth:90, padding:"10px 0", borderRadius:12,
+              border:`1px solid ${bpm===b ? "rgba(255,190,11,0.5)" : "#241d10"}`,
+              background:bpm===b?"rgba(255,190,11,0.1)":"#100d09",
+              color:bpm===b?"#FFD60A":"#8a7f5e", fontSize:14, fontWeight:800, cursor:"pointer",
+              fontFamily:"inherit", transition:"all 0.2s" }}>{b}</button>
+          ))}
+        </div>
+        <button onClick={handleTogglePlay} disabled={!songChords.length} style={{
+          width:"100%", padding:"14px", borderRadius:14,
+          border: !songChords.length ? "1px solid #1c1710"
+            : (isPlaying||countdown>0) ? "1px solid rgba(231,76,60,0.5)"
+            : "1px solid rgba(255,190,11,0.5)",
+          background: !songChords.length ? "#100d09"
+            : (isPlaying||countdown>0) ? "radial-gradient(120% 160% at 50% 0%, rgba(231,76,60,0.18) 0%, rgba(231,76,60,0) 70%), #1a0f0c"
+            : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+          color:!songChords.length?"#3a3528": (isPlaying||countdown>0) ? "#ff8a7a" : "#FFD60A",
+          fontSize:16, fontWeight:900, letterSpacing:0.5,
+          cursor:songChords.length?"pointer":"not-allowed",
+          boxShadow: !songChords.length?"none"
+            : (isPlaying||countdown>0) ? "0 0 22px rgba(231,76,60,0.2)"
+            : "0 0 22px rgba(255,160,20,0.22)",
+          fontFamily:"inherit", transition:"all 0.2s" }}>
+          {!songChords.length ? "Add a chord to start"
+            : countdown>0
+              ? <><span style={{ fontSize:22, fontWeight:900 }}>{countdown}</span>
+                  <span style={{ fontSize:11, fontWeight:700, opacity:0.7, marginLeft:8 }}>tap to skip</span></>
+              : isPlaying ? "⏹ Stop" : "▶ Start"}
+        </button>
+      </div>
 
       {/* ── Save / My songs ── */}
       <div style={{ display:"flex", gap:8, justifyContent:"center", marginTop:20 }}>
@@ -8941,8 +9111,8 @@ function LandingScreen({ onPick, streak, isDev = false, onDev = null }) {
   const items = [
     { id:"strum",   icon:"🎸", title:"Strumming",      sub:"Patterns, rhythm & the universal motion" },
     { id:"chords",  icon:"🤚", title:"Chords",          sub:"Switching drills & chord packs" },
-    { id:"tracker", icon:"🔥", title:"30-Day Tracker",  sub:"Build the habit, keep your streak", streak:true },
     { id:"song",    icon:"🎵", title:"Build a Song",    sub:"Your chords + strumming, played back" },
+    { id:"tracker", icon:"🔥", title:"30-Day Tracker",  sub:"Build the habit, keep your streak", streak:true },
   ];
 
   const [hover, setHover] = useState(null);
