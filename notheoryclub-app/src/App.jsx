@@ -7618,8 +7618,15 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
           landed mid-column). ── */}
       <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
         padding:"16px 14px", marginBottom:16, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
-        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
-          YOUR SONG · {songChords.length}/10
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+          <div style={{ width:44 }} />
+          <div style={{ fontSize:11, color:"#888", letterSpacing:2 }}>YOUR SONG · {songChords.length}/10</div>
+          {songChords.length > 0
+            ? <button onClick={()=>{ stopIfPlaying(); setSongChords([]); }}
+                style={{ background:"rgba(231,76,60,0.08)", border:"1px solid rgba(231,76,60,0.45)",
+                color:"#ff6b5e", fontSize:11, fontWeight:800, cursor:"pointer", letterSpacing:0.5,
+                padding:"5px 11px", borderRadius:9, fontFamily:"inherit" }}>Reset</button>
+            : <div style={{ width:44 }} />}
         </div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:6, justifyContent:"center" }}>
           {songChords.map((c, i) => {
@@ -7677,13 +7684,14 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
             border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px",
             maxWidth:420, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
-              <div style={{ width:36 }} />
+              <div style={{ width:44 }} />
               <div style={{ fontSize:11, color:"#888", letterSpacing:2 }}>ADD A CHORD</div>
               {songChords.length > 0
                 ? <button onClick={()=>{ stopIfPlaying(); setSongChords([]); }}
-                    style={{ background:"none", border:"none", color:"#e74c3c", fontSize:11,
-                    fontWeight:700, cursor:"pointer", letterSpacing:0.5, fontFamily:"inherit" }}>Reset</button>
-                : <div style={{ width:36 }} />}
+                    style={{ background:"rgba(231,76,60,0.08)", border:"1px solid rgba(231,76,60,0.45)",
+                    color:"#ff6b5e", fontSize:11, fontWeight:800, cursor:"pointer", letterSpacing:0.5,
+                    padding:"5px 11px", borderRadius:9, fontFamily:"inherit" }}>Reset</button>
+                : <div style={{ width:44 }} />}
             </div>
             <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12 }}>
               {songChords.length}/10 · basic shape added — tap a chip's ⚙ to change voicing
@@ -7909,10 +7917,9 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
 
         <div style={{ height:1, background:"#1c1710", margin:"2px 0 14px" }} />
 
-        {/* Metronome — same controls/styles as MetronomePanel, inlined to fit */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-          <span style={{ fontSize:13, fontWeight:800 }}>Metronome</span>
-          <span style={{ fontSize:15, fontWeight:900, color:"#FFBE0B" }}>{bpm} BPM</span>
+          <span style={{ fontSize:12, fontWeight:800, color:"#d8cba0" }}>BPM</span>
+          <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
         </div>
         <input type="range" min={20} max={160} value={bpm} className="ntc-bpm-slider"
           onChange={e=>setBpm(Number(e.target.value))} style={{ marginBottom:6, width:"100%" }} />
@@ -9200,7 +9207,6 @@ function LandingScreen({ onPick, streak, isDev = false, onDev = null }) {
     { id:"strum",   icon:"🎸", title:"Strumming",      sub:"Patterns, rhythm & the universal motion" },
     { id:"chords",  icon:"🤚", title:"Chords",          sub:"Switching drills & chord packs" },
     { id:"song",    icon:"🎵", title:"Build a Song",    sub:"Your chords + strumming, played back" },
-    { id:"tracker", icon:"🔥", title:"30-Day Tracker",  sub:"Build the habit, keep your streak", streak:true },
   ];
 
   const [hover, setHover] = useState(null);
@@ -9291,6 +9297,45 @@ function LandingScreen({ onPick, streak, isDev = false, onDev = null }) {
               </button>
             );
           })}
+        </div>
+
+        {/* Progress Tracker — set apart, with a breathing outline glow. The glow
+            is an absolutely-positioned layer animated on OPACITY only, so it
+            stays compositor-friendly (no per-frame paint of the card itself). */}
+        <div style={{ width:"100%", marginTop:22, ...rise(0.52) }}>
+          <style>{`@keyframes ntcTrackerGlow { 0%, 100% { opacity:0.3; } 50% { opacity:1; } }`}</style>
+          <button
+            onClick={()=>onPick("tracker")}
+            onMouseEnter={()=>setHover("tracker")}
+            onMouseLeave={()=>setHover(null)}
+            style={{
+              position:"relative", width:"100%",
+              border:`1px solid ${hover==="tracker" ? "rgba(255,190,11,0.65)" : "rgba(255,190,11,0.4)"}`,
+              borderRadius:18, padding:"20px", cursor:"pointer", textAlign:"left",
+              display:"flex", alignItems:"center", gap:16, color:"#fff", fontFamily:"inherit",
+              background:"radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.12) 0%, rgba(255,170,30,0) 60%), #120e08",
+              boxShadow:"0 6px 22px rgba(0,0,0,0.45)",
+              transform: hover==="tracker" ? "translateY(-2px)" : "translateY(0)",
+              transition:"transform 0.18s ease, border-color 0.25s ease",
+            }}>
+            <span aria-hidden="true" style={{ position:"absolute", inset:-1, borderRadius:18,
+              pointerEvents:"none", boxShadow:"0 0 26px rgba(255,170,20,0.5), inset 0 0 14px rgba(255,170,20,0.12)",
+              animation:"ntcTrackerGlow 2.8s ease-in-out infinite" }} />
+            <span style={{ fontSize:26, width:48, height:48, borderRadius:14,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.25)",
+              flexShrink:0 }}>🔥</span>
+            <span style={{ display:"flex", flexDirection:"column", gap:3 }}>
+              <span style={{ fontSize:18, fontWeight:900, letterSpacing:0.2, color:"#FFD60A" }}>Progress Tracker</span>
+              <span style={{ fontSize:12, fontWeight:600, color:"#9a8d6a" }}>Build the habit, keep your streak</span>
+            </span>
+            <span style={{ marginLeft:"auto", display:"flex", flexDirection:"column", alignItems:"center",
+              background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.35)",
+              borderRadius:11, padding:"5px 11px", marginRight:6 }}>
+              <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B", lineHeight:1 }}>{streak||0}</span>
+              <span style={{ fontSize:8, color:"#776b4d", letterSpacing:1, marginTop:2 }}>DAYS</span>
+            </span>
+          </button>
         </div>
 
         {/* Founder-only: legacy authoring suite */}
