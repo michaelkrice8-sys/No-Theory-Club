@@ -7263,7 +7263,7 @@ function CustomTracker({ saved, onChange, onEdit, onDelete, hideGenerate = false
         </button>
       </div>
 
-      {!hideGenerate && <GenerateLauncherButton />}
+      {!hideGenerate && <GenerateLauncherButton theme={T} />}
 
       {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:11, marginBottom:22 }}>
@@ -7393,9 +7393,15 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   const countdownRef = useRef(null);
   const [currentStrum, setCurrentStrum] = useState(-1);
   const [chordIndex, setChordIndex] = useState(0);
-  const [upcoming, setUpcoming] = useState(1);   // pre-decided next chord (accurate NEXT preview)
-  const [changeSeq, setChangeSeq] = useState(0); // re-keys the chord card → slide always fires
   const [beatCount, setBeatCount] = useState(0);
+  // ChordGrid carousel state — identical wiring to the package-view song player.
+  const [slideSignal, setSlideSignal] = useState(0);
+  const [slideDurMs, setSlideDurMs] = useState(380);
+  const slideArmedRef = useRef(false);
+  const [songPrev, setSongPrev] = useState(0);
+  const [songNextDisplay, setSongNextDisplay] = useState(0);
+  const [songNext2, setSongNext2] = useState(0);
+  const shuffleQueueRef = useRef([]);
 
   const [saved, setSaved] = useState(() => {
     try { return JSON.parse(localStorage.getItem(SONGBUILDER_KEY) || "[]"); } catch (_) { return []; }
@@ -7416,18 +7422,25 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   const has2Ref = useRef(hasSecondRow);
   useEffect(()=>{ r1Ref.current=row1Size; r2Ref.current=row2Size; has2Ref.current=hasSecondRow; },[row1Size,row2Size,hasSecondRow]);
   const chordIdxRef = useRef(0);
-  const upcomingRef = useRef(1);
   const chordBeatRef = useRef(0);
   const strumBeatRef = useRef(-1);
   const firstTickRef = useRef(true);
 
-  const pickUpcoming = (fromIdx) => {
-    const len = chordsRef.current.length;
-    if (len <= 1) return 0;
-    if (!randomRef.current) return (fromIdx + 1) % len;
-    let n = fromIdx;
-    while (n === fromIdx) n = Math.floor(Math.random() * len);
-    return n;
+  // Shuffle queue — same no-repeat lookahead the package-view song uses, so the
+  // carousel's peeks are always known ahead of time.
+  const makeSongShuffle = (len, avoidFirst = null) => {
+    const a = Array.from({ length: len }, (_, i) => i);
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    if (avoidFirst != null && len > 1 && a[0] === avoidFirst) { [a[0], a[1]] = [a[1], a[0]]; }
+    return a;
+  };
+  const refillSongQueue = (len) => {
+    const q = shuffleQueueRef.current;
+    const last = q.length ? q[q.length - 1] : null;
+    shuffleQueueRef.current = q.concat(makeSongShuffle(len, last));
+  };
+  const ensureSongQueue = (len, min = 8) => {
+    while (shuffleQueueRef.current.length < min) refillSongQueue(len);
   };
 
   const tick = useCallback(() => {
@@ -7440,17 +7453,40 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     // One bar = the FULL pattern (all rows together), so a 2-row pattern never
     // changes chords mid-pattern. "Bars per chord" counts whole cycles.
     const isBarStart = nextRaw === 0;
+    const chords = chordsRef.current;
     if (isBarStart && !firstTickRef.current) {
       const nextChordBeat = (chordBeatRef.current + 1) % bpcRef.current;
       chordBeatRef.current = nextChordBeat;
       setBeatCount(nextChordBeat);
-      if (nextChordBeat === 0 && chordsRef.current.length > 1) {
-        chordIdxRef.current = upcomingRef.current;
-        setChordIndex(upcomingRef.current);
-        upcomingRef.current = pickUpcoming(upcomingRef.current);
-        setUpcoming(upcomingRef.current);
-        setChangeSeq(s => s + 1);
+      if (nextChordBeat === 0 && chords.length > 1) {
+        if (randomRef.current) {
+          const len = chords.length;
+          setSongPrev(chordIdxRef.current);
+          ensureSongQueue(len, 8);
+          const incoming = shuffleQueueRef.current.shift();
+          chordIdxRef.current = incoming; setChordIndex(incoming);
+          ensureSongQueue(len, 8);
+          setSongNextDisplay(shuffleQueueRef.current[0]);
+          setSongNext2(shuffleQueueRef.current[1]);
+        } else {
+          const nextChord = (chordIdxRef.current + 1) % chords.length;
+          chordIdxRef.current = nextChord; setChordIndex(nextChord);
+        }
       }
+    }
+    // Slide trigger — start the carousel slide exactly 2 arrows before the
+    // pattern wraps on the chord's final run-through (same as package view).
+    if (chords.length > 1) {
+      const onFinalRun = chordBeatRef.current === bpcRef.current - 1;
+      const tickMs = (60 / bpmRef.current / 2) * 1000;
+      const lead = 2;
+      const slideStartRaw = (totalS - lead + totalS) % totalS;
+      if (onFinalRun && nextRaw === slideStartRaw && !slideArmedRef.current && !firstTickRef.current) {
+        slideArmedRef.current = true;
+        setSlideDurMs(lead * tickMs);
+        setSlideSignal(s => s + 1);
+      }
+      if (nextRaw === 0) slideArmedRef.current = false;
     }
     firstTickRef.current = false;
     if (nextRaw % 2 === 0) playChordClick(nextRaw === 0);
@@ -7463,9 +7499,24 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
 
   const startMetronome = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
-    strumBeatRef.current = -1; chordBeatRef.current = 0; firstTickRef.current = true;
-    chordIdxRef.current = 0; setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
-    upcomingRef.current = pickUpcoming(0); setUpcoming(upcomingRef.current);
+    strumBeatRef.current = -1; chordBeatRef.current = 0;
+    firstTickRef.current = true; slideArmedRef.current = false;
+    if (randomRef.current && chordsRef.current.length > 1) {
+      const len = chordsRef.current.length;
+      if (shuffleQueueRef.current.length < 3) {
+        shuffleQueueRef.current = [];
+        ensureSongQueue(len, 12);
+        chordIdxRef.current = shuffleQueueRef.current.shift();
+        ensureSongQueue(len, 12);
+      }
+      setChordIndex(chordIdxRef.current);
+      setSongNextDisplay(shuffleQueueRef.current[0]);
+      setSongNext2(shuffleQueueRef.current[1]);
+      setBeatCount(0); setCurrentStrum(-1);
+    } else {
+      chordIdxRef.current = 0; shuffleQueueRef.current = [];
+      setChordIndex(0); setBeatCount(0); setCurrentStrum(-1);
+    }
     const ms = (60 / bpmRef.current / 2) * 1000;
     intervalRef.current = setInterval(tick, ms);
     tick();
@@ -7556,14 +7607,11 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     setShowSaved(false);
   };
 
-  const curChord = songChords[chordIndex] || songChords[0];
-  const nextChord = songChords.length > 1 ? songChords[upcoming] : null;
+  const nextChordIndex = songChords.length > 0 ? (songRandom ? songNextDisplay : (chordIndex + 1) % songChords.length) : 0;
+  const isLastBeat = isPlaying && beatCount === beatsPerChord - 1;
 
   return (
     <div style={{ maxWidth:560, margin:"0 auto", padding:"24px 16px 30px" }}>
-      <style>{`@keyframes ntcSongSlide { from { opacity:0; transform:translateX(42px) scale(0.97); }
-        to { opacity:1; transform:none; } }`}</style>
-
       {/* ── Your song — compact chips; chord picking happens in a portaled
           popup so it centers on the SCREEN (the tab's transform-animated
           wrapper hijacks position:fixed, which is why the old voicing modal
@@ -7730,42 +7778,17 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
         </FixedLayer>
       )}
 
-      {/* ── Now playing — re-keyed card, correct animation by construction ── */}
+      {/* ── Chord carousel — the SAME ChordGrid as the package view ── */}
       {songChords.length > 0 && (
-        <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
-          padding:"16px 14px", marginBottom:16, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
-          <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
-            NOW PLAYING
-          </div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:14 }}>
-            <div key={changeSeq} style={{ textAlign:"center", animation:"ntcSongSlide 0.32s ease both" }}>
-              <div style={{ width:170, borderRadius:18, overflow:"hidden",
-                border:"2px solid rgba(255,190,11,0.7)", boxShadow:"0 0 26px rgba(255,170,20,0.28)",
-                background:"#14100a" }}>
-                {curChord && slotImg(curChord)
-                  ? <img src={slotImg(curChord)} alt={slotLabel(curChord)} style={{ width:"100%", display:"block" }} />
-                  : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center", justifyContent:"center",
-                      fontSize:34, fontWeight:900, color:"#FFD60A" }}>{curChord ? slotLabel(curChord) : "—"}</div>}
-              </div>
-              <div style={{ marginTop:8, fontSize:18, fontWeight:900, color:"#FFD60A", letterSpacing:0.5 }}>
-                {curChord ? slotLabel(curChord) : ""}
-              </div>
-            </div>
-            {nextChord != null && (
-              <div style={{ textAlign:"center", opacity:0.75 }}>
-                <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
-                  fontWeight:800, marginBottom:6 }}>Next</div>
-                <div style={{ width:80, borderRadius:12, overflow:"hidden", border:"1px solid #2a2417",
-                  background:"#100d09" }}>
-                  {slotImg(nextChord)
-                    ? <img src={slotImg(nextChord)} alt={slotLabel(nextChord)} style={{ width:"100%", display:"block" }} />
-                    : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center", justifyContent:"center",
-                        fontSize:16, fontWeight:900, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>}
-                </div>
-                <div style={{ marginTop:5, fontSize:12, fontWeight:800, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>
-              </div>
-            )}
-          </div>
+        <div style={{ marginBottom:16 }}>
+          <ChordGrid chords={songChords} chordIndex={chordIndex} nextChordIndex={nextChordIndex}
+            afterChordIndex={songRandom ? songNext2 : null}
+            prevChordIndex={songRandom ? songPrev : null}
+            isPlaying={isPlaying} accentColor="#FFBE0B" isLastBeat={isLastBeat}
+            bpm={bpm} beatsPerChord={beatsPerChord} countdown={countdown}
+            songMode={true} slideSignal={slideSignal} slideDurMs={slideDurMs}
+            chordVariants={chordVariants} updateVariant={updateVariant}
+            perSlot={true} setCustomChords={setSongChords} />
           {beatsPerChord > 1 && (
             <div style={{ display:"flex", justifyContent:"center", gap:9, marginTop:12 }}>
               {Array.from({ length: beatsPerChord }, (_, i) => (
@@ -7820,7 +7843,7 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
             </div>
           );
         })}
-        <div style={{ display:"flex", justifyContent:"center", marginBottom:14 }}>
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:14 }}>
           {hasSecondRow ? (
             <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
               setHasSecondRow(false);
@@ -7834,6 +7857,13 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
               background:"transparent", color:"#FFBE0B", fontSize:12, fontWeight:700,
               cursor:"pointer", fontFamily:"inherit" }}>+ Add Row</button>
           )}
+          {/* Copy Row: row 2 becomes a copy of row 1 (creates it if needed) */}
+          <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+            setHasSecondRow(true);
+            setStrumActive(p=>{ const n=[...p]; for(let i=0;i<8;i++) n[8+i] = i < row1Size ? p[i] : false; return n; });
+          }} style={{ padding:"6px 14px", borderRadius:9, border:"1px dashed rgba(255,190,11,0.4)",
+            background:"transparent", color:"#FFBE0B", fontSize:12, fontWeight:700,
+            cursor:"pointer", fontFamily:"inherit" }}>⧉ Copy Row</button>
         </div>
 
         <div style={{ height:1, background:"#1c1710", margin:"2px 0 14px" }} />
@@ -8092,10 +8122,18 @@ function genParams(gen) {
 }
 
 // ── Launcher — the shiny entry button rendered on every tracker ──
-function GenerateLauncherButton() {
+function GenerateLauncherButton({ theme = null }) {
+  // Matches the custom tracker's chosen theme; house gold by default.
+  const a = theme ? theme.a : "#FFBE0B";
+  const b = theme ? theme.b : "#FFAA1E";
+  const text = theme ? theme.a : "#FFD60A";
   return (
     <button onClick={() => { try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {} }}
-      style={{ ...GLOW_BTN, position:"relative", overflow:"hidden", width:"100%",
+      style={{ position:"relative", overflow:"hidden", width:"100%",
+        border:`1px solid ${hexToRgba(a, 0.55)}`,
+        background:`radial-gradient(120% 160% at 50% 0%, ${hexToRgba(b, 0.18)} 0%, ${hexToRgba(b, 0)} 65%), #16110a`,
+        color:text, fontWeight:900, cursor:"pointer", fontFamily:"inherit",
+        boxShadow:`0 0 22px ${hexToRgba(b, 0.18)}, inset 0 1px 0 rgba(255,255,255,0.04)`,
         borderRadius:14, padding:"14px", fontSize:14.5, letterSpacing:0.4, marginBottom:22 }}>
       <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 55%, 100% { transform:translateX(100%); } }`}</style>
       <span style={{ position:"absolute", inset:0, pointerEvents:"none",
