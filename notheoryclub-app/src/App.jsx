@@ -6897,14 +6897,6 @@ function CustomTrackerSection({ hideGenerate = false }) {
     try { localStorage.setItem(CUSTOM_TRACKER_KEY, JSON.stringify(withTs)); } catch (_) {}
     setSaved(withTs);
   };
-  const remove = () => {
-    if (!window.confirm("Delete this tracker and start over? This can't be undone.")) return;
-    // Tombstone (not a plain delete) so the sync engine propagates the deletion
-    // instead of resurrecting the tracker from the cloud copy on next login.
-    persist({ deleted: true });
-    setEditing(false);
-  };
-
   if (!active || editing) {
     return (
       <div>
@@ -6923,7 +6915,6 @@ function CustomTrackerSection({ hideGenerate = false }) {
       saved={active}
       onChange={persist}
       onEdit={() => setEditing(true)}
-      onDelete={remove}
       hideGenerate={hideGenerate}
     />
   );
@@ -7117,7 +7108,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
 
 // ── The custom tracker itself — same look and rules as the 30-day grid, driven
 // by the member's own config. ──
-function CustomTracker({ saved, onChange, onEdit, onDelete, hideGenerate = false }) {
+function CustomTracker({ saved, onChange, onEdit, hideGenerate = false }) {
   const config = saved.config;
   const tasks = config.tasks || [];
   const data = Array.isArray(saved.data) ? saved.data : [];
@@ -7256,10 +7247,6 @@ function CustomTracker({ saved, onChange, onEdit, onDelete, hideGenerate = false
         <button onClick={resetAll} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
           fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
           Reset all {config.days} days
-        </button>
-        <button onClick={onDelete} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
-          fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
-          Delete & start over
         </button>
       </div>
 
@@ -8142,10 +8129,10 @@ function GenerateLauncherButton({ theme = null }) {
         color:text, fontWeight:900, cursor:"pointer", fontFamily:"inherit",
         boxShadow:`0 0 22px ${hexToRgba(b, 0.18)}, inset 0 1px 0 rgba(255,255,255,0.04)`,
         borderRadius:14, padding:"14px", fontSize:14.5, letterSpacing:0.4, marginBottom:22 }}>
-      <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 55%, 100% { transform:translateX(100%); } }`}</style>
+      <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 28%, 100% { transform:translateX(100%); } }`}</style>
       <span style={{ position:"absolute", inset:0, pointerEvents:"none",
         background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.14) 50%, transparent 60%)",
-        transform:"translateX(-100%)", animation:"ntcGenShine 3.4s ease 0.6s infinite" }} />
+        transform:"translateX(-100%)", animation:"ntcGenShine 6.8s ease 0.6s infinite" }} />
       ⚡ Generate Exercise
     </button>
   );
@@ -8423,8 +8410,8 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             <span style={{ position:"absolute", inset:0, pointerEvents:"none",
               background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.16) 50%, transparent 60%)",
               transform:"translateX(-100%)",
-              animation: generating ? "ntcGenShine 0.55s ease infinite" : "ntcGenShine 3s ease 0.4s infinite" }} />
-            <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 55%, 100% { transform:translateX(100%); } }`}</style>
+              animation: generating ? "ntcGenShine 0.55s ease infinite" : "ntcGenShine 6s ease 0.4s infinite" }} />
+            <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 28%, 100% { transform:translateX(100%); } }`}</style>
             {generating ? "Generating…" : "✨ Generate"}
           </button>
 
@@ -8513,7 +8500,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
               <span style={{ position:"absolute", inset:0, pointerEvents:"none",
                 background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.13) 50%, transparent 60%)",
-                transform:"translateX(-100%)", animation:"ntcGenShine 3.2s ease 1s infinite" }} />
+                transform:"translateX(-100%)", animation:"ntcGenShine 6.4s ease 1s infinite" }} />
               🎲 Regenerate
             </button>
           )}
