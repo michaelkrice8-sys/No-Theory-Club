@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, Component } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { CHORD_IMAGES } from "./chordImages";
 import { CHORD_AUDIO, DOWN_WAV, UP_WAV } from "./chordAudio";
@@ -319,10 +320,11 @@ function GateWall({ email, onSignOut }) {
 // the cloud is the durable one.
 
 const BUILD_UNLOCK_KEY   = "ntc-build-unlocked-v1"; // {unlocked:true, at:ISO}
+const CELEBRATED_KEY     = "ntc-30day-celebrated-v1"; // {unlocked:true, at:ISO} — trophy modal shown once, ever
 const CUSTOM_TRACKER_KEY = "ntc-custom-tracker-v1"; // {config, data, updatedAt} or {deleted:true, updatedAt}
 const SYNC_KEYS = [
   "ntc_drills", "ntc_patterns", "ntc_songs", "ntc_strum", "ntc_strum_tab",
-  "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY
+  "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY
 ];
 const TRACKER_KEY = "ntc-30day-tracker-v1";
 
@@ -414,7 +416,7 @@ async function syncPullAndMerge(userId) {
       const merged =
           key === TRACKER_KEY        ? mergeTracker(local, remote)
         : key === CUSTOM_TRACKER_KEY ? mergeCustomTracker(local, remote)
-        : key === BUILD_UNLOCK_KEY   ? mergeUnlock(local, remote)
+        : (key === BUILD_UNLOCK_KEY || key === CELEBRATED_KEY) ? mergeUnlock(local, remote)
         : mergeList(local, remote);
       if (merged == null) continue;
       try { localStorage.setItem(key, JSON.stringify(merged)); } catch (_) {}
@@ -6206,20 +6208,35 @@ const TRACKER_TASKS = [
 ];
 const TRACKER_STORAGE_KEY = "ntc-30day-tracker-v1";
 
-// ── Build unlock flag ── earned by completing the 30-Day Challenge. Stored
-// (and cloud-synced) separately from the tracker data, so resetting the 30
-// days later never re-locks Build.
-function readBuildUnlocked() {
+// ── Persistent one-way flags (cloud-synced, never un-set) ──
+function readFlag(key) {
   try {
-    const raw = localStorage.getItem(BUILD_UNLOCK_KEY);
+    const raw = localStorage.getItem(key);
     if (raw && JSON.parse(raw).unlocked) return true;
   } catch (_) {}
   return false;
 }
-function persistBuildUnlocked() {
+function persistFlag(key) {
   try {
-    localStorage.setItem(BUILD_UNLOCK_KEY, JSON.stringify({ unlocked: true, at: new Date().toISOString() }));
+    localStorage.setItem(key, JSON.stringify({ unlocked: true, at: new Date().toISOString() }));
   } catch (_) {}
+}
+// Build unlock — earned by completing the 30-Day Challenge. Separate from the
+// tracker data, so resetting the 30 days later never re-locks Build.
+function readBuildUnlocked()    { return readFlag(BUILD_UNLOCK_KEY); }
+function persistBuildUnlocked() { persistFlag(BUILD_UNLOCK_KEY); }
+// Trophy modal shown once, ever — not on every login while the grid is full.
+function readCelebrated()       { return readFlag(CELEBRATED_KEY); }
+function persistCelebrated()    { persistFlag(CELEBRATED_KEY); }
+
+// ── FixedLayer ── renders overlays (modals, confetti canvas) into
+// document.body via a portal. Required because the app's tab-fade wrapper
+// animates with a CSS transform, and a transformed ancestor becomes the
+// containing block for position:fixed children — so without the portal,
+// "fixed" overlays center on the tall tracker column instead of the screen.
+function FixedLayer({ children }) {
+  if (typeof document === "undefined") return children;
+  return createPortal(children, document.body);
 }
 
 // Same bit-packing encode/decode as the original standalone tracker — kept
@@ -6274,13 +6291,15 @@ function trackerStreak(data) {
 function useTrackerConfetti() {
   const canvasRef = useRef(null);
   const animRef = useRef(null);
-  function launch() {
+  function launch(themeColors) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     const ctx = canvas.getContext("2d");
-    const colors = ["#FFD60A", "#F77F00", "#ffffff", "#FFBE0B", "#FFE27A"];
+    const colors = (themeColors && themeColors.length)
+      ? themeColors
+      : ["#FFD60A", "#F77F00", "#ffffff", "#FFBE0B", "#FFE27A"];
     const pieces = Array.from({ length: 160 }, () => ({
       x: Math.random() * canvas.width,
       y: -20 - Math.random() * 100,
@@ -6360,24 +6379,25 @@ function TrackerTab({ context = "app" }) {
     try { localStorage.setItem(TRACKER_STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
   }, [data, loaded]);
 
-  // 30-day completion celebration. Fire once, 2.5s after the challenge is first
-  // completed, so the user can finish ticking the rest of that day's boxes
-  // without the modal cutting them off.
+  // 30-day completion. Build unlocks whenever the grid is complete; the trophy
+  // modal fires ONCE EVER (persisted + cloud-synced flag), 2.5s after the
+  // challenge is first completed — never again on later logins, which would
+  // get annoying fast.
   useEffect(() => {
     if (!loaded || celebratedRef.current) return;
     const allDaysActive = data.every(day => TRACKER_TASKS.some(t => day[t.id]));
     if (allDaysActive) {
+      // Unlock Build immediately (pill flips even if the modal never re-shows).
+      const firstUnlock = !readBuildUnlocked();
+      if (firstUnlock) persistBuildUnlocked();
+      setBuildUnlocked(true);
+      // Already congratulated on some visit/device — stay quiet.
+      if (readCelebrated()) { celebratedRef.current = true; return; }
       if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current);
       celebrateTimerRef.current = setTimeout(() => {
         celebratedRef.current = true;
-        // Earn the Build unlock. Only animate it in the modal the first time —
-        // if the flag was already set (earlier visit / another device), the
-        // trophy modal shows as before, without the unlock card.
-        if (!readBuildUnlocked()) {
-          persistBuildUnlocked();
-          setJustUnlocked(true);
-        }
-        setBuildUnlocked(true);
+        persistCelebrated();
+        if (firstUnlock) setJustUnlocked(true);
         setShowModal(true);
         launch();
       }, 2500);
@@ -6431,13 +6451,26 @@ function TrackerTab({ context = "app" }) {
 
   return (
     <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 60px" }}>
-      <canvas ref={canvasRef} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:9999 }} />
+      <FixedLayer>
+        <canvas ref={canvasRef} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:9999 }} />
+      </FixedLayer>
 
       {/* ── Mode switcher: 30-Day Challenge / Build (locked until day 30) ── */}
       <div style={{ display:"flex", gap:8, marginBottom:20 }}>
         {[
-          { id:"challenge", label:"🔥 30-Day Challenge", onClick:()=>setMode("challenge"), on: mode==="challenge" },
-          { id:"build", label: buildUnlocked ? "🛠️ Build" : "🔒 Build", onClick: handleBuildClick, on: mode==="build" },
+          { id:"challenge", label:<>🔥 30-Day Challenge</>, onClick:()=>setMode("challenge"), on: mode==="challenge" },
+          { id:"build",
+            label: buildUnlocked ? <>🛠️ Build</> : (
+              <>
+                <span style={{ position:"relative", display:"inline-block", marginRight:8 }}>
+                  <span style={{ opacity:0.4 }}>🛠️</span>
+                  <span style={{ position:"absolute", right:-8, bottom:-3, fontSize:"1.1em",
+                    filter:"drop-shadow(0 1px 3px rgba(0,0,0,0.9))" }}>🔒</span>
+                </span>
+                Build
+              </>
+            ),
+            onClick: handleBuildClick, on: mode==="build" },
         ].map(p => (
           <button key={p.id} onClick={p.onClick} style={{
             flex:1, padding:"11px 8px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
@@ -6454,8 +6487,10 @@ function TrackerTab({ context = "app" }) {
         ))}
       </div>
 
-      {/* Locked teaser — low-opacity bubble explaining how Build is earned */}
+      {/* Locked teaser — low-opacity bubble explaining how Build is earned.
+          Portaled so it centers on the SCREEN, not the tall tracker column. */}
       {showLockedInfo && (
+        <FixedLayer>
         <div onClick={()=>setShowLockedInfo(false)} style={{ position:"fixed", inset:0, zIndex:1000,
           background:"rgba(0,0,0,0.72)", display:"flex", alignItems:"center", justifyContent:"center",
           padding:24, animation:"ntcModalFade 0.3s ease both" }}>
@@ -6464,33 +6499,39 @@ function TrackerTab({ context = "app" }) {
             backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)",
             border:"1px solid rgba(255,190,11,0.28)", borderRadius:20, padding:"32px 24px",
             maxWidth:380, width:"100%", textAlign:"center" }}>
-            <div style={{ fontSize:44, marginBottom:10 }}>🔒</div>
+            <div style={{ position:"relative", display:"inline-block", fontSize:44, marginBottom:12 }}>
+              <span style={{ opacity:0.4 }}>🛠️</span>
+              <span style={{ position:"absolute", right:-16, bottom:-6, fontSize:"0.95em",
+                filter:"drop-shadow(0 2px 5px rgba(0,0,0,0.9))" }}>🔒</span>
+            </div>
             <div style={{ fontSize:20, fontWeight:900, color:"#f3ead2", marginBottom:10, letterSpacing:0.3 }}>
               Build is locked — for now
             </div>
             <p style={{ fontSize:13.5, color:"#9a8f6e", lineHeight:1.7, marginBottom:14 }}>
               Finish your <strong style={{ color:"#FFBE0B" }}>30-Day Challenge</strong> to unlock the
-              Build feature — create your own tracker with a custom number of days, personal
-              goals and targets, and your own practice categories.
+              Build feature — create your own tracker with a custom number of days, your own
+              practice categories, and custom exercises you design yourself.
             </p>
             <div style={{ fontSize:12.5, color:"#FFBE0B", fontWeight:700, background:"rgba(255,190,11,0.08)",
               border:"1px solid rgba(255,190,11,0.22)", borderRadius:12, padding:"10px 12px", marginBottom:20 }}>
               You're {totalDaysActive} of 30 days in — keep going 🔥
             </div>
-            <button onClick={()=>setShowLockedInfo(false)} style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
-              border:"none", borderRadius:12, padding:"13px 28px", fontSize:14, fontWeight:900, color:"#111",
-              cursor:"pointer", width:"100%", fontFamily:"inherit" }}>
+            <button onClick={()=>setShowLockedInfo(false)} style={{ ...GLOW_BTN,
+              borderRadius:12, padding:"13px 28px", fontSize:14, width:"100%" }}>
               Back to the challenge
             </button>
           </div>
         </div>
+        </FixedLayer>
       )}
 
       {/* Package view: Build lives in the full app */}
       {showOpenAppInfo && (
+        <FixedLayer>
         <div onClick={()=>setShowOpenAppInfo(false)} style={{ position:"fixed", inset:0, zIndex:1000,
           background:"rgba(0,0,0,0.72)", display:"flex", alignItems:"center", justifyContent:"center",
           padding:24, animation:"ntcModalFade 0.3s ease both" }}>
+          <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
           <div onClick={e=>e.stopPropagation()} style={{ opacity:0.95, background:"rgba(17,15,10,0.94)",
             border:"1px solid rgba(255,190,11,0.28)", borderRadius:20, padding:"32px 24px",
             maxWidth:380, width:"100%", textAlign:"center" }}>
@@ -6503,9 +6544,8 @@ function TrackerTab({ context = "app" }) {
               place no matter which practice link you open.
             </p>
             <button onClick={()=>{ window.location.href = window.location.origin + window.location.pathname; }}
-              style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)", border:"none", borderRadius:12,
-              padding:"13px 28px", fontSize:14, fontWeight:900, color:"#111", cursor:"pointer",
-              width:"100%", fontFamily:"inherit", marginBottom:10 }}>
+              style={{ ...GLOW_BTN, borderRadius:12, padding:"13px 28px", fontSize:14,
+              width:"100%", marginBottom:10 }}>
               Open the practice app →
             </button>
             <button onClick={()=>setShowOpenAppInfo(false)} style={{ background:"transparent",
@@ -6515,10 +6555,12 @@ function TrackerTab({ context = "app" }) {
             </button>
           </div>
         </div>
+        </FixedLayer>
       )}
 
-      {/* Completion modal */}
+      {/* Completion modal — portaled for true viewport centering */}
       {showModal && (
+        <FixedLayer>
         <div onClick={()=>setShowModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)",
           zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24,
           animation:"ntcModalFade 0.4s ease both" }}>
@@ -6571,14 +6613,12 @@ function TrackerTab({ context = "app" }) {
                     background:"linear-gradient(135deg,#FFD60A,#F77F00)", WebkitBackgroundClip:"text",
                     backgroundClip:"text", WebkitTextFillColor:"transparent" }}>🛠️ Build</div>
                   <div style={{ fontSize:12.5, color:"#9a8f6e", lineHeight:1.6, marginTop:6 }}>
-                    Create your own tracker — custom days, personal goals, targets and your
-                    own practice categories.
+                    Create your own tracker — custom days, your own practice categories,
+                    and custom exercises you design yourself.
                   </div>
                   <button onClick={()=>{ setShowModal(false);
                       if (context === "app") setMode("build"); else setShowOpenAppInfo(true); }}
-                    style={{ marginTop:12, background:"rgba(255,190,11,0.12)", border:"1px solid rgba(255,190,11,0.5)",
-                      borderRadius:11, padding:"10px 22px", fontSize:13, fontWeight:900, color:"#FFD60A",
-                      cursor:"pointer", fontFamily:"inherit" }}>
+                    style={{ ...GLOW_BTN, marginTop:12, borderRadius:11, padding:"10px 22px", fontSize:13 }}>
                     Try Build →
                   </button>
                 </div>
@@ -6590,13 +6630,13 @@ function TrackerTab({ context = "app" }) {
               borderRadius:12, padding:"12px 14px" }}>
               📸 Screenshot this and share it in the Guitar Wins post — let the club celebrate with you!
             </div>
-            <button onClick={()=>setShowModal(false)} style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
-              border:"none", borderRadius:12, padding:"14px 32px", fontSize:15, fontWeight:900, color:"#111",
-              cursor:"pointer", width:"100%" }}>
+            <button onClick={()=>setShowModal(false)} style={{ ...GLOW_BTN,
+              borderRadius:12, padding:"14px 32px", fontSize:15, width:"100%" }}>
               Let's keep going! 🤩
             </button>
           </div>
         </div>
+        </FixedLayer>
       )}
 
       {/* ── Challenge content (kept mounted via display toggle so its state,
@@ -6740,6 +6780,36 @@ const BUILD_MAX_TASKS = 4;
 const BUILD_MIN_DAYS = 7;
 const BUILD_MAX_DAYS = 90;
 
+// On-brand warm-glow button: dark body, gold text, radial glow — the same
+// treatment as the active tab pills. Callers add size/shape (padding, radius…).
+const GLOW_BTN = {
+  border:"1px solid rgba(255,190,11,0.55)",
+  background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.18) 0%, rgba(255,170,30,0) 65%), #16110a",
+  color:"#FFD60A", fontWeight:900, cursor:"pointer", fontFamily:"inherit",
+  boxShadow:"0 0 22px rgba(255,160,20,0.18), inset 0 1px 0 rgba(255,255,255,0.04)",
+};
+
+// Color themes for custom trackers. Two-stop gradients tuned for the dark
+// warm background; every accent in the tracker derives from these two hexes.
+const BUILD_THEMES = {
+  ember:       { name:"Ember",       a:"#FFD60A", b:"#F77F00" }, // house gold
+  aurora:      { name:"Aurora",      a:"#6EF3C5", b:"#19B8FF" },
+  ultraviolet: { name:"Ultraviolet", a:"#C9A7FF", b:"#7C4DFF" },
+  neonrose:    { name:"Neon Rose",   a:"#FF9BB3", b:"#FF2E63" },
+  glacier:     { name:"Glacier",     a:"#CFF6FF", b:"#38BDF8" },
+  venom:       { name:"Venom",       a:"#D9FF3D", b:"#34D399" },
+};
+const DEFAULT_THEME = "ember";
+function buildTheme(config) {
+  return BUILD_THEMES[config && config.theme] || BUILD_THEMES[DEFAULT_THEME];
+}
+function hexToRgba(hex, alpha) {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
 // Generalised streak: same rules as the 30-day tracker, any length / any tasks.
 function customStreak(data, tasks) {
   if (!Array.isArray(data) || !data.length) return 0;
@@ -6805,6 +6875,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
   const [name, setName] = useState((cfg && cfg.name) || "");
   const [days, setDays] = useState((cfg && cfg.days) || 30);
   const [target, setTarget] = useState((cfg && cfg.target) || "");
+  const [theme, setTheme] = useState((cfg && cfg.theme) || DEFAULT_THEME);
   const [tasks, setTasks] = useState(() =>
     cfg && Array.isArray(cfg.tasks) && cfg.tasks.length
       ? cfg.tasks.map(t => ({ ...t }))
@@ -6830,7 +6901,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
     const cleanTasks = tasks.map(t => ({ ...t, label: t.label.trim() })).filter(t => t.label);
     if (!cleanTasks.length) { alert("Add at least one practice category."); return; }
     const d = clampDays(days);
-    const config = { name: name.trim() || "My Challenge", days: d, target: target.trim(), tasks: cleanTasks };
+    const config = { name: name.trim() || "My Challenge", days: d, target: target.trim(), theme, tasks: cleanTasks };
     // Preserve any existing ticks: same task ids keep their checks day-for-day;
     // extra days start empty; removed days are dropped.
     const data = Array.from({ length: d }, (_, i) => {
@@ -6860,11 +6931,11 @@ function BuildSetup({ existing, onSave, onCancel }) {
         </div>
       </div>
 
-      {/* Goal name */}
+      {/* Challenge name */}
       <div style={{ marginBottom:18 }}>
-        <div style={fieldLabel}>Goal name</div>
+        <div style={fieldLabel}>Challenge name — a song, a play style, anything</div>
         <input value={name} onChange={e=>setName(e.target.value)} maxLength={40}
-          placeholder='e.g. "Play Wonderwall start to finish"' style={inputStyle} />
+          placeholder='e.g. "Wonderwall" or "Fingerstyle"' style={inputStyle} />
       </div>
 
       {/* Days */}
@@ -6916,10 +6987,28 @@ function BuildSetup({ existing, onSave, onCancel }) {
         )}
       </div>
 
+      {/* Theme */}
+      <div style={{ marginBottom:22 }}>
+        <div style={fieldLabel}>Tracker theme — {BUILD_THEMES[theme].name}</div>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+          {Object.entries(BUILD_THEMES).map(([key, t]) => {
+            const on = key === theme;
+            return (
+              <button key={key} onClick={()=>setTheme(key)} title={t.name} aria-label={t.name}
+                style={{ width:42, height:42, borderRadius:"50%", cursor:"pointer", padding:0,
+                  background:`linear-gradient(135deg, ${t.a}, ${t.b})`,
+                  border: on ? "2px solid #f3ead2" : "2px solid transparent",
+                  outline: on ? `1px solid ${hexToRgba(t.b, 0.6)}` : "none", outlineOffset:2,
+                  boxShadow: on ? `0 0 18px ${hexToRgba(t.b, 0.55)}` : `0 0 8px ${hexToRgba(t.b, 0.2)}`,
+                  transform: on ? "scale(1.08)" : "scale(1)", transition:"all 0.18s ease" }} />
+            );
+          })}
+        </div>
+      </div>
+
       {/* Actions */}
-      <button onClick={save} style={{ width:"100%", background:"linear-gradient(135deg,#FFD60A,#F77F00)",
-        border:"none", borderRadius:13, padding:"15px", fontSize:15, fontWeight:900, color:"#111",
-        cursor:"pointer", fontFamily:"inherit", boxShadow:"0 6px 22px rgba(255,150,10,0.25)" }}>
+      <button onClick={save} style={{ ...GLOW_BTN, width:"100%",
+        borderRadius:13, padding:"15px", fontSize:15 }}>
         {existing ? "Save changes" : "Create my tracker 🛠️"}
       </button>
       {onCancel && (
@@ -6945,16 +7034,25 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
   const celebrateTimerRef = useRef(null);
   const { canvasRef, launch } = useTrackerConfetti();
 
-  // Goal-complete celebration — same delayed, fire-once pattern as the 30-day.
+  // Theme accents — every color in this tracker derives from the two theme hexes.
+  const T = buildTheme(config);
+  const grad = `linear-gradient(135deg, ${T.a}, ${T.b})`;
+  const gradBar = `linear-gradient(90deg, ${T.a}, ${T.b})`;
+
+  // Challenge-complete celebration: fires once per tracker (persisted on the
+  // saved object), not on every visit while the grid is full. Resetting the
+  // days re-arms it for the next run.
   useEffect(() => {
     if (celebratedRef.current) return;
     const allDaysActive = data.length > 0 && data.every(day => tasks.some(t => day[t.id]));
     if (allDaysActive) {
+      if (saved.celebrated) { celebratedRef.current = true; return; }
       if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current);
       celebrateTimerRef.current = setTimeout(() => {
         celebratedRef.current = true;
+        onChange({ ...saved, celebrated: true });
         setShowModal(true);
-        launch();
+        launch([T.a, T.b, "#ffffff", T.a, T.b]);
       }, 2500);
     } else if (celebrateTimerRef.current) {
       clearTimeout(celebrateTimerRef.current);
@@ -6975,7 +7073,8 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
 
   function resetAll() {
     if (window.confirm(`Reset all ${config.days} days? This can't be undone.`)) {
-      onChange({ ...saved, data: Array.from({ length: config.days }, () =>
+      celebratedRef.current = false; // re-arm the celebration for the next run
+      onChange({ ...saved, celebrated: false, data: Array.from({ length: config.days }, () =>
         Object.fromEntries(tasks.map(t => [t.id, false]))) });
     }
   }
@@ -6989,19 +7088,22 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
   const statBox = {
     position:"relative", border:"1px solid #241d10", borderRadius:16, padding:"16px 12px",
     textAlign:"center",
-    background:"radial-gradient(130% 130% at 50% 0%, rgba(255,170,30,0.06) 0%, rgba(255,170,30,0) 60%), #100d09",
+    background:`radial-gradient(130% 130% at 50% 0%, ${hexToRgba(T.b, 0.07)} 0%, ${hexToRgba(T.b, 0)} 60%), #100d09`,
     boxShadow:"0 6px 18px rgba(0,0,0,0.4)",
   };
-  const statV = { fontSize:30, fontWeight:900, color:"#FFBE0B", lineHeight:1, letterSpacing:0.5, textShadow:"0 0 18px rgba(255,170,20,0.25)" };
+  const statV = { fontSize:30, fontWeight:900, color:T.a, lineHeight:1, letterSpacing:0.5, textShadow:`0 0 18px ${hexToRgba(T.a, 0.3)}` };
   const statL = { fontSize:9.5, color:"#6f6749", textTransform:"uppercase", letterSpacing:1, fontWeight:700, marginTop:6 };
   const gridCols = `64px repeat(${tasks.length}, 1fr) 48px`;
 
   return (
     <div>
-      <canvas ref={canvasRef} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:9999 }} />
+      <FixedLayer>
+        <canvas ref={canvasRef} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:9999 }} />
+      </FixedLayer>
 
-      {/* Goal-complete modal */}
+      {/* Challenge-complete modal — portaled for true viewport centering */}
       {showModal && (
+        <FixedLayer>
         <div onClick={()=>setShowModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)",
           zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24,
           animation:"ntcModalFade 0.4s ease both" }}>
@@ -7009,10 +7111,10 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
           <div onClick={e=>e.stopPropagation()} style={{ background:"#111", border:"1px solid #2a2a2a",
             borderRadius:24, padding:"40px 28px", maxWidth:420, width:"100%", textAlign:"center", position:"relative" }}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
-              background:"linear-gradient(90deg,#FFD60A,#F77F00)", borderRadius:"24px 24px 0 0" }} />
+              background:gradBar, borderRadius:"24px 24px 0 0" }} />
             <span style={{ fontSize:64, marginBottom:8, display:"block" }}>🎯</span>
             <div style={{ fontSize:30, fontWeight:900, marginBottom:8, letterSpacing:0.5,
-              background:"linear-gradient(135deg,#FFD60A,#F77F00)", WebkitBackgroundClip:"text",
+              background:grad, WebkitBackgroundClip:"text",
               backgroundClip:"text", WebkitTextFillColor:"transparent", lineHeight:1.15 }}>
               GOAL COMPLETE
             </div>
@@ -7021,18 +7123,18 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
               {config.days} days of showing up for a goal <strong style={{color:"#ccc"}}>you designed yourself</strong>.
               {config.target ? <> Target: <strong style={{color:"#ccc"}}>{config.target}</strong>.</> : null} Keep going. 🔥
             </p>
-            <div style={{ fontSize:13, color:"#FFD60A", fontWeight:700, lineHeight:1.6, marginBottom:24,
-              background:"rgba(255,190,11,0.08)", border:"1px solid rgba(255,190,11,0.25)",
+            <div style={{ fontSize:13, color:T.a, fontWeight:700, lineHeight:1.6, marginBottom:24,
+              background:hexToRgba(T.a, 0.08), border:`1px solid ${hexToRgba(T.a, 0.25)}`,
               borderRadius:12, padding:"12px 14px" }}>
               📸 Screenshot this and share it in the Guitar Wins post — let the club celebrate with you!
             </div>
-            <button onClick={()=>setShowModal(false)} style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
-              border:"none", borderRadius:12, padding:"14px 32px", fontSize:15, fontWeight:900, color:"#111",
-              cursor:"pointer", width:"100%" }}>
+            <button onClick={()=>setShowModal(false)} style={{ ...GLOW_BTN,
+              borderRadius:12, padding:"14px 32px", fontSize:15, width:"100%" }}>
               What's next? 🤩
             </button>
           </div>
         </div>
+        </FixedLayer>
       )}
 
       {/* Header */}
@@ -7041,7 +7143,7 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
           🛠️ Build · {config.days}-Day Tracker
         </div>
         <div style={{ fontSize:24, fontWeight:900, marginTop:8, color:"#f3ead2", letterSpacing:0.3 }}>
-          <span style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+          <span style={{ background:grad,
             WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>{config.name}</span>
         </div>
         {config.target ? (
@@ -7062,11 +7164,11 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
       <div style={{ marginBottom:26 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
           <span style={{ fontSize:10, color:"#6f6749", textTransform:"uppercase", letterSpacing:1.5, fontWeight:700 }}>Overall Progress</span>
-          <span style={{ fontSize:12, color:"#FFBE0B", fontWeight:800 }}>{totalChecks} / {maxChecks} tasks</span>
+          <span style={{ fontSize:12, color:T.a, fontWeight:800 }}>{totalChecks} / {maxChecks} tasks</span>
         </div>
         <div style={{ height:7, background:"#1a160d", borderRadius:99, overflow:"hidden", border:"1px solid #241d10" }}>
           <div style={{ height:"100%", width:`${overallPct}%`, borderRadius:99,
-            background:"linear-gradient(90deg,#FFD60A,#F77F00)", boxShadow:"0 0 12px rgba(255,170,20,0.5)",
+            background:gradBar, boxShadow:`0 0 12px ${hexToRgba(T.b, 0.5)}`,
             transition:"width 0.5s ease" }} />
         </div>
       </div>
@@ -7096,15 +7198,15 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
           const r = 12, cx = 16, cy = 16;
           const circ = 2 * Math.PI * r;
           const offset = circ - (pct / 100) * circ;
-          const ringColor = isComplete ? "#FFD60A" : isPartial ? "#F77F00" : "#222";
+          const ringColor = isComplete ? T.a : isPartial ? T.b : "#222";
           return (
             <div key={i} style={{ display:"grid", gridTemplateColumns:gridCols, alignItems:"center",
               padding:"0 12px", gap:6, borderBottom:"1px solid #141008", minHeight:54,
-              background: isComplete ? "linear-gradient(90deg, rgba(247,127,0,0.07), transparent)"
-                : isCelebrating ? "rgba(255,214,10,0.10)" : "transparent",
+              background: isComplete ? `linear-gradient(90deg, ${hexToRgba(T.b, 0.08)}, transparent)`
+                : isCelebrating ? hexToRgba(T.a, 0.10) : "transparent",
               transition:"background 0.3s" }}>
               <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                <span style={{ fontSize:12.5, fontWeight:900, color:isActive?"#FFBE0B":"#3a3325", letterSpacing:0.3 }}>DAY {i+1}</span>
+                <span style={{ fontSize:12.5, fontWeight:900, color:isActive?T.a:"#3a3325", letterSpacing:0.3 }}>DAY {i+1}</span>
                 {emoji && <span style={{ fontSize:13 }}>{emoji}</span>}
               </div>
               {tasks.map(t => (
@@ -7113,14 +7215,14 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
                     onKeyDown={e=>(e.key==="Enter"||e.key===" ")&&toggle(i,t.id)}
                     style={{ width:30, height:30, borderRadius:8, cursor:"pointer",
                       display:"flex", alignItems:"center", justifyContent:"center",
-                      border:`2px solid ${day[t.id] ? "rgba(255,190,11,0.6)" : "#2a2417"}`,
+                      border:`2px solid ${day[t.id] ? hexToRgba(T.a, 0.6) : "#2a2417"}`,
                       background: day[t.id]
-                        ? "radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.22), rgba(255,140,0,0.12)), #16110a"
+                        ? `radial-gradient(130% 130% at 50% 0%, ${hexToRgba(T.a, 0.22)}, ${hexToRgba(T.b, 0.12)}), #16110a`
                         : "#0e0b06",
-                      boxShadow: day[t.id] ? "0 0 12px rgba(255,170,20,0.35), inset 0 0 6px rgba(255,190,11,0.15)" : "none",
+                      boxShadow: day[t.id] ? `0 0 12px ${hexToRgba(T.b, 0.35)}, inset 0 0 6px ${hexToRgba(T.a, 0.15)}` : "none",
                       transition:"all 0.16s" }}>
                     {day[t.id] && (
-                      <div style={{ width:10, height:6, borderLeft:"2px solid #FFD60A", borderBottom:"2px solid #FFD60A",
+                      <div style={{ width:10, height:6, borderLeft:`2px solid ${T.a}`, borderBottom:`2px solid ${T.a}`,
                         transform:"rotate(-45deg) translate(1px,-1px)" }} />
                     )}
                   </div>
@@ -7143,8 +7245,8 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
 
       {/* Manage */}
       <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:22, flexWrap:"wrap" }}>
-        <button onClick={onEdit} style={{ background:"transparent", border:"1px solid rgba(255,190,11,0.3)",
-          color:"#c9a03a", fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10,
+        <button onClick={onEdit} style={{ background:"transparent", border:`1px solid ${hexToRgba(T.a, 0.35)}`,
+          color:T.a, fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10,
           cursor:"pointer", letterSpacing:1, fontWeight:700 }}>
           ✏️ Edit tracker
         </button>
