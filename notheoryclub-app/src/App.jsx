@@ -1047,7 +1047,8 @@ function App() {
 
   // ── Landing screen (clean visit) ──
   if(view === "landing") {
-    return <LandingScreen onPick={pickFromLanding} streak={landingStreak} />;
+    return <LandingScreen onPick={pickFromLanding} streak={landingStreak}
+      isDev={isDev} onDev={() => { setView("app"); setDest("devtools"); }} />;
   }
 
   // ── Dev tools — the legacy Build-a-Song authoring suite (Simple / Advanced /
@@ -7343,27 +7344,23 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
   );
 }
 
-// ─── SONG TAB — modern simple song builder ───────────────────────────────────
-// The member-facing rewrite of the simple song builder: same engine, current
-// design language, and a correct chord-change animation. The old sliding
-// 3-card carousel tracked prev/next "peek" state that drifted out of sync;
-// here the current-chord card is simply re-keyed on every chord change, so
-// the slide-in always animates from the true state. Dev tools (the legacy
-// Build-a-Song suite with Advanced/Song/Package modes) live behind the
-// founder-only button at the bottom.
+// ─── SONG TAB — simple song builder for the main shell ───────────────────────
+// Composes the SAME components as the chord and strum builders — ChordPickerPanel
+// (chord set grid, chips, voicings, key detection), BuildBlock strum rows, and
+// MetronomePanel (BPM + warm-glow Start) — glued to the song playback engine.
+// The one deliberately new piece is the Now Playing card: the old sliding
+// carousel tracked prev/next "peek" state that drifted out of sync, so here the
+// current-chord card is re-keyed on every change and the slide always animates
+// from truth. Dev tools (legacy authoring suite) stay behind the founder button.
 
 const SONGBUILDER_KEY = "ntc-songbuilder-v1";
-const SONG_MAX_CHORDS = 8;
-const SONG_ROW_SIZES = [4, 6, 8];
 
 function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, onOpenDev = null }) {
   const { init, playClick, playChordStrum, playChordClick } = audio;
 
-  // Song chords: each slot stores its own key (base chord or variant key),
-  // same per-slot model as the chord-switching builder.
+  // Song chords: per-slot keys (base chord or variant key), managed by
+  // ChordPickerPanel in ordered-sequence mode — max 10 slots like the builder.
   const [songChords, setSongChords] = useState(["G", "C", "D"]);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [variantMenuFor, setVariantMenuFor] = useState(null); // slot index | null
 
   // Strum pattern: up to 2 rows of 8 slots (row 2 = indices 8-15).
   const [strumActive, setStrumActive] = useState(() => defaultBuild(8).concat(Array(8).fill(false)));
@@ -7380,8 +7377,8 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   const countdownRef = useRef(null);
   const [currentStrum, setCurrentStrum] = useState(-1);
   const [chordIndex, setChordIndex] = useState(0);
-  const [upcoming, setUpcoming] = useState(1);   // pre-decided next chord (accurate "NEXT" preview)
-  const [changeSeq, setChangeSeq] = useState(0); // re-keys the chord card → slide-in fires on every change
+  const [upcoming, setUpcoming] = useState(1);   // pre-decided next chord (accurate NEXT preview)
+  const [changeSeq, setChangeSeq] = useState(0); // re-keys the chord card → slide always fires
   const [beatCount, setBeatCount] = useState(0);
 
   const [saved, setSaved] = useState(() => {
@@ -7430,12 +7427,11 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
       chordBeatRef.current = nextChordBeat;
       setBeatCount(nextChordBeat);
       if (nextChordBeat === 0 && chordsRef.current.length > 1) {
-        // Advance to the pre-decided upcoming chord, then decide the one after.
         chordIdxRef.current = upcomingRef.current;
         setChordIndex(upcomingRef.current);
         upcomingRef.current = pickUpcoming(upcomingRef.current);
         setUpcoming(upcomingRef.current);
-        setChangeSeq(s => s + 1); // re-key the card → animation fires
+        setChangeSeq(s => s + 1);
       }
     }
     firstTickRef.current = false;
@@ -7466,7 +7462,6 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   useEffect(() => { if (isPlaying) { stopMetronome(); startMetronome(); } }, [bpm, beatsPerChord, hasSecondRow, row1Size, row2Size]); // eslint-disable-line
   useEffect(() => () => { clearInterval(intervalRef.current); clearInterval(countdownRef.current); }, []);
 
-  // Stop on app tab switch / hidden browser tab — same contract as the other tabs.
   useEffect(() => {
     const stop = () => {
       clearInterval(countdownRef.current); countdownRef.current = null; setCountdown(0);
@@ -7484,7 +7479,7 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   }, [stopMetronome]);
 
   const handleTogglePlay = async () => {
-    if (countdown > 0) { // tap-to-skip count-in
+    if (countdown > 0) {
       clearInterval(countdownRef.current); countdownRef.current = null;
       setCountdown(0); startMetronome(); setIsPlaying(true);
       return;
@@ -7507,38 +7502,6 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     }, 1000);
   };
 
-  const stopIfPlaying = () => {
-    if (isPlaying || countdown > 0) {
-      clearInterval(countdownRef.current); countdownRef.current = null; setCountdown(0);
-      stopMetronome(); setIsPlaying(false);
-    }
-  };
-
-  // ── Chord editing ──
-  const addChord = (c) => {
-    if (songChords.length >= SONG_MAX_CHORDS) return;
-    stopIfPlaying();
-    setSongChords(prev => [...prev, c]);
-  };
-  const removeChord = (i) => {
-    stopIfPlaying();
-    setVariantMenuFor(null);
-    setSongChords(prev => prev.filter((_, x) => x !== i));
-  };
-  const setSlotVariant = (i, key) => {
-    stopIfPlaying();
-    setSongChords(prev => prev.map((c, x) => x === i ? key : c));
-    setVariantMenuFor(null);
-  };
-
-  // ── Strum editing ──
-  const toggleSlot = (idx) => setStrumActive(prev => prev.map((v, i) => i === idx ? !v : v));
-  const cycleRowSize = (row) => {
-    const cur = row === 0 ? row1Size : row2Size;
-    const next = SONG_ROW_SIZES[(SONG_ROW_SIZES.indexOf(cur) + 1) % SONG_ROW_SIZES.length];
-    row === 0 ? setRow1Size(next) : setRow2Size(next);
-  };
-
   // ── Save / load ──
   const persistSaved = (list) => {
     setSaved(list);
@@ -7556,7 +7519,10 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   const loadSong = (item) => {
     const dd = decodeStrumDrill(item.d);
     if (!dd) return;
-    stopIfPlaying();
+    if (isPlaying || countdown > 0) {
+      clearInterval(countdownRef.current); countdownRef.current = null; setCountdown(0);
+      stopMetronome(); setIsPlaying(false);
+    }
     setSongChords(dd.songChords.length ? dd.songChords : ["G"]);
     setStrumActive(dd.strumActive.slice(0, 16));
     setRow1Size(dd.row1Size); setRow2Size(dd.row2Size); setHasSecondRow(dd.hasSecondRow);
@@ -7565,286 +7531,173 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     setShowSaved(false);
   };
 
-  // ── UI helpers ──
-  const card = { border:"1px solid #241d10", borderRadius:18, background:"#0e0b07",
-    padding:"16px 14px", marginBottom:14 };
-  const cardLabel = { fontSize:10, textTransform:"uppercase", letterSpacing:2, color:"#7a6a3a",
-    fontWeight:700, textAlign:"center", marginBottom:12 };
   const curChord = songChords[chordIndex] || songChords[0];
   const nextChord = songChords.length > 1 ? songChords[upcoming] : null;
+  const rowSizeSetters = [setRow1Size, setRow2Size];
 
   return (
     <div style={{ maxWidth:560, margin:"0 auto", paddingBottom:30 }}>
       <style>{`@keyframes ntcSongSlide { from { opacity:0; transform:translateX(42px) scale(0.97); }
         to { opacity:1; transform:none; } }`}</style>
 
-      {/* ── Your song ── */}
-      <div style={card}>
-        <div style={cardLabel}>Your Song</div>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:7, justifyContent:"center" }}>
-          {songChords.map((c, i) => {
-            const base = slotBase(c);
-            const hasVars = HAS_VARIATIONS.has(base);
-            const isVar = base !== c;
-            const active = isPlaying && i === chordIndex;
-            return (
-              <div key={i} style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 8px 7px 13px",
-                borderRadius:22, background: active ? "rgba(255,190,11,0.18)" : "rgba(255,190,11,0.08)",
-                border:`1px solid ${active ? "rgba(255,190,11,0.7)" : "rgba(255,190,11,0.3)"}`,
-                boxShadow: active ? "0 0 14px rgba(255,170,20,0.3)" : "none", transition:"all 0.2s" }}>
-                <span style={{ fontSize:10, color:"#7a6a3a", fontWeight:800 }}>{i + 1}</span>
-                <span style={{ fontSize:14, fontWeight:900, color:"#FFD60A" }}>{slotLabel(c)}</span>
-                {hasVars && (
-                  <button onClick={() => setVariantMenuFor(variantMenuFor === i ? null : i)}
-                    aria-label={`Change ${slotLabel(c)} voicing`}
-                    style={{ minWidth:34, height:30, borderRadius:9, padding:"0 7px", cursor:"pointer",
-                      border:`1px solid ${isVar ? "rgba(255,190,11,0.65)" : "rgba(255,190,11,0.35)"}`,
-                      background: isVar ? "rgba(255,190,11,0.14)" : "#14100a",
-                      color:"#FFBE0B", fontSize:13, fontWeight:800, fontFamily:"inherit" }}>
-                    ⚙︎▾
-                  </button>
-                )}
-                <button onClick={() => removeChord(i)} aria-label={`Remove ${slotLabel(c)}`}
-                  style={{ width:28, height:30, borderRadius:9, border:"1px solid #241d10",
-                    background:"transparent", color:"#6f6749", fontSize:14, cursor:"pointer" }}>×</button>
-              </div>
-            );
-          })}
-          {songChords.length < SONG_MAX_CHORDS && (
-            <button onClick={() => { setPickerOpen(v => !v); setVariantMenuFor(null); }}
-              style={{ padding:"9px 15px", borderRadius:22, border:"1px dashed rgba(255,190,11,0.4)",
-                background:"transparent", color:"#c9a03a", fontSize:13, fontWeight:800,
-                cursor:"pointer", fontFamily:"inherit" }}>
-              + Chord
-            </button>
-          )}
-        </div>
+      {/* ── Chord set — the SAME builder panel as the Chords tab ── */}
+      <ChordPickerPanel customChords={songChords} setCustomChords={setSongChords}
+        maxChords={10} accentColor="#FFBE0B" isPlaying={isPlaying}
+        stopMetronome={stopMetronome} setIsPlaying={setIsPlaying}
+        setChordIndex={setChordIndex} setBeatCount={setBeatCount}
+        beatRef={chordIdxRef} chordRef={chordIdxRef}
+        chordVariants={chordVariants} updateVariant={updateVariant}
+        allowDuplicates={true} onReset={()=>{}} />
 
-        {/* Voicing menu for the tapped chip */}
-        {variantMenuFor != null && songChords[variantMenuFor] != null && (
-          <div style={{ marginTop:12, padding:"10px", borderRadius:13, background:"#100d09",
-            border:"1px solid rgba(255,190,11,0.25)" }}>
-            <div style={{ fontSize:9.5, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
-              fontWeight:700, marginBottom:8, textAlign:"center" }}>
-              {slotBase(songChords[variantMenuFor])} voicings
-            </div>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6, justifyContent:"center" }}>
-              {(CHORD_VARIATION_MAP[slotBase(songChords[variantMenuFor])] || []).map(opt => {
-                const on = songChords[variantMenuFor] === opt.key;
-                return (
-                  <button key={opt.key} onClick={() => setSlotVariant(variantMenuFor, opt.key)}
-                    style={{ padding:"9px 14px", borderRadius:11, cursor:"pointer", fontFamily:"inherit",
-                      border:`1px solid ${on ? "rgba(255,190,11,0.7)" : "#241d10"}`,
-                      background: on ? "rgba(255,190,11,0.14)" : "#0e0b07",
-                      color: on ? "#FFD60A" : "#8a7f5e", fontSize:13, fontWeight:800 }}>
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
+      {/* ── Now playing — re-keyed card, correct animation by construction ── */}
+      {songChords.length > 0 && (
+        <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
+          padding:"18px 14px", marginBottom:20, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
+            NOW PLAYING
           </div>
-        )}
-
-        {/* Add-chord grid */}
-        {pickerOpen && songChords.length < SONG_MAX_CHORDS && (
-          <div style={{ marginTop:12, display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:7 }}>
-            {ALL_CHORDS.map(c => (
-              <button key={c} onClick={() => addChord(c)} style={{ padding:"12px 4px", borderRadius:12,
-                border:"1px solid #241d10", background:"#100d09", color:"#d8cba0", fontSize:14,
-                fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>
-                {c}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Now playing ── */}
-      <div style={{ ...card, position:"relative", overflow:"hidden" }}>
-        <div style={cardLabel}>Now Playing</div>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:14 }}>
-          {/* Current chord — re-keyed on every change so the slide always animates
-              from truth; no prev/next peek state to drift. */}
-          <div key={changeSeq} style={{ textAlign:"center", animation:"ntcSongSlide 0.32s ease both" }}>
-            <div style={{ width:190, borderRadius:18, overflow:"hidden",
-              border:"2px solid rgba(255,190,11,0.7)", boxShadow:"0 0 26px rgba(255,170,20,0.28)",
-              background:"#14100a" }}>
-              {curChord && slotImg(curChord)
-                ? <img src={slotImg(curChord)} alt={slotLabel(curChord)} style={{ width:"100%", display:"block" }} />
-                : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:34, fontWeight:900, color:"#FFD60A" }}>{curChord ? slotLabel(curChord) : "—"}</div>}
-            </div>
-            <div style={{ marginTop:9, fontSize:19, fontWeight:900, color:"#FFD60A", letterSpacing:0.5 }}>
-              {curChord ? slotLabel(curChord) : "Add a chord"}
-            </div>
-          </div>
-          {/* Accurate NEXT preview (pre-decided, even in random mode) */}
-          {nextChord != null && (
-            <div style={{ textAlign:"center", opacity:0.75 }}>
-              <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
-                fontWeight:800, marginBottom:6 }}>Next</div>
-              <div style={{ width:86, borderRadius:12, overflow:"hidden", border:"1px solid #2a2417",
-                background:"#100d09" }}>
-                {slotImg(nextChord)
-                  ? <img src={slotImg(nextChord)} alt={slotLabel(nextChord)} style={{ width:"100%", display:"block" }} />
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:14 }}>
+            <div key={changeSeq} style={{ textAlign:"center", animation:"ntcSongSlide 0.32s ease both" }}>
+              <div style={{ width:190, borderRadius:18, overflow:"hidden",
+                border:"2px solid rgba(255,190,11,0.7)", boxShadow:"0 0 26px rgba(255,170,20,0.28)",
+                background:"#14100a" }}>
+                {curChord && slotImg(curChord)
+                  ? <img src={slotImg(curChord)} alt={slotLabel(curChord)} style={{ width:"100%", display:"block" }} />
                   : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center", justifyContent:"center",
-                      fontSize:17, fontWeight:900, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>}
+                      fontSize:34, fontWeight:900, color:"#FFD60A" }}>{curChord ? slotLabel(curChord) : "—"}</div>}
               </div>
-              <div style={{ marginTop:5, fontSize:12, fontWeight:800, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>
+              <div style={{ marginTop:9, fontSize:19, fontWeight:900, color:"#FFD60A", letterSpacing:0.5 }}>
+                {curChord ? slotLabel(curChord) : ""}
+              </div>
+            </div>
+            {nextChord != null && (
+              <div style={{ textAlign:"center", opacity:0.75 }}>
+                <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
+                  fontWeight:800, marginBottom:6 }}>Next</div>
+                <div style={{ width:86, borderRadius:12, overflow:"hidden", border:"1px solid #2a2417",
+                  background:"#100d09" }}>
+                  {slotImg(nextChord)
+                    ? <img src={slotImg(nextChord)} alt={slotLabel(nextChord)} style={{ width:"100%", display:"block" }} />
+                    : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center", justifyContent:"center",
+                        fontSize:17, fontWeight:900, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>}
+                </div>
+                <div style={{ marginTop:5, fontSize:12, fontWeight:800, color:"#8a7f5e" }}>{slotLabel(nextChord)}</div>
+              </div>
+            )}
+          </div>
+          {beatsPerChord > 1 && (
+            <div style={{ display:"flex", justifyContent:"center", gap:6, marginTop:12 }}>
+              {Array.from({ length: beatsPerChord }, (_, i) => (
+                <div key={i} style={{ width:8, height:8, borderRadius:"50%",
+                  background: isPlaying && i <= beatCount ? "#FFBE0B" : "#241d10",
+                  boxShadow: isPlaying && i <= beatCount ? "0 0 8px rgba(255,170,20,0.5)" : "none",
+                  transition:"all 0.2s" }} />
+              ))}
             </div>
           )}
         </div>
-        {/* Bars-per-chord progress dots */}
-        {beatsPerChord > 1 && (
-          <div style={{ display:"flex", justifyContent:"center", gap:6, marginTop:12 }}>
-            {Array.from({ length: beatsPerChord }, (_, i) => (
-              <div key={i} style={{ width:8, height:8, borderRadius:"50%",
-                background: isPlaying && i <= beatCount ? "#FFBE0B" : "#241d10",
-                boxShadow: isPlaying && i <= beatCount ? "0 0 8px rgba(255,170,20,0.5)" : "none",
-                transition:"all 0.2s" }} />
-            ))}
-          </div>
-        )}
-        {countdown > 0 && (
-          <div onClick={handleTogglePlay} style={{ position:"absolute", inset:0, display:"flex",
-            alignItems:"center", justifyContent:"center", background:"rgba(10,8,5,0.82)", cursor:"pointer" }}>
-            <div style={{ textAlign:"center" }}>
-              <div style={{ fontSize:56, fontWeight:900, color:"#FFD60A",
-                textShadow:"0 0 30px rgba(255,170,20,0.5)" }}>{countdown}</div>
-              <div style={{ fontSize:11, color:"#8a7f5e", fontWeight:700 }}>tap to start now</div>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
-      {/* ── Strum pattern ── */}
-      <div style={card}>
-        <div style={cardLabel}>Strum Pattern</div>
+      {/* ── Strum pattern — the SAME rows as the strum builder ── */}
+      <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
+        padding:"16px 14px", marginBottom:20, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
+          STRUM PATTERN
+        </div>
         {[0, ...(hasSecondRow ? [1] : [])].map(row => {
           const size = row === 0 ? row1Size : row2Size;
           return (
-            <div key={row} style={{ marginBottom: row === 0 && hasSecondRow ? 14 : 0 }}>
-              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:8 }}>
-                <span style={{ fontSize:9.5, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a", fontWeight:800 }}>
-                  Row {row + 1}
-                </span>
-                <button onClick={() => cycleRowSize(row)} style={{ padding:"3px 10px", borderRadius:9,
-                  border:"1px solid rgba(255,190,11,0.35)", background:"#14100a", color:"#FFBE0B",
-                  fontSize:11.5, fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>
-                  {size} ↻
+            <div key={row} style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:5 }}>
+                <div style={{ fontSize:10, color:"#444", letterSpacing:1 }}>ROW {row + 1}</div>
+                <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                  const ns = cycleRowSize(size); rowSizeSetters[row](ns);
+                  setStrumActive(p=>{ const n=[...p]; for(let i=row*8+ns;i<row*8+8;i++) n[i]=false; return n; });
+                }} style={{ padding:"4px 12px", borderRadius:8, border:"1px solid #333",
+                  background:"#1a1a1a", color:"#FFBE0B", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                  {rowSizeLabel(size)} ↻
                 </button>
-                {row === 1 && (
-                  <button onClick={() => setHasSecondRow(false)} style={{ padding:"3px 9px", borderRadius:9,
-                    border:"1px solid #241d10", background:"transparent", color:"#6f6749",
-                    fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>× remove</button>
-                )}
               </div>
-              <div style={{ display:"flex", justifyContent:"center", gap:5 }}>
-                {Array.from({ length: size }, (_, i) => {
+              <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap" }}>
+                {Array(size).fill(null).map((_, i) => {
                   const idx = row * 8 + i;
-                  const on = strumActive[idx];
-                  const isNow = currentStrum === idx && isPlaying;
-                  const down = i % 2 === 0;
                   return (
-                    <button key={i} onClick={() => toggleSlot(idx)} style={{
-                      width:44, height:52, borderRadius:12, cursor:"pointer", fontSize:19, fontWeight:900,
-                      fontFamily:"inherit",
-                      border:`2px solid ${isNow ? "#FFD60A" : on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
-                      background: isNow ? "rgba(255,190,11,0.28)" : on
-                        ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, transparent 65%), #16110a"
-                        : "#0c0a06",
-                      color: on || isNow ? "#FFD60A" : "#3a3325",
-                      boxShadow: isNow ? "0 0 16px rgba(255,170,20,0.5)" : "none",
-                      transition:"all 0.12s" }}>
-                      {down ? "↓" : "↑"}
-                    </button>
+                    <div key={idx} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
+                      <BuildBlock dir={DIRS16[i % 8]} active={strumActive[idx]} beat={currentStrum===idx&&isPlaying} fluid
+                        onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+                          setStrumActive(p=>p.map((v,x)=>x===idx?!v:v)); }} />
+                    </div>
                   );
                 })}
               </div>
             </div>
           );
         })}
-        {!hasSecondRow && (
-          <div style={{ textAlign:"center", marginTop:12 }}>
-            <button onClick={() => setHasSecondRow(true)} style={{ padding:"9px 18px", borderRadius:11,
-              border:"1px dashed rgba(255,190,11,0.35)", background:"transparent", color:"#c9a03a",
-              fontSize:12.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
-              + Add Row
-            </button>
-          </div>
-        )}
+        <div style={{ display:"flex", justifyContent:"center", marginTop:8 }}>
+          {hasSecondRow ? (
+            <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
+              setHasSecondRow(false);
+              setStrumActive(p=>{ const n=[...p]; for(let i=8;i<16;i++) n[i]=false; return n; });
+            }} style={{ padding:"7px 14px", borderRadius:9, border:"1px solid #333",
+              background:"transparent", color:"#8a7f5e", fontSize:12, fontWeight:700,
+              cursor:"pointer", fontFamily:"inherit" }}>× Remove Row 2</button>
+          ) : (
+            <button onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);} setHasSecondRow(true); }}
+              style={{ padding:"7px 14px", borderRadius:9, border:"1px dashed rgba(255,190,11,0.4)",
+              background:"transparent", color:"#FFBE0B", fontSize:12, fontWeight:700,
+              cursor:"pointer", fontFamily:"inherit" }}>+ Add Row</button>
+          )}
+        </div>
       </div>
 
-      {/* ── Controls ── */}
-      <div style={card}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-          <span style={{ fontSize:12, fontWeight:800, color:"#d8cba0" }}>BPM</span>
-          <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
-        </div>
-        <input type="range" min={20} max={160} value={bpm} className="ntc-bpm-slider"
-          onChange={e => setBpm(Number(e.target.value))} style={{ width:"100%" }} />
-        <div style={{ display:"flex", gap:7, marginTop:9, marginBottom:16 }}>
-          {[40, 60, 80, 100].map(v => (
-            <button key={v} onClick={() => setBpm(v)} style={{ flex:1, padding:"9px 0", borderRadius:11,
-              border:`1px solid ${bpm === v ? "rgba(255,190,11,0.55)" : "#241d10"}`,
-              background: bpm === v ? "rgba(255,190,11,0.1)" : "#0c0a06",
-              color: bpm === v ? "#FFD60A" : "#8a7f5e", fontSize:13, fontWeight:800,
-              cursor:"pointer", fontFamily:"inherit" }}>{v}</button>
-          ))}
-        </div>
-
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
+      {/* ── Bars per chord / capo / random ── */}
+      <div style={{ background:"#0a0a0a", border:"1px solid #2a2a2a", borderRadius:20,
+        padding:"16px 14px", marginBottom:20, boxShadow:"0 8px 32px rgba(0,0,0,0.5)" }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
           <div>
-            <div style={{ fontSize:9.5, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
-              fontWeight:800, textAlign:"center", marginBottom:7 }}>Bars per chord</div>
+            <div style={{ fontSize:10, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:7 }}>BARS PER CHORD</div>
             <div style={{ display:"flex", gap:6 }}>
               {BEATS_OPTIONS.map(v => (
                 <button key={v} onClick={() => setBeatsPerChord(v)} style={{ flex:1, padding:"10px 0",
                   borderRadius:11, border:`1px solid ${beatsPerChord === v ? "rgba(255,190,11,0.55)" : "#241d10"}`,
-                  background: beatsPerChord === v ? "rgba(255,190,11,0.1)" : "#0c0a06",
+                  background: beatsPerChord === v ? "rgba(255,190,11,0.1)" : "#100d09",
                   color: beatsPerChord === v ? "#FFD60A" : "#8a7f5e", fontSize:14, fontWeight:900,
                   cursor:"pointer", fontFamily:"inherit" }}>{v}</button>
               ))}
             </div>
           </div>
           <div>
-            <div style={{ fontSize:9.5, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
-              fontWeight:800, textAlign:"center", marginBottom:7 }}>Capo</div>
+            <div style={{ fontSize:10, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:7 }}>CAPO</div>
             <div style={{ display:"flex", alignItems:"center", gap:6 }}>
               <button onClick={() => setCapo(c => Math.max(0, c - 1))} style={{ width:40, height:40,
-                borderRadius:11, border:"1px solid #241d10", background:"#0c0a06", color:"#FFBE0B",
+                borderRadius:11, border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B",
                 fontSize:16, fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>−</button>
               <div style={{ flex:1, textAlign:"center", fontSize:16, fontWeight:900, color:"#FFBE0B",
-                background:"#0c0a06", border:"1px solid #241d10", borderRadius:11, padding:"9px 0" }}>{capo}</div>
+                background:"#100d09", border:"1px solid #241d10", borderRadius:11, padding:"9px 0" }}>{capo}</div>
               <button onClick={() => setCapo(c => Math.min(7, c + 1))} style={{ width:40, height:40,
-                borderRadius:11, border:"1px solid #241d10", background:"#0c0a06", color:"#FFBE0B",
+                borderRadius:11, border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B",
                 fontSize:16, fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>+</button>
             </div>
           </div>
         </div>
-
         <button onClick={() => setSongRandom(v => !v)} aria-pressed={songRandom} style={{ width:"100%",
-          padding:"11px", borderRadius:12, marginBottom:12,
+          padding:"11px", borderRadius:12,
           border:`1px solid ${songRandom ? "rgba(255,190,11,0.55)" : "#241d10"}`,
-          background: songRandom ? "rgba(255,190,11,0.1)" : "#0c0a06",
+          background: songRandom ? "rgba(255,190,11,0.1)" : "#100d09",
           color: songRandom ? "#FFD60A" : "#8a7f5e", fontSize:13, fontWeight:800,
           cursor:"pointer", fontFamily:"inherit" }}>
           🎲 Random chord order {songRandom ? "· ON" : "· OFF"}
         </button>
-
-        <button onClick={handleTogglePlay} style={{ width:"100%", padding:"15px", borderRadius:13,
-          border: isPlaying || countdown > 0 ? "2px solid rgba(255,120,90,0.7)" : "2px solid rgba(255,255,255,0.85)",
-          background: isPlaying || countdown > 0
-            ? "linear-gradient(135deg,#3a1510,#571f16)"
-            : "linear-gradient(135deg,#34d399,#059669)",
-          color:"#fff", fontSize:16, fontWeight:900, cursor:"pointer", fontFamily:"inherit",
-          boxShadow: isPlaying || countdown > 0 ? "0 0 18px rgba(255,90,60,0.25)" : "0 0 22px rgba(52,211,153,0.3)" }}>
-          {isPlaying || countdown > 0 ? "■ Stop" : "▶ Start"}
-        </button>
       </div>
 
+      {/* ── BPM + Start — the SAME metronome panel as the other builders ── */}
+      <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
+        totalBlocks={hasSecondRow ? row1Size + row2Size : row1Size} currentBeat={currentStrum}
+        accentColor="#FFBE0B" onToggle={handleTogglePlay} countdown={countdown}
+        canPlay={songChords.length > 0} disabledLabel="Add a chord to start" />
+
       {/* ── Save / My songs ── */}
-      <div style={{ display:"flex", gap:8, justifyContent:"center" }}>
+      <div style={{ display:"flex", gap:8, justifyContent:"center", marginTop:20 }}>
         <button onClick={() => { setSavePrompt(v => !v); setShowSaved(false); }} style={{ ...GLOW_BTN,
           borderRadius:12, padding:"11px 22px", fontSize:13 }}>💾 Save</button>
         {saved.length > 0 && (
@@ -9074,7 +8927,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 // ─── LANDING SCREEN ──────────────────────────────────────────────────────────
 // Clean title screen shown on a fresh visit (no shared exercise URL). The four
 // cards navigate to each tab. Fade-in + warm-glow dark buttons.
-function LandingScreen({ onPick, streak }) {
+function LandingScreen({ onPick, streak, isDev = false, onDev = null }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMounted(true), 20); return () => clearTimeout(t); }, []);
 
@@ -9088,6 +8941,7 @@ function LandingScreen({ onPick, streak }) {
     { id:"strum",   icon:"🎸", title:"Strumming",      sub:"Patterns, rhythm & the universal motion" },
     { id:"chords",  icon:"🤚", title:"Chords",          sub:"Switching drills & chord packs" },
     { id:"tracker", icon:"🔥", title:"30-Day Tracker",  sub:"Build the habit, keep your streak", streak:true },
+    { id:"song",    icon:"🎵", title:"Build a Song",    sub:"Your chords + strumming, played back" },
   ];
 
   const [hover, setHover] = useState(null);
@@ -9180,40 +9034,16 @@ function LandingScreen({ onPick, streak }) {
           })}
         </div>
 
-        {/* Separated Build a Song (Beta) — dimmer, set apart */}
-        <div style={{ width:"100%", marginTop:16, ...rise(0.6) }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, opacity:0.7 }}>
-            <div style={{ flex:1, height:1, background:"#241d10" }} />
-            <div style={{ fontSize:9, color:"#5a5238", letterSpacing:2, fontWeight:700 }}>EXPERIMENTAL</div>
-            <div style={{ flex:1, height:1, background:"#241d10" }} />
+        {/* Founder-only: legacy authoring suite */}
+        {isDev && onDev && (
+          <div style={{ width:"100%", marginTop:18, textAlign:"center", ...rise(0.6) }}>
+            <button onClick={onDev} style={{ padding:"8px 18px", borderRadius:10,
+              border:"1px solid #241d10", background:"transparent", color:"#5a5238",
+              fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit", letterSpacing:1 }}>
+              🛠 Dev tools →
+            </button>
           </div>
-          <button
-            onClick={()=>onPick("song")}
-            onMouseEnter={()=>setHover("song")}
-            onMouseLeave={()=>setHover(null)}
-            style={{
-              width:"100%", border:`1px solid ${hover==="song" ? "rgba(255,190,11,0.3)" : "#1c1710"}`,
-              borderRadius:16, padding:"16px 18px", cursor:"pointer", textAlign:"left",
-              display:"flex", alignItems:"center", gap:14, color:"#fff", fontFamily:"inherit",
-              background: hover==="song" ? "#100d09" : "#0c0a06",
-              opacity: hover==="song" ? 1 : 0.72,
-              transition:"all 0.25s ease",
-            }}>
-            <span style={{ fontSize:20, width:40, height:40, borderRadius:12,
-              display:"flex", alignItems:"center", justifyContent:"center",
-              background:"rgba(255,190,11,0.05)", border:"1px solid rgba(255,190,11,0.1)", flexShrink:0 }}>🎵</span>
-            <span style={{ display:"flex", flexDirection:"column", gap:2 }}>
-              <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <span style={{ fontSize:15, fontWeight:800, color:"#c9bd97" }}>Build a Song</span>
-                <span style={{ fontSize:8.5, fontWeight:800, letterSpacing:1, color:"#F77F00",
-                  border:"1px solid rgba(247,127,0,0.4)", borderRadius:6, padding:"1px 6px" }}>BETA</span>
-              </span>
-              <span style={{ fontSize:11.5, fontWeight:600, color:"#5a5238" }}>Full song builder — sections, chords & strumming</span>
-            </span>
-            <span style={{ marginLeft:"auto", fontSize:20, fontWeight:900,
-              color: hover==="song" ? "#FFBE0B" : "#332e22", transition:"color 0.25s" }}>›</span>
-          </button>
-        </div>
+        )}
 
         <div style={{ marginTop:"auto", paddingTop:20, fontSize:11, color:"#332e22",
           textAlign:"center", ...rise(0.7) }}>
