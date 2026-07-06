@@ -6636,16 +6636,15 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
                     75% { transform:rotate(-3deg); } }
                   @keyframes ntcUnlockGlow { 0%,100% { box-shadow:0 0 12px rgba(255,190,11,0.22); }
                     50% { box-shadow:0 0 28px rgba(255,190,11,0.5); } }
-                  @keyframes ntcUnlockShine { from { left:-30%; } to { left:115%; } }
+                  @keyframes ntcUnlockShine { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
                 `}</style>
                 <div style={{ position:"relative", overflow:"hidden", borderRadius:16,
                   border:"1px solid rgba(255,190,11,0.5)", padding:"18px 14px 16px",
                   background:"radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.14) 0%, rgba(255,140,0,0.05) 55%, transparent 100%), #14100a",
                   animation:"ntcUnlockPop 0.7s cubic-bezier(0.2,1.4,0.4,1) 0.5s both, ntcUnlockGlow 2.4s ease 1.4s infinite" }}>
-                  <div style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"20%", pointerEvents:"none",
-                    transform:"skewX(-18deg)",
-                    background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)",
-                    animation:"ntcUnlockShine 1.1s ease 1.5s both" }} />
+                  <div style={{ position:"absolute", inset:0, pointerEvents:"none",
+                    background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.14) 50%, transparent 60%)",
+                    transform:"translateX(-100%)", animation:"ntcUnlockShine 1.1s ease 1.5s both" }} />
                   <div style={{ fontSize:34, display:"inline-block", animation:"ntcLockShake 0.9s ease 1.3s both" }}>🔓</div>
                   <div style={{ fontSize:10.5, letterSpacing:2.5, color:"#c9a03a", fontWeight:800,
                     textTransform:"uppercase", marginTop:6 }}>New feature unlocked</div>
@@ -6894,25 +6893,27 @@ function CustomTrackerSection({ hideGenerate = false }) {
     setEditing(false);
   };
 
-  return (
-    <div>
-      {/* The Exercise Generator lives in Build — its home for members who earned it. */}
-      {!hideGenerate && <GenerateLauncherButton />}
-      {(!active || editing) ? (
+  if (!active || editing) {
+    return (
+      <div>
+        {/* No tracker yet — the generator button leads while they set one up. */}
+        {!hideGenerate && <GenerateLauncherButton />}
         <BuildSetup
           existing={editing ? active : null}
           onSave={(next) => { persist(next); setEditing(false); }}
           onCancel={active ? () => setEditing(false) : null}
         />
-      ) : (
-        <CustomTracker
-          saved={active}
-          onChange={persist}
-          onEdit={() => setEditing(true)}
-          onDelete={remove}
-        />
-      )}
-    </div>
+      </div>
+    );
+  }
+  return (
+    <CustomTracker
+      saved={active}
+      onChange={persist}
+      onEdit={() => setEditing(true)}
+      onDelete={remove}
+      hideGenerate={hideGenerate}
+    />
   );
 }
 
@@ -7104,7 +7105,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
 
 // ── The custom tracker itself — same look and rules as the 30-day grid, driven
 // by the member's own config. ──
-function CustomTracker({ saved, onChange, onEdit, onDelete }) {
+function CustomTracker({ saved, onChange, onEdit, onDelete, hideGenerate = false }) {
   const config = saved.config;
   const tasks = config.tasks || [];
   const data = Array.isArray(saved.data) ? saved.data : [];
@@ -7249,6 +7250,8 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
           Delete & start over
         </button>
       </div>
+
+      {!hideGenerate && <GenerateLauncherButton />}
 
       {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:11, marginBottom:22 }}>
@@ -7874,11 +7877,10 @@ function GenerateLauncherButton() {
     <button onClick={() => { try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {} }}
       style={{ ...GLOW_BTN, position:"relative", overflow:"hidden", width:"100%",
         borderRadius:14, padding:"14px", fontSize:14.5, letterSpacing:0.4, marginBottom:22 }}>
-      <style>{`@keyframes ntcGenShine { 0% { left:-30%; } 55%, 100% { left:115%; } }`}</style>
-      <span style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"22%", pointerEvents:"none",
-        transform:"skewX(-18deg)",
-        background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)",
-        animation:"ntcGenShine 3.4s ease 0.6s infinite" }} />
+      <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 55%, 100% { transform:translateX(100%); } }`}</style>
+      <span style={{ position:"absolute", inset:0, pointerEvents:"none",
+        background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.14) 50%, transparent 60%)",
+        transform:"translateX(-100%)", animation:"ntcGenShine 3.4s ease 0.6s infinite" }} />
       ⚡ Generate Exercise
     </button>
   );
@@ -8153,11 +8155,11 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             position:"relative", overflow:"hidden", width:"100%", borderRadius:14,
             padding:"16px", fontSize:16, letterSpacing:0.5,
             opacity: anySelected ? 1 : 0.4 }}>
-            <span style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"22%", pointerEvents:"none",
-              transform:"skewX(-18deg)",
-              background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.16), transparent)",
+            <span style={{ position:"absolute", inset:0, pointerEvents:"none",
+              background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.16) 50%, transparent 60%)",
+              transform:"translateX(-100%)",
               animation: generating ? "ntcGenShine 0.55s ease infinite" : "ntcGenShine 3s ease 0.4s infinite" }} />
-            <style>{`@keyframes ntcGenShine { 0% { left:-30%; } 55%, 100% { left:115%; } }`}</style>
+            <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 55%, 100% { transform:translateX(100%); } }`}</style>
             {generating ? "Generating…" : "✨ Generate"}
           </button>
 
@@ -8244,10 +8246,9 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           {activeKey !== "tracker" && (
             <button onClick={regenerate} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
               borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
-              <span style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"22%", pointerEvents:"none",
-                transform:"skewX(-18deg)",
-                background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.13), transparent)",
-                animation:"ntcGenShine 3.2s ease 1s infinite" }} />
+              <span style={{ position:"absolute", inset:0, pointerEvents:"none",
+                background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.13) 50%, transparent 60%)",
+                transform:"translateX(-100%)", animation:"ntcGenShine 3.2s ease 1s infinite" }} />
               🎲 Regenerate
             </button>
           )}
