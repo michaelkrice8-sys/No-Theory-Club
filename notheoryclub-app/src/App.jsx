@@ -318,9 +318,11 @@ function GateWall({ email, onSignOut }) {
 // devices and survive cleared caches. localStorage stays the working copy;
 // the cloud is the durable one.
 
+const BUILD_UNLOCK_KEY   = "ntc-build-unlocked-v1"; // {unlocked:true, at:ISO}
+const CUSTOM_TRACKER_KEY = "ntc-custom-tracker-v1"; // {config, data, updatedAt} or {deleted:true, updatedAt}
 const SYNC_KEYS = [
   "ntc_drills", "ntc_patterns", "ntc_songs", "ntc_strum", "ntc_strum_tab",
-  "ntc-30day-tracker-v1"
+  "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY
 ];
 const TRACKER_KEY = "ntc-30day-tracker-v1";
 
@@ -364,6 +366,36 @@ function mergeList(local, cloud) {
   return merged;
 }
 
+// Unlock-flag merge: once unlocked anywhere, unlocked everywhere. A member
+// who earned Build on their phone must never see it re-locked on their laptop.
+function mergeUnlock(local, cloud) {
+  const unlocked = Boolean(local && local.unlocked) || Boolean(cloud && cloud.unlocked);
+  if (!unlocked) return local || cloud || null;
+  return { unlocked: true, at: (local && local.at) || (cloud && cloud.at) || new Date().toISOString() };
+}
+
+// Custom (Build) tracker merge: newest config wins by updatedAt. If both sides
+// share the same shape (same day count + task ids), union the ticked boxes so
+// practising on two devices never erases a check — same rule as the 30-day
+// tracker. A {deleted:true} tombstone counts as newest like anything else, so
+// deletions propagate instead of resurrecting.
+function mergeCustomTracker(local, cloud) {
+  if (!local) return cloud || null;
+  if (!cloud) return local;
+  const lt = Date.parse(local.updatedAt || 0) || 0;
+  const ct = Date.parse(cloud.updatedAt || 0) || 0;
+  const newer = ct > lt ? cloud : local;
+  const older = ct > lt ? local : cloud;
+  const ids = (c) => JSON.stringify(((c && c.tasks) || []).map(t => t.id));
+  const sameShape = newer.config && older.config &&
+    newer.config.days === older.config.days && ids(newer.config) === ids(older.config);
+  if (sameShape) {
+    const data = mergeTracker(newer.data, older.data);
+    return data ? { ...newer, data } : newer;
+  }
+  return newer;
+}
+
 // Pull cloud progress, merge with local, write back to BOTH sides.
 // Runs once per login, before the app renders.
 async function syncPullAndMerge(userId) {
@@ -379,8 +411,10 @@ async function syncPullAndMerge(userId) {
     for (const key of SYNC_KEYS) {
       const local = syncReadLocal(key);
       const remote = key in cloud ? cloud[key] : null;
-      const merged = key === TRACKER_KEY
-        ? mergeTracker(local, remote)
+      const merged =
+          key === TRACKER_KEY        ? mergeTracker(local, remote)
+        : key === CUSTOM_TRACKER_KEY ? mergeCustomTracker(local, remote)
+        : key === BUILD_UNLOCK_KEY   ? mergeUnlock(local, remote)
         : mergeList(local, remote);
       if (merged == null) continue;
       try { localStorage.setItem(key, JSON.stringify(merged)); } catch (_) {}
@@ -6172,6 +6206,22 @@ const TRACKER_TASKS = [
 ];
 const TRACKER_STORAGE_KEY = "ntc-30day-tracker-v1";
 
+// ── Build unlock flag ── earned by completing the 30-Day Challenge. Stored
+// (and cloud-synced) separately from the tracker data, so resetting the 30
+// days later never re-locks Build.
+function readBuildUnlocked() {
+  try {
+    const raw = localStorage.getItem(BUILD_UNLOCK_KEY);
+    if (raw && JSON.parse(raw).unlocked) return true;
+  } catch (_) {}
+  return false;
+}
+function persistBuildUnlocked() {
+  try {
+    localStorage.setItem(BUILD_UNLOCK_KEY, JSON.stringify({ unlocked: true, at: new Date().toISOString() }));
+  } catch (_) {}
+}
+
 // Same bit-packing encode/decode as the original standalone tracker — kept
 // identical so any existing ?d= tracker share links still decode correctly.
 function trackerEncode(data) {
@@ -6264,7 +6314,7 @@ function useTrackerConfetti() {
   return { canvasRef, launch };
 }
 
-function TrackerTab() {
+function TrackerTab({ context = "app" }) {
   const [data, setData] = useState(trackerInit);
   const [loaded, setLoaded] = useState(false);
   const [celebrating, setCelebrating] = useState(null);
@@ -6272,6 +6322,21 @@ function TrackerTab() {
   const celebratedRef = useRef(false);   // ensures the celebration fires only once
   const celebrateTimerRef = useRef(null); // pending delayed-celebration timer
   const { canvasRef, launch } = useTrackerConfetti();
+
+  // ── Build (custom tracker) unlock ──
+  // "challenge" | "build". Build is usable only in the main app (sandbox);
+  // package links show the teaser and route members to the full app.
+  const [mode, setMode] = useState("challenge");
+  const [buildUnlocked, setBuildUnlocked] = useState(readBuildUnlocked);
+  const [justUnlocked, setJustUnlocked] = useState(false);   // drives the unlock animation
+  const [showLockedInfo, setShowLockedInfo] = useState(false);  // low-opacity teaser bubble
+  const [showOpenAppInfo, setShowOpenAppInfo] = useState(false); // package view → full app
+
+  const handleBuildClick = () => {
+    if (!buildUnlocked) { setShowLockedInfo(true); return; }
+    if (context === "package") { setShowOpenAppInfo(true); return; }
+    setMode("build");
+  };
 
   // Load — reads ?d= (tracker share) then localStorage. Does NOT clear other
   // URL params; the main app handles its own exercise params separately.
@@ -6305,6 +6370,14 @@ function TrackerTab() {
       if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current);
       celebrateTimerRef.current = setTimeout(() => {
         celebratedRef.current = true;
+        // Earn the Build unlock. Only animate it in the modal the first time —
+        // if the flag was already set (earlier visit / another device), the
+        // trophy modal shows as before, without the unlock card.
+        if (!readBuildUnlocked()) {
+          persistBuildUnlocked();
+          setJustUnlocked(true);
+        }
+        setBuildUnlocked(true);
         setShowModal(true);
         launch();
       }, 2500);
@@ -6360,6 +6433,90 @@ function TrackerTab() {
     <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 60px" }}>
       <canvas ref={canvasRef} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:9999 }} />
 
+      {/* ── Mode switcher: 30-Day Challenge / Build (locked until day 30) ── */}
+      <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+        {[
+          { id:"challenge", label:"🔥 30-Day Challenge", onClick:()=>setMode("challenge"), on: mode==="challenge" },
+          { id:"build", label: buildUnlocked ? "🛠️ Build" : "🔒 Build", onClick: handleBuildClick, on: mode==="build" },
+        ].map(p => (
+          <button key={p.id} onClick={p.onClick} style={{
+            flex:1, padding:"11px 8px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
+            border:`1px solid ${p.on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
+            background: p.on
+              ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
+              : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.05) 0%, rgba(255,170,30,0) 60%), #100d09",
+            color: p.on ? "#FFD60A" : (p.id==="build" && !buildUnlocked ? "#6f6749" : "#8a7f5e"),
+            fontSize:13, fontWeight:800, letterSpacing:0.3, whiteSpace:"nowrap",
+            boxShadow: p.on ? "0 0 18px rgba(255,160,20,0.16)" : "none",
+            transition:"all 0.22s ease" }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Locked teaser — low-opacity bubble explaining how Build is earned */}
+      {showLockedInfo && (
+        <div onClick={()=>setShowLockedInfo(false)} style={{ position:"fixed", inset:0, zIndex:1000,
+          background:"rgba(0,0,0,0.72)", display:"flex", alignItems:"center", justifyContent:"center",
+          padding:24, animation:"ntcModalFade 0.3s ease both" }}>
+          <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
+          <div onClick={e=>e.stopPropagation()} style={{ opacity:0.93, background:"rgba(17,15,10,0.92)",
+            backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)",
+            border:"1px solid rgba(255,190,11,0.28)", borderRadius:20, padding:"32px 24px",
+            maxWidth:380, width:"100%", textAlign:"center" }}>
+            <div style={{ fontSize:44, marginBottom:10 }}>🔒</div>
+            <div style={{ fontSize:20, fontWeight:900, color:"#f3ead2", marginBottom:10, letterSpacing:0.3 }}>
+              Build is locked — for now
+            </div>
+            <p style={{ fontSize:13.5, color:"#9a8f6e", lineHeight:1.7, marginBottom:14 }}>
+              Finish your <strong style={{ color:"#FFBE0B" }}>30-Day Challenge</strong> to unlock the
+              Build feature — create your own tracker with a custom number of days, personal
+              goals and targets, and your own practice categories.
+            </p>
+            <div style={{ fontSize:12.5, color:"#FFBE0B", fontWeight:700, background:"rgba(255,190,11,0.08)",
+              border:"1px solid rgba(255,190,11,0.22)", borderRadius:12, padding:"10px 12px", marginBottom:20 }}>
+              You're {totalDaysActive} of 30 days in — keep going 🔥
+            </div>
+            <button onClick={()=>setShowLockedInfo(false)} style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+              border:"none", borderRadius:12, padding:"13px 28px", fontSize:14, fontWeight:900, color:"#111",
+              cursor:"pointer", width:"100%", fontFamily:"inherit" }}>
+              Back to the challenge
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Package view: Build lives in the full app */}
+      {showOpenAppInfo && (
+        <div onClick={()=>setShowOpenAppInfo(false)} style={{ position:"fixed", inset:0, zIndex:1000,
+          background:"rgba(0,0,0,0.72)", display:"flex", alignItems:"center", justifyContent:"center",
+          padding:24, animation:"ntcModalFade 0.3s ease both" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ opacity:0.95, background:"rgba(17,15,10,0.94)",
+            border:"1px solid rgba(255,190,11,0.28)", borderRadius:20, padding:"32px 24px",
+            maxWidth:380, width:"100%", textAlign:"center" }}>
+            <div style={{ fontSize:44, marginBottom:10 }}>🛠️</div>
+            <div style={{ fontSize:20, fontWeight:900, color:"#f3ead2", marginBottom:10 }}>
+              Build is unlocked!
+            </div>
+            <p style={{ fontSize:13.5, color:"#9a8f6e", lineHeight:1.7, marginBottom:20 }}>
+              Your custom tracker lives in the full practice app, so it's always in one
+              place no matter which practice link you open.
+            </p>
+            <button onClick={()=>{ window.location.href = window.location.origin + window.location.pathname; }}
+              style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)", border:"none", borderRadius:12,
+              padding:"13px 28px", fontSize:14, fontWeight:900, color:"#111", cursor:"pointer",
+              width:"100%", fontFamily:"inherit", marginBottom:10 }}>
+              Open the practice app →
+            </button>
+            <button onClick={()=>setShowOpenAppInfo(false)} style={{ background:"transparent",
+              border:"1px solid #241d10", borderRadius:12, padding:"11px 28px", fontSize:13, fontWeight:700,
+              color:"#8a7f5e", cursor:"pointer", width:"100%", fontFamily:"inherit" }}>
+              Stay here
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Completion modal */}
       {showModal && (
         <div onClick={()=>setShowModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)",
@@ -6386,6 +6543,48 @@ function TrackerTab() {
               You showed up <strong style={{color:"#ccc"}}>every single day</strong> for 30 days straight.
               That's not a beginner anymore — that's a guitar player. Keep going. 🔥
             </p>
+            {/* Build unlock — animates in the first time the challenge is completed */}
+            {justUnlocked && (
+              <div style={{ marginBottom:16 }}>
+                <style>{`
+                  @keyframes ntcUnlockPop { 0% { transform:scale(0); opacity:0; } 60% { transform:scale(1.12); }
+                    80% { transform:scale(0.97); } 100% { transform:scale(1); opacity:1; } }
+                  @keyframes ntcLockShake { 0%,100% { transform:rotate(0); } 15% { transform:rotate(-14deg); }
+                    30% { transform:rotate(12deg); } 45% { transform:rotate(-8deg); } 60% { transform:rotate(6deg); }
+                    75% { transform:rotate(-3deg); } }
+                  @keyframes ntcUnlockGlow { 0%,100% { box-shadow:0 0 12px rgba(255,190,11,0.22); }
+                    50% { box-shadow:0 0 28px rgba(255,190,11,0.5); } }
+                  @keyframes ntcUnlockShine { from { transform:translateX(-160%) skewX(-18deg); }
+                    to { transform:translateX(260%) skewX(-18deg); } }
+                `}</style>
+                <div style={{ position:"relative", overflow:"hidden", borderRadius:16,
+                  border:"1px solid rgba(255,190,11,0.5)", padding:"18px 14px 16px",
+                  background:"radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.14) 0%, rgba(255,140,0,0.05) 55%, transparent 100%), #14100a",
+                  animation:"ntcUnlockPop 0.7s cubic-bezier(0.2,1.4,0.4,1) 0.5s both, ntcUnlockGlow 2.4s ease 1.4s infinite" }}>
+                  <div style={{ position:"absolute", top:0, bottom:0, width:70, pointerEvents:"none",
+                    background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)",
+                    animation:"ntcUnlockShine 1.1s ease 1.5s both" }} />
+                  <div style={{ fontSize:34, display:"inline-block", animation:"ntcLockShake 0.9s ease 1.3s both" }}>🔓</div>
+                  <div style={{ fontSize:10.5, letterSpacing:2.5, color:"#c9a03a", fontWeight:800,
+                    textTransform:"uppercase", marginTop:6 }}>New feature unlocked</div>
+                  <div style={{ fontSize:24, fontWeight:900, marginTop:4, letterSpacing:0.4,
+                    background:"linear-gradient(135deg,#FFD60A,#F77F00)", WebkitBackgroundClip:"text",
+                    backgroundClip:"text", WebkitTextFillColor:"transparent" }}>🛠️ Build</div>
+                  <div style={{ fontSize:12.5, color:"#9a8f6e", lineHeight:1.6, marginTop:6 }}>
+                    Create your own tracker — custom days, personal goals, targets and your
+                    own practice categories.
+                  </div>
+                  <button onClick={()=>{ setShowModal(false);
+                      if (context === "app") setMode("build"); else setShowOpenAppInfo(true); }}
+                    style={{ marginTop:12, background:"rgba(255,190,11,0.12)", border:"1px solid rgba(255,190,11,0.5)",
+                      borderRadius:11, padding:"10px 22px", fontSize:13, fontWeight:900, color:"#FFD60A",
+                      cursor:"pointer", fontFamily:"inherit" }}>
+                    Try Build →
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div style={{ fontSize:13, color:"#FFD60A", fontWeight:700, lineHeight:1.6, marginBottom:24,
               background:"rgba(255,190,11,0.08)", border:"1px solid rgba(255,190,11,0.25)",
               borderRadius:12, padding:"12px 14px" }}>
@@ -6399,6 +6598,10 @@ function TrackerTab() {
           </div>
         </div>
       )}
+
+      {/* ── Challenge content (kept mounted via display toggle so its state,
+          timers and autosave keep working while Build is open) ── */}
+      <div style={{ display: mode === "challenge" ? "block" : "none" }}>
 
       {/* Compact intro */}
       <div style={{ textAlign:"center", marginBottom:22 }}>
@@ -6512,8 +6715,447 @@ function TrackerTab() {
         </button>
       </div>
 
+      </div>{/* end challenge content */}
+
+      {/* ── Build: custom tracker (sandbox / main app only) ── */}
+      {mode === "build" && buildUnlocked && context === "app" && (
+        <CustomTrackerSection />
+      )}
+
       <div style={{ textAlign:"center", paddingTop:28, color:"#332e22", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
+      </div>
+    </div>
+  );
+}
+
+// ─── BUILD (custom tracker) ──────────────────────────────────────────────────
+// Unlocked by completing the 30-Day Challenge. Members design their own
+// tracker: number of days (7–90), a personal goal name, an optional target,
+// and up to 4 custom practice categories. Stored under CUSTOM_TRACKER_KEY as
+// { config, data, updatedAt } and cloud-synced like the 30-day tracker.
+
+const BUILD_ICONS = ["🎸","🤚","🎵","🥁","🎤","🎧","📖","✍️","⏱️","💪","🎯","🧠"];
+const BUILD_MAX_TASKS = 4;
+const BUILD_MIN_DAYS = 7;
+const BUILD_MAX_DAYS = 90;
+
+// Generalised streak: same rules as the 30-day tracker, any length / any tasks.
+function customStreak(data, tasks) {
+  if (!Array.isArray(data) || !data.length) return 0;
+  let lastActive = -1;
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (tasks.some(t => data[i][t.id])) { lastActive = i; break; }
+  }
+  if (lastActive === -1) return 0;
+  let streak = 0;
+  for (let i = lastActive; i >= 0; i--) {
+    if (tasks.some(t => data[i][t.id])) streak++;
+    else break;
+  }
+  return streak;
+}
+
+function CustomTrackerSection() {
+  const [saved, setSaved] = useState(() => {
+    try {
+      const raw = localStorage.getItem(CUSTOM_TRACKER_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+  });
+  const [editing, setEditing] = useState(false);
+
+  const active = saved && !saved.deleted && saved.config ? saved : null;
+
+  const persist = (next) => {
+    const withTs = { ...next, updatedAt: new Date().toISOString() };
+    try { localStorage.setItem(CUSTOM_TRACKER_KEY, JSON.stringify(withTs)); } catch (_) {}
+    setSaved(withTs);
+  };
+  const remove = () => {
+    if (!window.confirm("Delete this tracker and start over? This can't be undone.")) return;
+    // Tombstone (not a plain delete) so the sync engine propagates the deletion
+    // instead of resurrecting the tracker from the cloud copy on next login.
+    persist({ deleted: true });
+    setEditing(false);
+  };
+
+  if (!active || editing) {
+    return (
+      <BuildSetup
+        existing={editing ? active : null}
+        onSave={(next) => { persist(next); setEditing(false); }}
+        onCancel={active ? () => setEditing(false) : null}
+      />
+    );
+  }
+  return (
+    <CustomTracker
+      saved={active}
+      onChange={persist}
+      onEdit={() => setEditing(true)}
+      onDelete={remove}
+    />
+  );
+}
+
+// ── Setup / edit form ──
+function BuildSetup({ existing, onSave, onCancel }) {
+  const cfg = existing && existing.config;
+  const [name, setName] = useState((cfg && cfg.name) || "");
+  const [days, setDays] = useState((cfg && cfg.days) || 30);
+  const [target, setTarget] = useState((cfg && cfg.target) || "");
+  const [tasks, setTasks] = useState(() =>
+    cfg && Array.isArray(cfg.tasks) && cfg.tasks.length
+      ? cfg.tasks.map(t => ({ ...t }))
+      : [
+          { id: "b1", label: "Chord Switching", icon: "🎸" },
+          { id: "b2", label: "Strumming",       icon: "🥁" },
+          { id: "b3", label: "Song Practice",   icon: "🎵" },
+        ]
+  );
+
+  const clampDays = (n) => Math.max(BUILD_MIN_DAYS, Math.min(BUILD_MAX_DAYS, Math.round(Number(n) || BUILD_MIN_DAYS)));
+  const cycleIcon = (idx) => setTasks(prev => prev.map((t, i) => {
+    if (i !== idx) return t;
+    const at = BUILD_ICONS.indexOf(t.icon);
+    return { ...t, icon: BUILD_ICONS[(at + 1) % BUILD_ICONS.length] };
+  }));
+  const setLabel = (idx, v) => setTasks(prev => prev.map((t, i) => i === idx ? { ...t, label: v } : t));
+  const removeTask = (idx) => setTasks(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
+  const addTask = () => setTasks(prev => prev.length >= BUILD_MAX_TASKS ? prev
+    : [...prev, { id: "b" + Math.random().toString(36).slice(2, 8), label: "", icon: BUILD_ICONS[prev.length % BUILD_ICONS.length] }]);
+
+  const save = () => {
+    const cleanTasks = tasks.map(t => ({ ...t, label: t.label.trim() })).filter(t => t.label);
+    if (!cleanTasks.length) { alert("Add at least one practice category."); return; }
+    const d = clampDays(days);
+    const config = { name: name.trim() || "My Challenge", days: d, target: target.trim(), tasks: cleanTasks };
+    // Preserve any existing ticks: same task ids keep their checks day-for-day;
+    // extra days start empty; removed days are dropped.
+    const data = Array.from({ length: d }, (_, i) => {
+      const prev = (existing && existing.data && existing.data[i]) || {};
+      return Object.fromEntries(cleanTasks.map(t => [t.id, Boolean(prev[t.id])]));
+    });
+    onSave({ config, data });
+  };
+
+  const fieldLabel = { fontSize:10, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
+    fontWeight:700, marginBottom:7 };
+  const inputStyle = { width:"100%", boxSizing:"border-box", background:"#0e0b06", border:"1px solid #241d10",
+    borderRadius:12, padding:"12px 14px", fontSize:14, color:"#f3ead2", fontFamily:"inherit", outline:"none" };
+
+  return (
+    <div>
+      <div style={{ textAlign:"center", marginBottom:22 }}>
+        <div style={{ fontSize:11, letterSpacing:3, color:"#7a6a3a", fontWeight:700, textTransform:"uppercase" }}>
+          🛠️ Build
+        </div>
+        <div style={{ fontSize:24, fontWeight:900, marginTop:8, color:"#f3ead2", letterSpacing:0.3 }}>
+          Your challenge. <span style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+            WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>Your rules.</span>
+        </div>
+        <div style={{ fontSize:12.5, color:"#776b4d", marginTop:8, lineHeight:1.6 }}>
+          You earned this by finishing the 30-Day Challenge. Design what comes next.
+        </div>
+      </div>
+
+      {/* Goal name */}
+      <div style={{ marginBottom:18 }}>
+        <div style={fieldLabel}>Goal name</div>
+        <input value={name} onChange={e=>setName(e.target.value)} maxLength={40}
+          placeholder='e.g. "Play Wonderwall start to finish"' style={inputStyle} />
+      </div>
+
+      {/* Days */}
+      <div style={{ marginBottom:18 }}>
+        <div style={fieldLabel}>Number of days ({BUILD_MIN_DAYS}–{BUILD_MAX_DAYS})</div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={()=>setDays(d=>clampDays(Number(d)-1))} style={{ width:44, height:44, borderRadius:12,
+            border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B", fontSize:20, fontWeight:900,
+            cursor:"pointer", fontFamily:"inherit" }}>−</button>
+          <input type="number" value={days} min={BUILD_MIN_DAYS} max={BUILD_MAX_DAYS}
+            onChange={e=>setDays(e.target.value)} onBlur={()=>setDays(d=>clampDays(d))}
+            style={{ ...inputStyle, textAlign:"center", fontSize:20, fontWeight:900, color:"#FFBE0B", flex:1 }} />
+          <button onClick={()=>setDays(d=>clampDays(Number(d)+1))} style={{ width:44, height:44, borderRadius:12,
+            border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B", fontSize:20, fontWeight:900,
+            cursor:"pointer", fontFamily:"inherit" }}>+</button>
+        </div>
+      </div>
+
+      {/* Target */}
+      <div style={{ marginBottom:18 }}>
+        <div style={fieldLabel}>Target — what does done look like? (optional)</div>
+        <input value={target} onChange={e=>setTarget(e.target.value)} maxLength={80}
+          placeholder='e.g. "Full song at 80 bpm without stopping"' style={inputStyle} />
+      </div>
+
+      {/* Practice categories */}
+      <div style={{ marginBottom:22 }}>
+        <div style={fieldLabel}>Practice categories (up to {BUILD_MAX_TASKS}) — tap the icon to change it</div>
+        {tasks.map((t, i) => (
+          <div key={t.id} style={{ display:"flex", gap:8, marginBottom:8, alignItems:"center" }}>
+            <button onClick={()=>cycleIcon(i)} title="Tap to change icon" style={{ width:44, height:44,
+              borderRadius:12, border:"1px solid rgba(255,190,11,0.3)", background:"rgba(255,190,11,0.07)",
+              fontSize:20, cursor:"pointer", flexShrink:0 }}>{t.icon}</button>
+            <input value={t.label} onChange={e=>setLabel(i, e.target.value)} maxLength={20}
+              placeholder="Category name" style={{ ...inputStyle, flex:1 }} />
+            {tasks.length > 1 && (
+              <button onClick={()=>removeTask(i)} title="Remove" style={{ width:36, height:44, borderRadius:12,
+                border:"1px solid #241d10", background:"transparent", color:"#6f6749", fontSize:16,
+                cursor:"pointer", flexShrink:0 }}>×</button>
+            )}
+          </div>
+        ))}
+        {tasks.length < BUILD_MAX_TASKS && (
+          <button onClick={addTask} style={{ width:"100%", padding:"11px", borderRadius:12,
+            border:"1px dashed rgba(255,190,11,0.3)", background:"transparent", color:"#c9a03a",
+            fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+            + Add a category
+          </button>
+        )}
+      </div>
+
+      {/* Actions */}
+      <button onClick={save} style={{ width:"100%", background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+        border:"none", borderRadius:13, padding:"15px", fontSize:15, fontWeight:900, color:"#111",
+        cursor:"pointer", fontFamily:"inherit", boxShadow:"0 6px 22px rgba(255,150,10,0.25)" }}>
+        {existing ? "Save changes" : "Create my tracker 🛠️"}
+      </button>
+      {onCancel && (
+        <button onClick={onCancel} style={{ width:"100%", marginTop:10, background:"transparent",
+          border:"1px solid #241d10", borderRadius:13, padding:"12px", fontSize:13, fontWeight:700,
+          color:"#8a7f5e", cursor:"pointer", fontFamily:"inherit" }}>
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── The custom tracker itself — same look and rules as the 30-day grid, driven
+// by the member's own config. ──
+function CustomTracker({ saved, onChange, onEdit, onDelete }) {
+  const config = saved.config;
+  const tasks = config.tasks || [];
+  const data = Array.isArray(saved.data) ? saved.data : [];
+  const [celebrating, setCelebrating] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const celebratedRef = useRef(false);
+  const celebrateTimerRef = useRef(null);
+  const { canvasRef, launch } = useTrackerConfetti();
+
+  // Goal-complete celebration — same delayed, fire-once pattern as the 30-day.
+  useEffect(() => {
+    if (celebratedRef.current) return;
+    const allDaysActive = data.length > 0 && data.every(day => tasks.some(t => day[t.id]));
+    if (allDaysActive) {
+      if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current);
+      celebrateTimerRef.current = setTimeout(() => {
+        celebratedRef.current = true;
+        setShowModal(true);
+        launch();
+      }, 2500);
+    } else if (celebrateTimerRef.current) {
+      clearTimeout(celebrateTimerRef.current);
+      celebrateTimerRef.current = null;
+    }
+  }, [data]); // eslint-disable-line
+  useEffect(() => () => { if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current); }, []);
+
+  function toggle(dayIdx, taskId) {
+    const next = data.map((day, i) => i === dayIdx ? { ...day, [taskId]: !day[taskId] } : day);
+    const dayDone = tasks.filter(t => next[dayIdx][t.id]).length;
+    if (dayDone === tasks.length) {
+      setCelebrating(dayIdx);
+      setTimeout(() => setCelebrating(null), 1200);
+    }
+    onChange({ ...saved, data: next });
+  }
+
+  function resetAll() {
+    if (window.confirm(`Reset all ${config.days} days? This can't be undone.`)) {
+      onChange({ ...saved, data: Array.from({ length: config.days }, () =>
+        Object.fromEntries(tasks.map(t => [t.id, false]))) });
+    }
+  }
+
+  const streak = customStreak(data, tasks);
+  const totalDaysActive = data.filter(d => tasks.some(t => d[t.id])).length;
+  const totalChecks = data.reduce((acc, d) => acc + tasks.filter(t => d[t.id]).length, 0);
+  const maxChecks = Math.max(1, config.days * tasks.length);
+  const overallPct = Math.round((totalChecks / maxChecks) * 100);
+
+  const statBox = {
+    position:"relative", border:"1px solid #241d10", borderRadius:16, padding:"16px 12px",
+    textAlign:"center",
+    background:"radial-gradient(130% 130% at 50% 0%, rgba(255,170,30,0.06) 0%, rgba(255,170,30,0) 60%), #100d09",
+    boxShadow:"0 6px 18px rgba(0,0,0,0.4)",
+  };
+  const statV = { fontSize:30, fontWeight:900, color:"#FFBE0B", lineHeight:1, letterSpacing:0.5, textShadow:"0 0 18px rgba(255,170,20,0.25)" };
+  const statL = { fontSize:9.5, color:"#6f6749", textTransform:"uppercase", letterSpacing:1, fontWeight:700, marginTop:6 };
+  const gridCols = `64px repeat(${tasks.length}, 1fr) 48px`;
+
+  return (
+    <div>
+      <canvas ref={canvasRef} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:9999 }} />
+
+      {/* Goal-complete modal */}
+      {showModal && (
+        <div onClick={()=>setShowModal(false)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)",
+          zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24,
+          animation:"ntcModalFade 0.4s ease both" }}>
+          <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
+          <div onClick={e=>e.stopPropagation()} style={{ background:"#111", border:"1px solid #2a2a2a",
+            borderRadius:24, padding:"40px 28px", maxWidth:420, width:"100%", textAlign:"center", position:"relative" }}>
+            <div style={{ position:"absolute", top:0, left:0, right:0, height:3,
+              background:"linear-gradient(90deg,#FFD60A,#F77F00)", borderRadius:"24px 24px 0 0" }} />
+            <span style={{ fontSize:64, marginBottom:8, display:"block" }}>🎯</span>
+            <div style={{ fontSize:30, fontWeight:900, marginBottom:8, letterSpacing:0.5,
+              background:"linear-gradient(135deg,#FFD60A,#F77F00)", WebkitBackgroundClip:"text",
+              backgroundClip:"text", WebkitTextFillColor:"transparent", lineHeight:1.15 }}>
+              GOAL COMPLETE
+            </div>
+            <div style={{ fontSize:17, color:"#fff", fontWeight:800, marginBottom:10 }}>{config.name}</div>
+            <p style={{ fontSize:14, color:"#999", lineHeight:1.7, marginBottom:16 }}>
+              {config.days} days of showing up for a goal <strong style={{color:"#ccc"}}>you designed yourself</strong>.
+              {config.target ? <> Target: <strong style={{color:"#ccc"}}>{config.target}</strong>.</> : null} Keep going. 🔥
+            </p>
+            <div style={{ fontSize:13, color:"#FFD60A", fontWeight:700, lineHeight:1.6, marginBottom:24,
+              background:"rgba(255,190,11,0.08)", border:"1px solid rgba(255,190,11,0.25)",
+              borderRadius:12, padding:"12px 14px" }}>
+              📸 Screenshot this and share it in the Guitar Wins post — let the club celebrate with you!
+            </div>
+            <button onClick={()=>setShowModal(false)} style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+              border:"none", borderRadius:12, padding:"14px 32px", fontSize:15, fontWeight:900, color:"#111",
+              cursor:"pointer", width:"100%" }}>
+              What's next? 🤩
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{ textAlign:"center", marginBottom:22 }}>
+        <div style={{ fontSize:11, letterSpacing:3, color:"#7a6a3a", fontWeight:700, textTransform:"uppercase" }}>
+          🛠️ Build · {config.days}-Day Tracker
+        </div>
+        <div style={{ fontSize:24, fontWeight:900, marginTop:8, color:"#f3ead2", letterSpacing:0.3 }}>
+          <span style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+            WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>{config.name}</span>
+        </div>
+        {config.target ? (
+          <div style={{ fontSize:12.5, color:"#776b4d", marginTop:8, lineHeight:1.6 }}>
+            🎯 {config.target}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Stats */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:11, marginBottom:22 }}>
+        <div style={statBox}><div style={statV}>{streak}</div><div style={statL}>Current Streak</div></div>
+        <div style={statBox}><div style={statV}>{totalDaysActive}</div><div style={statL}>Days Active</div></div>
+        <div style={statBox}><div style={statV}>{overallPct}%</div><div style={statL}>Completion</div></div>
+      </div>
+
+      {/* Progress */}
+      <div style={{ marginBottom:26 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <span style={{ fontSize:10, color:"#6f6749", textTransform:"uppercase", letterSpacing:1.5, fontWeight:700 }}>Overall Progress</span>
+          <span style={{ fontSize:12, color:"#FFBE0B", fontWeight:800 }}>{totalChecks} / {maxChecks} tasks</span>
+        </div>
+        <div style={{ height:7, background:"#1a160d", borderRadius:99, overflow:"hidden", border:"1px solid #241d10" }}>
+          <div style={{ height:"100%", width:`${overallPct}%`, borderRadius:99,
+            background:"linear-gradient(90deg,#FFD60A,#F77F00)", boxShadow:"0 0 12px rgba(255,170,20,0.5)",
+            transition:"width 0.5s ease" }} />
+        </div>
+      </div>
+
+      {/* Day grid */}
+      <div style={{ border:"1px solid #241d10", borderRadius:18, overflow:"hidden", background:"#0c0a06" }}>
+        <div style={{ display:"grid", gridTemplateColumns:gridCols, background:"#100d09",
+          borderBottom:"1px solid #1c1710", padding:"12px 12px", gap:6, alignItems:"center" }}>
+          <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1, color:"#5a5238", fontWeight:700 }}>Day</div>
+          {tasks.map(t => (
+            <div key={t.id} style={{ fontSize:9, textTransform:"uppercase", letterSpacing:0.6, color:"#5a5238",
+              fontWeight:700, display:"flex", flexDirection:"column", alignItems:"center", gap:3, textAlign:"center", lineHeight:1.3 }}>
+              <span style={{ fontSize:13 }}>{t.icon}</span>{t.label}
+            </div>
+          ))}
+          <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1, color:"#5a5238", fontWeight:700, textAlign:"right" }}>%</div>
+        </div>
+
+        {data.map((day, i) => {
+          const done = tasks.filter(t => day[t.id]).length;
+          const pct = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
+          const isComplete = pct === 100;
+          const isPartial = pct > 0 && pct < 100;
+          const isActive = done > 0;
+          const emoji = isComplete ? "⭐" : isPartial ? "🔥" : null;
+          const isCelebrating = celebrating === i;
+          const r = 12, cx = 16, cy = 16;
+          const circ = 2 * Math.PI * r;
+          const offset = circ - (pct / 100) * circ;
+          const ringColor = isComplete ? "#FFD60A" : isPartial ? "#F77F00" : "#222";
+          return (
+            <div key={i} style={{ display:"grid", gridTemplateColumns:gridCols, alignItems:"center",
+              padding:"0 12px", gap:6, borderBottom:"1px solid #141008", minHeight:54,
+              background: isComplete ? "linear-gradient(90deg, rgba(247,127,0,0.07), transparent)"
+                : isCelebrating ? "rgba(255,214,10,0.10)" : "transparent",
+              transition:"background 0.3s" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                <span style={{ fontSize:12.5, fontWeight:900, color:isActive?"#FFBE0B":"#3a3325", letterSpacing:0.3 }}>DAY {i+1}</span>
+                {emoji && <span style={{ fontSize:13 }}>{emoji}</span>}
+              </div>
+              {tasks.map(t => (
+                <div key={t.id} style={{ display:"flex", justifyContent:"center" }}>
+                  <div onClick={()=>toggle(i, t.id)} role="checkbox" aria-checked={day[t.id]} tabIndex={0}
+                    onKeyDown={e=>(e.key==="Enter"||e.key===" ")&&toggle(i,t.id)}
+                    style={{ width:30, height:30, borderRadius:8, cursor:"pointer",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      border:`2px solid ${day[t.id] ? "rgba(255,190,11,0.6)" : "#2a2417"}`,
+                      background: day[t.id]
+                        ? "radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.22), rgba(255,140,0,0.12)), #16110a"
+                        : "#0e0b06",
+                      boxShadow: day[t.id] ? "0 0 12px rgba(255,170,20,0.35), inset 0 0 6px rgba(255,190,11,0.15)" : "none",
+                      transition:"all 0.16s" }}>
+                    {day[t.id] && (
+                      <div style={{ width:10, height:6, borderLeft:"2px solid #FFD60A", borderBottom:"2px solid #FFD60A",
+                        transform:"rotate(-45deg) translate(1px,-1px)" }} />
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end" }}>
+                <svg width="32" height="32" viewBox="0 0 32 32">
+                  <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c160d" strokeWidth="3" />
+                  {pct > 0 && (
+                    <circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth="3"
+                      strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+                      transform={`rotate(-90 ${cx} ${cy})`} style={{ transition:"stroke-dashoffset 0.4s ease" }} />
+                  )}
+                </svg>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Manage */}
+      <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:22, flexWrap:"wrap" }}>
+        <button onClick={onEdit} style={{ background:"transparent", border:"1px solid rgba(255,190,11,0.3)",
+          color:"#c9a03a", fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10,
+          cursor:"pointer", letterSpacing:1, fontWeight:700 }}>
+          ✏️ Edit tracker
+        </button>
+        <button onClick={resetAll} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
+          fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
+          Reset all {config.days} days
+        </button>
+        <button onClick={onDelete} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
+          fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
+          Delete & start over
+        </button>
       </div>
     </div>
   );
@@ -7067,7 +7709,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
           <div key={t.key}
             style={{ display: t.key===activeKey ? "block" : "none",
               animation: t.key===activeKey ? "ntcPkgFade 0.35s ease both" : "none" }}>
-            {t.key==="tracker" ? <TrackerTab /> : renderItem(t.item)}
+            {t.key==="tracker" ? <TrackerTab context="package" /> : renderItem(t.item)}
           </div>
         ))}
 
