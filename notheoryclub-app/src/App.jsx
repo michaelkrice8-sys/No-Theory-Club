@@ -6600,14 +6600,14 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
                     75% { transform:rotate(-3deg); } }
                   @keyframes ntcUnlockGlow { 0%,100% { box-shadow:0 0 12px rgba(255,190,11,0.22); }
                     50% { box-shadow:0 0 28px rgba(255,190,11,0.5); } }
-                  @keyframes ntcUnlockShine { from { transform:translateX(-160%) skewX(-18deg); }
-                    to { transform:translateX(260%) skewX(-18deg); } }
+                  @keyframes ntcUnlockShine { from { left:-30%; } to { left:115%; } }
                 `}</style>
                 <div style={{ position:"relative", overflow:"hidden", borderRadius:16,
                   border:"1px solid rgba(255,190,11,0.5)", padding:"18px 14px 16px",
                   background:"radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.14) 0%, rgba(255,140,0,0.05) 55%, transparent 100%), #14100a",
                   animation:"ntcUnlockPop 0.7s cubic-bezier(0.2,1.4,0.4,1) 0.5s both, ntcUnlockGlow 2.4s ease 1.4s infinite" }}>
-                  <div style={{ position:"absolute", top:0, bottom:0, width:70, pointerEvents:"none",
+                  <div style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"20%", pointerEvents:"none",
+                    transform:"skewX(-18deg)",
                     background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)",
                     animation:"ntcUnlockShine 1.1s ease 1.5s both" }} />
                   <div style={{ fontSize:34, display:"inline-block", animation:"ntcLockShake 0.9s ease 1.3s both" }}>🔓</div>
@@ -7160,6 +7160,23 @@ function CustomTracker({ saved, onChange, onEdit, onDelete, hideGenerate = false
         ) : null}
       </div>
 
+      {/* Manage — up top so Edit is always in reach */}
+      <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+        <button onClick={onEdit} style={{ background:"transparent", border:`1px solid ${hexToRgba(T.a, 0.35)}`,
+          color:T.a, fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10,
+          cursor:"pointer", letterSpacing:1, fontWeight:700 }}>
+          ✏️ Edit tracker
+        </button>
+        <button onClick={resetAll} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
+          fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
+          Reset all {config.days} days
+        </button>
+        <button onClick={onDelete} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
+          fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
+          Delete & start over
+        </button>
+      </div>
+
       {!hideGenerate && <GenerateLauncherButton />}
 
       {/* Stats */}
@@ -7252,22 +7269,6 @@ function CustomTracker({ saved, onChange, onEdit, onDelete, hideGenerate = false
         })}
       </div>
 
-      {/* Manage */}
-      <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:22, flexWrap:"wrap" }}>
-        <button onClick={onEdit} style={{ background:"transparent", border:`1px solid ${hexToRgba(T.a, 0.35)}`,
-          color:T.a, fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10,
-          cursor:"pointer", letterSpacing:1, fontWeight:700 }}>
-          ✏️ Edit tracker
-        </button>
-        <button onClick={resetAll} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
-          fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
-          Reset all {config.days} days
-        </button>
-        <button onClick={onDelete} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
-          fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
-          Delete & start over
-        </button>
-      </div>
     </div>
   );
 }
@@ -7296,8 +7297,17 @@ const GEN_DIFF_META = {
 const GEN_CHORD_POOLS = {
   easy:   ["G_anchor", "C_anchor", "Em_anchor", "D_anchor"],
   medium: ["G", "C", "Em", "E", "D", "Am", "Fmaj7", "Dm"],
-  hard:   ["Bm", "A", "E", "Fmaj7", "A7", "B7", "E7", "Am7", "C/G", "G/B", "C/B", "Am/G", "Dm"],
+  hard:   ["G", "C", "Em", "D", "Am", "Fmaj7", "Dm", "Bm", "A", "E",
+           "A7", "B7", "E7", "Am7", "C/G", "G/B", "C/B", "Am/G"],
 };
+
+// Count defaults follow difficulty (cycling a difficulty resets its count to
+// the default; members can still adjust after). Caps: up to 6 of each, except
+// Easy chords, whose pool is the Anchored 4.
+const GEN_DEFAULT_CHORDS = { easy: 2, medium: 4, hard: 6 };
+const GEN_DEFAULT_ROWS   = { easy: 1, medium: 2, hard: 3 };
+const GEN_MAX_ROWS = 6;
+function genMaxChords(diff) { return Math.min(6, GEN_CHORD_POOLS[diff].length); }
 
 // Strum pattern pools. 8 slots on a fixed D-U-D-U grid ("-" = skip). Easy keeps
 // the downbeats anchored with a few gaps; Medium adds syncopation; Hard leans
@@ -7374,9 +7384,9 @@ function GenerateLauncherButton() {
     <button onClick={() => { try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {} }}
       style={{ ...GLOW_BTN, position:"relative", overflow:"hidden", width:"100%",
         borderRadius:14, padding:"14px", fontSize:14.5, letterSpacing:0.4, marginBottom:22 }}>
-      <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-160%) skewX(-18deg); }
-        55%, 100% { transform:translateX(300%) skewX(-18deg); } }`}</style>
-      <span style={{ position:"absolute", top:0, bottom:0, left:0, width:70, pointerEvents:"none",
+      <style>{`@keyframes ntcGenShine { 0% { left:-30%; } 55%, 100% { left:115%; } }`}</style>
+      <span style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"22%", pointerEvents:"none",
+        transform:"skewX(-18deg)",
         background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)",
         animation:"ntcGenShine 3.4s ease 0.6s infinite" }} />
       ⚡ Generate Exercise
@@ -7390,8 +7400,8 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   const [stage, setStage] = useState(null); // null | "setup" | "view"
   const [sel, setSel] = useState({ chords: true, strum: true, song: true });
   const [diff, setDiff] = useState({ chords: "easy", strum: "easy", song: "easy" });
-  const [chordCount, setChordCount] = useState(4);
-  const [rowCount, setRowCount] = useState(2);
+  const [chordCount, setChordCount] = useState(GEN_DEFAULT_CHORDS.easy);
+  const [rowCount, setRowCount] = useState(GEN_DEFAULT_ROWS.easy);
   const [gen, setGen] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [activeKey, setActiveKey] = useState("drill");
@@ -7421,28 +7431,36 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
 
   // Effective difficulty for counts/pools when a component rides along only
   // inside the song (its own row unselected).
-  const chordsDiff = sel.chords ? diff.chords : diff.song;
-  const strumDiff = sel.strum ? diff.strum : diff.song;
-  const maxChords = Math.min(6, GEN_CHORD_POOLS[chordsDiff].length);
   const anySelected = sel.chords || sel.strum || sel.song;
-  const needChords = sel.chords || sel.song;
-  const needRows = sel.strum || sel.song;
 
   const cycleDiff = (id) => {
     if (!sel[id]) return;
-    setDiff(prev => ({ ...prev, [id]: GEN_DIFFS[(GEN_DIFFS.indexOf(prev[id]) + 1) % GEN_DIFFS.length] }));
+    setDiff(prev => {
+      const next = GEN_DIFFS[(GEN_DIFFS.indexOf(prev[id]) + 1) % GEN_DIFFS.length];
+      // Counts follow the difficulty default; members can still adjust after.
+      if (id === "chords") setChordCount(GEN_DEFAULT_CHORDS[next]);
+      if (id === "strum") setRowCount(GEN_DEFAULT_ROWS[next]);
+      return { ...prev, [id]: next };
+    });
   };
   const toggleSel = (id) => setSel(prev => ({ ...prev, [id]: !prev[id] }));
 
   const buildGen = (base) => {
-    const cc = Math.max(2, Math.min(base.chordCount, GEN_CHORD_POOLS[base.sel.chords ? base.diff.chords : base.diff.song].length));
+    const cDiff = base.sel.chords ? base.diff.chords : base.diff.song;
+    const sDiff = base.sel.strum ? base.diff.strum : base.diff.song;
+    // If a row rides along only inside the song, its count uses the song
+    // difficulty's default. Always clamped to the pool.
+    const cc = Math.max(2, Math.min(
+      base.sel.chords ? base.chordCount : GEN_DEFAULT_CHORDS[cDiff], genMaxChords(cDiff)));
+    const rc = Math.max(1, Math.min(
+      base.sel.strum ? base.rowCount : GEN_DEFAULT_ROWS[sDiff], GEN_MAX_ROWS));
     return {
       name: genName([base.sel.chords && base.diff.chords, base.sel.strum && base.diff.strum,
         base.sel.song && base.diff.song].filter(Boolean)),
       sel: { ...base.sel }, diff: { ...base.diff },
-      chordCount: cc, rowCount: base.rowCount,
-      chords: genSample(GEN_CHORD_POOLS[base.sel.chords ? base.diff.chords : base.diff.song], cc),
-      rows: genSample(GEN_STRUM_POOLS[base.sel.strum ? base.diff.strum : base.diff.song], base.rowCount),
+      chordCount: cc, rowCount: rc,
+      chords: genSample(GEN_CHORD_POOLS[cDiff], cc),
+      rows: genSample(GEN_STRUM_POOLS[sDiff], rc),
     };
   };
 
@@ -7545,28 +7563,59 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             </div>
           </div>
 
-          {/* Exercise rows: big toggle + difficulty cycler */}
+          {/* Exercise rows: toggle + inline count + difficulty cycler */}
           {rowsUI.map(r => {
             const on = sel[r.id];
             const d = GEN_DIFF_META[diff[r.id]];
+            const stepper = r.id === "chords"
+              ? { value: Math.min(chordCount, genMaxChords(diff.chords)), set: setChordCount,
+                  min: 2, max: genMaxChords(diff.chords), unit: "chords" }
+              : r.id === "strum"
+              ? { value: rowCount, set: setRowCount, min: 1, max: GEN_MAX_ROWS, unit: "rows" }
+              : null;
+            const stepBtn = { width:34, height:34, borderRadius:10, border:"1px solid #241d10",
+              background:"#100d09", color:"#FFBE0B", fontSize:16, fontWeight:900,
+              cursor:"pointer", fontFamily:"inherit", flexShrink:0 };
             return (
-              <div key={r.id} style={{ display:"flex", gap:8, marginBottom:10 }}>
-                <button onClick={()=>toggleSel(r.id)} aria-pressed={on} style={{
-                  flex:1, display:"flex", alignItems:"center", gap:12, textAlign:"left",
-                  padding:"14px 16px", borderRadius:14, cursor:"pointer", fontFamily:"inherit",
-                  border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
-                  background: on
-                    ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
-                    : "#0e0b07",
-                  color: on ? "#FFD60A" : "#6f6749",
-                  boxShadow: on ? "0 0 18px rgba(255,160,20,0.14)" : "none",
-                  transition:"all 0.2s ease" }}>
-                  <span style={{ fontSize:20, opacity: on ? 1 : 0.5 }}>{r.icon}</span>
-                  <span>
-                    <span style={{ fontSize:14.5, fontWeight:900, display:"block" }}>{r.label}</span>
-                    {r.sub && <span style={{ fontSize:10.5, color: on ? "#9a8f6e" : "#4a4433", fontWeight:600 }}>{r.sub}</span>}
-                  </span>
-                </button>
+              <div key={r.id} style={{ display:"flex", gap:8, marginBottom:10, alignItems:"stretch" }}>
+                <div role="button" tabIndex={0} aria-pressed={on} onClick={()=>toggleSel(r.id)}
+                  onKeyDown={e=>(e.key==="Enter"||e.key===" ")&&toggleSel(r.id)}
+                  style={{ flex:1, padding:"13px 14px", borderRadius:14, cursor:"pointer", userSelect:"none",
+                    border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
+                    background: on
+                      ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
+                      : "#0e0b07",
+                    boxShadow: on ? "0 0 18px rgba(255,160,20,0.14)" : "none",
+                    transition:"all 0.2s ease" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <span style={{ fontSize:20, opacity: on ? 1 : 0.5 }}>{r.icon}</span>
+                    <span style={{ flex:1, minWidth:0 }}>
+                      <span style={{ fontSize:14.5, fontWeight:900, display:"block", color: on ? "#FFD60A" : "#6f6749" }}>{r.label}</span>
+                      {r.sub && <span style={{ fontSize:10.5, color: on ? "#9a8f6e" : "#4a4433", fontWeight:600 }}>{r.sub}</span>}
+                    </span>
+                    {/* Selected indicator — the subtle "this is a toggle" cue */}
+                    <span aria-hidden="true" style={{ width:20, height:20, borderRadius:"50%", flexShrink:0,
+                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:900,
+                      border:`1.5px solid ${on ? "rgba(255,190,11,0.7)" : "#2a2417"}`,
+                      background: on ? "rgba(255,190,11,0.12)" : "transparent",
+                      color: on ? "#FFD60A" : "transparent", transition:"all 0.2s" }}>✓</span>
+                  </div>
+                  {on && stepper && (
+                    <div onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}
+                      style={{ display:"flex", alignItems:"center", gap:8, marginTop:11 }}>
+                      <button aria-label={`fewer ${stepper.unit}`}
+                        onClick={()=>stepper.set(v=>Math.max(stepper.min, Math.min(stepper.max, v)-1))}
+                        style={stepBtn}>−</button>
+                      <div style={{ flex:1, textAlign:"center", fontSize:15, fontWeight:900, color:"#FFBE0B",
+                        background:"#0c0a06", border:"1px solid #1c1710", borderRadius:10, padding:"7px 0" }}>
+                        {stepper.value} <span style={{ fontSize:10, color:"#7a6a3a", fontWeight:700 }}>{stepper.value === 1 ? stepper.unit.slice(0, -1) : stepper.unit}</span>
+                      </div>
+                      <button aria-label={`more ${stepper.unit}`}
+                        onClick={()=>stepper.set(v=>Math.min(stepper.max, Math.max(stepper.min, v)+1))}
+                        style={stepBtn}>+</button>
+                    </div>
+                  )}
+                </div>
                 <button onClick={()=>cycleDiff(r.id)} disabled={!on} aria-label={`${r.label} difficulty`} style={{
                   width:76, borderRadius:14, cursor: on ? "pointer" : "default", fontFamily:"inherit",
                   fontSize:12.5, fontWeight:900, letterSpacing:0.5,
@@ -7582,27 +7631,8 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               </div>
             );
           })}
-
-          {/* Counts */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, margin:"20px 0 24px" }}>
-            {[
-              { label:"Chords", value:Math.min(chordCount, maxChords), set:setChordCount, min:2, max:maxChords, on:needChords },
-              { label:"Pattern rows", value:rowCount, set:setRowCount, min:1, max:4, on:needRows },
-            ].map(s => (
-              <div key={s.label} style={{ opacity: s.on ? 1 : 0.35, transition:"opacity 0.2s" }}>
-                <div style={fieldLabel}>{s.label}</div>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <button disabled={!s.on} onClick={()=>s.set(v=>Math.max(s.min, Math.min(s.max, v)-1))}
-                    style={{ width:40, height:44, borderRadius:12, border:"1px solid #241d10", background:"#100d09",
-                    color:"#FFBE0B", fontSize:18, fontWeight:900, cursor:s.on?"pointer":"default", fontFamily:"inherit" }}>−</button>
-                  <div style={{ flex:1, textAlign:"center", fontSize:20, fontWeight:900, color:"#FFBE0B",
-                    background:"#0e0b06", border:"1px solid #241d10", borderRadius:12, padding:"9px 0" }}>{s.value}</div>
-                  <button disabled={!s.on} onClick={()=>s.set(v=>Math.min(s.max, Math.max(s.min, v)+1))}
-                    style={{ width:40, height:44, borderRadius:12, border:"1px solid #241d10", background:"#100d09",
-                    color:"#FFBE0B", fontSize:18, fontWeight:900, cursor:s.on?"pointer":"default", fontFamily:"inherit" }}>+</button>
-                </div>
-              </div>
-            ))}
+          <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", margin:"4px 0 22px", lineHeight:1.7 }}>
+            Tap an exercise to include or skip it · tap its difficulty to cycle Easy → Med → Hard
           </div>
 
           {/* Generate — the shine button */}
@@ -7610,11 +7640,11 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             position:"relative", overflow:"hidden", width:"100%", borderRadius:14,
             padding:"16px", fontSize:16, letterSpacing:0.5,
             opacity: anySelected ? 1 : 0.4 }}>
-            <span style={{ position:"absolute", top:0, bottom:0, left:0, width:80, pointerEvents:"none",
+            <span style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"22%", pointerEvents:"none",
+              transform:"skewX(-18deg)",
               background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.16), transparent)",
               animation: generating ? "ntcGenShine 0.55s ease infinite" : "ntcGenShine 3s ease 0.4s infinite" }} />
-            <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-160%) skewX(-18deg); }
-              55%, 100% { transform:translateX(300%) skewX(-18deg); } }`}</style>
+            <style>{`@keyframes ntcGenShine { 0% { left:-30%; } 55%, 100% { left:115%; } }`}</style>
             {generating ? "Generating…" : "✨ Generate"}
           </button>
 
@@ -7696,7 +7726,8 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           {activeKey !== "tracker" && (
             <button onClick={regenerate} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
               borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
-              <span style={{ position:"absolute", top:0, bottom:0, left:0, width:60, pointerEvents:"none",
+              <span style={{ position:"absolute", top:0, bottom:0, left:"-30%", width:"22%", pointerEvents:"none",
+                transform:"skewX(-18deg)",
                 background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.13), transparent)",
                 animation:"ntcGenShine 3.2s ease 1s infinite" }} />
               🎲 Regenerate
@@ -7731,23 +7762,30 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
 
         {/* Panels — mounted via display toggle; keyed by content so a regenerate
             remounts only the panels whose exercise actually changed. */}
+        <style>{`@keyframes ntcPanelReveal { 0%, 40% { opacity:0; } 100% { opacity:1; } }`}</style>
         {gen.sel.chords && (
           <div style={{ display: activeKey==="drill" ? "block" : "none" }}>
-            <ChordsTab key={`drill-${gen.chords.join("|")}`} audio={audio} chordVariants={chordVariants}
-              updateVariant={updateVariant} sharedView={true} initialParam={params.drill} hideTitle={true} />
+            <div key={`drill-${gen.chords.join("|")}`} style={{ animation:"ntcPanelReveal 0.5s ease both" }}>
+              <ChordsTab audio={audio} chordVariants={chordVariants}
+                updateVariant={updateVariant} sharedView={true} initialParam={params.drill} hideTitle={true} />
+            </div>
           </div>
         )}
         {gen.sel.strum && (
           <div style={{ display: activeKey==="strum" ? "block" : "none" }}>
-            <StrummingTab key={`strum-${gen.rows.join("|")}`} audio={audio} sharedView={true}
-              initialParam={params.strum} hideTitle={true} />
+            <div key={`strum-${gen.rows.join("|")}`} style={{ animation:"ntcPanelReveal 0.5s ease both" }}>
+              <StrummingTab audio={audio} sharedView={true}
+                initialParam={params.strum} hideTitle={true} />
+            </div>
           </div>
         )}
         {gen.sel.song && (
           <div style={{ display: activeKey==="song" ? "block" : "none" }}>
-            <BuildSongTab key={`song-${gen.chords.join("|")}-${gen.rows.slice(0,2).join("|")}`} audio={audio}
-              initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant}
-              sharedView={true} initialParam={params.song} hideTitle={true} />
+            <div key={`song-${gen.chords.join("|")}-${gen.rows.slice(0,2).join("|")}`} style={{ animation:"ntcPanelReveal 0.5s ease both" }}>
+              <BuildSongTab audio={audio}
+                initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant}
+                sharedView={true} initialParam={params.song} hideTitle={true} />
+            </div>
           </div>
         )}
         <div style={{ display: activeKey==="tracker" ? "block" : "none" }}>
