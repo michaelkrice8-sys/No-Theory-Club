@@ -324,7 +324,8 @@ const CELEBRATED_KEY     = "ntc-30day-celebrated-v1"; // {unlocked:true, at:ISO}
 const CUSTOM_TRACKER_KEY = "ntc-custom-tracker-v1"; // {config, data, updatedAt} or {deleted:true, updatedAt}
 const SYNC_KEYS = [
   "ntc_drills", "ntc_patterns", "ntc_songs", "ntc_strum", "ntc_strum_tab",
-  "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY
+  "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY,
+  "ntc-generated-v1"
 ];
 const TRACKER_KEY = "ntc-30day-tracker-v1";
 
@@ -1117,6 +1118,9 @@ function App() {
           <TrackerTab />
         </div>
       </div>
+
+      {/* Exercise Generator — opened by the launcher on any tracker */}
+      <ExerciseGeneratorHost audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} context="app" />
     </div>
   );
 }
@@ -6333,7 +6337,7 @@ function useTrackerConfetti() {
   return { canvasRef, launch };
 }
 
-function TrackerTab({ context = "app" }) {
+function TrackerTab({ context = "app", hideGenerate = false }) {
   const [data, setData] = useState(trackerInit);
   const [loaded, setLoaded] = useState(false);
   const [celebrating, setCelebrating] = useState(null);
@@ -6657,6 +6661,8 @@ function TrackerTab({ context = "app" }) {
         </div>
       </div>
 
+      {!hideGenerate && <GenerateLauncherButton />}
+
       {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:11, marginBottom:22 }}>
         <div style={statBox}><div style={statV}>{streak}</div><div style={statL}>Current Streak</div></div>
@@ -6759,7 +6765,7 @@ function TrackerTab({ context = "app" }) {
 
       {/* ── Build: custom tracker (sandbox / main app only) ── */}
       {mode === "build" && buildUnlocked && context === "app" && (
-        <CustomTrackerSection />
+        <CustomTrackerSection hideGenerate={hideGenerate} />
       )}
 
       <div style={{ textAlign:"center", paddingTop:28, color:"#332e22", fontSize:11 }}>
@@ -6826,7 +6832,7 @@ function customStreak(data, tasks) {
   return streak;
 }
 
-function CustomTrackerSection() {
+function CustomTrackerSection({ hideGenerate = false }) {
   const [saved, setSaved] = useState(() => {
     try {
       const raw = localStorage.getItem(CUSTOM_TRACKER_KEY);
@@ -6865,6 +6871,7 @@ function CustomTrackerSection() {
       onChange={persist}
       onEdit={() => setEditing(true)}
       onDelete={remove}
+      hideGenerate={hideGenerate}
     />
   );
 }
@@ -7024,7 +7031,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
 
 // ── The custom tracker itself — same look and rules as the 30-day grid, driven
 // by the member's own config. ──
-function CustomTracker({ saved, onChange, onEdit, onDelete }) {
+function CustomTracker({ saved, onChange, onEdit, onDelete, hideGenerate = false }) {
   const config = saved.config;
   const tasks = config.tasks || [];
   const data = Array.isArray(saved.data) ? saved.data : [];
@@ -7153,6 +7160,8 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
         ) : null}
       </div>
 
+      {!hideGenerate && <GenerateLauncherButton />}
+
       {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:11, marginBottom:22 }}>
         <div style={statBox}><div style={statV}>{streak}</div><div style={statL}>Current Streak</div></div>
@@ -7260,6 +7269,493 @@ function CustomTracker({ saved, onChange, onEdit, onDelete }) {
         </button>
       </div>
     </div>
+  );
+}
+
+// ─── EXERCISE GENERATOR ──────────────────────────────────────────────────────
+// "Generate Exercise" — visible on every tracker. Members pick Chord Switching /
+// Strumming / Song, cycle a difficulty per exercise (Easy → Med → Hard), choose
+// chord/row counts, and get a randomly generated package rendered with the same
+// components as shared packages (drill / strum / song params), plus their
+// tracker. Regenerate updates the active exercise (and the song, since the song
+// is always chords + strumming combined). Save/Load keeps favorites locally and
+// syncs them through the progress table.
+
+const GEN_SAVED_KEY = "ntc-generated-v1";
+const GEN_DIFFS = ["easy", "medium", "hard"];
+const GEN_DIFF_META = {
+  easy:   { label: "Easy", color: "#7ED957" },
+  medium: { label: "Med",  color: "#FFBE0B" },
+  hard:   { label: "Hard", color: "#FF5A5F" },
+};
+
+// Chord pools. Values are per-slot chord keys the drill/song components render
+// directly. Easy = the Anchored 4 (G anchored, Cadd9, Em7, Dsus4). Medium =
+// open chords, no anchors. Hard = barre-leaning chords plus variations
+// (7ths, slash chords), no anchors.
+const GEN_CHORD_POOLS = {
+  easy:   ["G_anchor", "C_anchor", "Em_anchor", "D_anchor"],
+  medium: ["G", "C", "Em", "E", "D", "Am", "Fmaj7", "Dm"],
+  hard:   ["Bm", "A", "E", "Fmaj7", "A7", "B7", "E7", "Am7", "C/G", "G/B", "C/B", "Am/G", "Dm"],
+};
+
+// Strum pattern pools. 8 slots on a fixed D-U-D-U grid ("-" = skip). Easy keeps
+// the downbeats anchored with a few gaps; Medium adds syncopation; Hard leans
+// on off-beat ups and sparse hits.
+const GEN_STRUM_POOLS = {
+  easy:   ["D-D-D-D-", "DUD-DUD-", "D-DU--DU", "D-DUD-D-", "DUDUD-D-", "D-D-DUDU", "D-DUDU--", "DUD-D-D-"],
+  medium: ["-UDU--DU", "D-DU-UDU", "DU-UDU-U", "D--UDUDU", "-UDUD-DU", "D-DUDU-U", "DUDU-U-U", "D--U-UDU"],
+  hard:   ["-U-UD--U", "-U--DU-U", "--DU-U-U", "-UD--U-U", "D--U--DU", "-U-U-UDU", "--D--UDU", "-UDU-U--"],
+};
+
+const GEN_BPM = { easy: 60, medium: 65, hard: 70 };
+const GEN_BEATS_PER_CHORD = { easy: 2, medium: 2, hard: 1 };
+
+// Generated session names, flavored by the toughest selected difficulty.
+const GEN_NAME_ADJ = {
+  easy:   ["Campfire", "Sunrise", "Porch", "Backyard", "Sunday", "Mellow"],
+  medium: ["Highway", "Neon", "Boardwalk", "Canyon", "Electric", "Midnight"],
+  hard:   ["Thunder", "Wildfire", "Overdrive", "Renegade", "Avalanche", "Voltage"],
+};
+const GEN_NAME_NOUN = ["Session", "Sprint", "Circuit", "Workout", "Jam", "Run", "Set"];
+
+function genPick(pool) { return pool[Math.floor(Math.random() * pool.length)]; }
+function genSample(pool, n) {
+  const arr = [...pool];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.slice(0, Math.max(1, Math.min(n, arr.length)));
+}
+function genName(diffs) {
+  const rank = { easy: 0, medium: 1, hard: 2 };
+  const top = diffs.reduce((a, b) => (rank[b] > rank[a] ? b : a), "easy");
+  return `${genPick(GEN_NAME_ADJ[top])} ${genPick(GEN_NAME_NOUN)}`;
+}
+
+// Map 8-char pattern rows onto the 64-slot strumActive array (row r = slots
+// r*8..r*8+7), matching the Strumming builder's storage exactly.
+function genPatternsToActive(rows) {
+  const act = Array(64).fill(false);
+  rows.forEach((pat, r) => {
+    for (let i = 0; i < 8 && i < pat.length; i++) {
+      if (pat[i] === "D" || pat[i] === "U") act[r * 8 + i] = true;
+    }
+  });
+  return act;
+}
+
+// Derive the three share-format params from generated content. Same encoders
+// the share links use, so the existing tab components consume them verbatim.
+function genParams(gen) {
+  const cd = gen.sel.chords ? gen.diff.chords : gen.diff.song;
+  const sd = gen.sel.strum ? gen.diff.strum : gen.diff.song;
+  const songD = gen.diff.song;
+  const out = {};
+  if (gen.sel.chords) {
+    out.drill = encodeChordDrill(gen.chords, GEN_BPM[cd], 2, `${gen.name} · Chords`, {}, false);
+  }
+  if (gen.sel.strum) {
+    out.strum = encodeStrumDrill(`${gen.name} · Strumming`, genPatternsToActive(gen.rows),
+      gen.rows.map(() => 8), [], GEN_BPM[sd], 2, {}, 0, false);
+  }
+  if (gen.sel.song) {
+    const songRows = gen.rows.slice(0, 2); // simple song supports up to 2 pattern rows
+    out.song = encodeStrumDrill(`${gen.name} · Song`, genPatternsToActive(songRows),
+      songRows.map(() => 8), gen.chords, GEN_BPM[songD], GEN_BEATS_PER_CHORD[songD], {}, 0, false);
+  }
+  return out;
+}
+
+// ── Launcher — the shiny entry button rendered on every tracker ──
+function GenerateLauncherButton() {
+  return (
+    <button onClick={() => { try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {} }}
+      style={{ ...GLOW_BTN, position:"relative", overflow:"hidden", width:"100%",
+        borderRadius:14, padding:"14px", fontSize:14.5, letterSpacing:0.4, marginBottom:22 }}>
+      <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-160%) skewX(-18deg); }
+        55%, 100% { transform:translateX(300%) skewX(-18deg); } }`}</style>
+      <span style={{ position:"absolute", top:0, bottom:0, left:0, width:70, pointerEvents:"none",
+        background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent)",
+        animation:"ntcGenShine 3.4s ease 0.6s infinite" }} />
+      ⚡ Generate Exercise
+    </button>
+  );
+}
+
+// ── The generator itself. Mounted once per host view (main app shell and
+// package view — wherever a tracker lives), opened via the launcher's event. ──
+function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = "app" }) {
+  const [stage, setStage] = useState(null); // null | "setup" | "view"
+  const [sel, setSel] = useState({ chords: true, strum: true, song: true });
+  const [diff, setDiff] = useState({ chords: "easy", strum: "easy", song: "easy" });
+  const [chordCount, setChordCount] = useState(4);
+  const [rowCount, setRowCount] = useState(2);
+  const [gen, setGen] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [activeKey, setActiveKey] = useState("drill");
+  const [savedList, setSavedList] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(GEN_SAVED_KEY) || "[]"); } catch (_) { return []; }
+  });
+  const [showLoad, setShowLoad] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  // Open on the launcher's event.
+  useEffect(() => {
+    const open = () => { setStage("setup"); setShowLoad(false); };
+    window.addEventListener("ntc-open-generator", open);
+    return () => window.removeEventListener("ntc-open-generator", open);
+  }, []);
+
+  // Lock the page scroll behind the overlay.
+  useEffect(() => {
+    if (!stage) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [stage]);
+
+  const stopPlayback = () => { try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch (_) {} };
+  const close = () => { stopPlayback(); setStage(null); };
+
+  // Effective difficulty for counts/pools when a component rides along only
+  // inside the song (its own row unselected).
+  const chordsDiff = sel.chords ? diff.chords : diff.song;
+  const strumDiff = sel.strum ? diff.strum : diff.song;
+  const maxChords = Math.min(6, GEN_CHORD_POOLS[chordsDiff].length);
+  const anySelected = sel.chords || sel.strum || sel.song;
+  const needChords = sel.chords || sel.song;
+  const needRows = sel.strum || sel.song;
+
+  const cycleDiff = (id) => {
+    if (!sel[id]) return;
+    setDiff(prev => ({ ...prev, [id]: GEN_DIFFS[(GEN_DIFFS.indexOf(prev[id]) + 1) % GEN_DIFFS.length] }));
+  };
+  const toggleSel = (id) => setSel(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const buildGen = (base) => {
+    const cc = Math.max(2, Math.min(base.chordCount, GEN_CHORD_POOLS[base.sel.chords ? base.diff.chords : base.diff.song].length));
+    return {
+      name: genName([base.sel.chords && base.diff.chords, base.sel.strum && base.diff.strum,
+        base.sel.song && base.diff.song].filter(Boolean)),
+      sel: { ...base.sel }, diff: { ...base.diff },
+      chordCount: cc, rowCount: base.rowCount,
+      chords: genSample(GEN_CHORD_POOLS[base.sel.chords ? base.diff.chords : base.diff.song], cc),
+      rows: genSample(GEN_STRUM_POOLS[base.sel.strum ? base.diff.strum : base.diff.song], base.rowCount),
+    };
+  };
+
+  const generate = () => {
+    if (!anySelected || generating) return;
+    setGenerating(true);
+    // A short shimmer beat before the reveal — generation is instant, delight isn't.
+    setTimeout(() => {
+      const g = buildGen({ sel, diff, chordCount, rowCount });
+      setGen(g);
+      setActiveKey(g.sel.chords ? "drill" : g.sel.strum ? "strum" : "song");
+      setGenerating(false);
+      setStage("view");
+    }, 700);
+  };
+
+  // Regenerate the active exercise. Chords or strumming also refresh the song
+  // (the song is always their combination); regenerating on the song tab
+  // rerolls both ingredients.
+  const regenerate = () => {
+    if (!gen) return;
+    stopPlayback();
+    setGen(prev => {
+      const next = { ...prev };
+      const rerollChords = activeKey === "drill" || activeKey === "song";
+      const rerollRows = activeKey === "strum" || activeKey === "song";
+      if (rerollChords) next.chords = genSample(GEN_CHORD_POOLS[prev.sel.chords ? prev.diff.chords : prev.diff.song], prev.chordCount);
+      if (rerollRows) next.rows = genSample(GEN_STRUM_POOLS[prev.sel.strum ? prev.diff.strum : prev.diff.song], prev.rowCount);
+      return next;
+    });
+  };
+
+  const persistSaved = (list) => {
+    setSavedList(list);
+    try { localStorage.setItem(GEN_SAVED_KEY, JSON.stringify(list)); } catch (_) {}
+  };
+  const saveCurrent = () => {
+    if (!gen) return;
+    const item = { id: Math.random().toString(36).slice(2, 9), at: new Date().toISOString(),
+      name: gen.name, sel: gen.sel, diff: gen.diff, chordCount: gen.chordCount,
+      rowCount: gen.rowCount, chords: gen.chords, rows: gen.rows };
+    persistSaved([item, ...savedList].slice(0, 24));
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 1600);
+  };
+  const loadSaved = (item) => {
+    setGen({ name: item.name, sel: { ...item.sel }, diff: { ...item.diff },
+      chordCount: item.chordCount, rowCount: item.rowCount,
+      chords: [...item.chords], rows: [...item.rows] });
+    setSel({ ...item.sel }); setDiff({ ...item.diff });
+    setChordCount(item.chordCount); setRowCount(item.rowCount);
+    setActiveKey(item.sel.chords ? "drill" : item.sel.strum ? "strum" : "song");
+    setStage("view");
+  };
+  const deleteSaved = (id) => persistSaved(savedList.filter(s => s.id !== id));
+
+  if (!stage) return null;
+
+  // ── Shared overlay chrome ──
+  const overlayStyle = { position:"fixed", inset:0, zIndex:500, overflowY:"auto",
+    background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%) #0d0d0a",
+    fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" };
+  const fieldLabel = { fontSize:10, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
+    fontWeight:700, marginBottom:8 };
+
+  // ── Setup screen ──
+  if (stage === "setup") {
+    const rowsUI = [
+      { id:"chords", icon:"🤚", label:"Chord Switching" },
+      { id:"strum",  icon:"🎸", label:"Strumming" },
+      { id:"song",   icon:"🎵", label:"Song", sub:"chords + strumming" },
+    ];
+    return (
+      <FixedLayer>
+      <div style={overlayStyle}>
+        <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 60px" }}>
+          {/* Header */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+            <div style={{ width:34 }} />
+            <div style={{ textAlign:"center" }}>
+              <div style={{ fontSize:16, fontWeight:900, letterSpacing:1.5,
+                background:"linear-gradient(135deg,#FFE27A,#FFBE0B 50%,#F77F00)",
+                WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>NO THEORY CLUB</div>
+              <div style={{ fontSize:9, color:"#6f6749", letterSpacing:2, marginTop:2, textTransform:"uppercase" }}>
+                Exercise Generator
+              </div>
+            </div>
+            <button onClick={close} aria-label="Close" style={{ width:34, height:34, borderRadius:10,
+              border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e", fontSize:16,
+              cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+          </div>
+
+          <div style={{ textAlign:"center", margin:"18px 0 22px" }}>
+            <div style={{ fontSize:24, fontWeight:900, color:"#f3ead2", letterSpacing:0.3 }}>
+              What are we <span style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+                WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>practicing?</span>
+            </div>
+            <div style={{ fontSize:12.5, color:"#776b4d", marginTop:8, lineHeight:1.6 }}>
+              Pick your exercises, set each difficulty, and hit generate.
+            </div>
+          </div>
+
+          {/* Exercise rows: big toggle + difficulty cycler */}
+          {rowsUI.map(r => {
+            const on = sel[r.id];
+            const d = GEN_DIFF_META[diff[r.id]];
+            return (
+              <div key={r.id} style={{ display:"flex", gap:8, marginBottom:10 }}>
+                <button onClick={()=>toggleSel(r.id)} aria-pressed={on} style={{
+                  flex:1, display:"flex", alignItems:"center", gap:12, textAlign:"left",
+                  padding:"14px 16px", borderRadius:14, cursor:"pointer", fontFamily:"inherit",
+                  border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
+                  background: on
+                    ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
+                    : "#0e0b07",
+                  color: on ? "#FFD60A" : "#6f6749",
+                  boxShadow: on ? "0 0 18px rgba(255,160,20,0.14)" : "none",
+                  transition:"all 0.2s ease" }}>
+                  <span style={{ fontSize:20, opacity: on ? 1 : 0.5 }}>{r.icon}</span>
+                  <span>
+                    <span style={{ fontSize:14.5, fontWeight:900, display:"block" }}>{r.label}</span>
+                    {r.sub && <span style={{ fontSize:10.5, color: on ? "#9a8f6e" : "#4a4433", fontWeight:600 }}>{r.sub}</span>}
+                  </span>
+                </button>
+                <button onClick={()=>cycleDiff(r.id)} disabled={!on} aria-label={`${r.label} difficulty`} style={{
+                  width:76, borderRadius:14, cursor: on ? "pointer" : "default", fontFamily:"inherit",
+                  fontSize:12.5, fontWeight:900, letterSpacing:0.5,
+                  border:`1px solid ${on ? hexToRgba(d.color, 0.55) : "#1c1710"}`,
+                  background: on
+                    ? `radial-gradient(120% 160% at 50% 0%, ${hexToRgba(d.color, 0.16)} 0%, transparent 65%), #14100a`
+                    : "#0c0a06",
+                  color: on ? d.color : "#3a3325",
+                  boxShadow: on ? `0 0 14px ${hexToRgba(d.color, 0.2)}` : "none",
+                  transition:"all 0.2s ease" }}>
+                  {on ? GEN_DIFF_META[diff[r.id]].label : "—"}
+                </button>
+              </div>
+            );
+          })}
+
+          {/* Counts */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, margin:"20px 0 24px" }}>
+            {[
+              { label:"Chords", value:Math.min(chordCount, maxChords), set:setChordCount, min:2, max:maxChords, on:needChords },
+              { label:"Pattern rows", value:rowCount, set:setRowCount, min:1, max:4, on:needRows },
+            ].map(s => (
+              <div key={s.label} style={{ opacity: s.on ? 1 : 0.35, transition:"opacity 0.2s" }}>
+                <div style={fieldLabel}>{s.label}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <button disabled={!s.on} onClick={()=>s.set(v=>Math.max(s.min, Math.min(s.max, v)-1))}
+                    style={{ width:40, height:44, borderRadius:12, border:"1px solid #241d10", background:"#100d09",
+                    color:"#FFBE0B", fontSize:18, fontWeight:900, cursor:s.on?"pointer":"default", fontFamily:"inherit" }}>−</button>
+                  <div style={{ flex:1, textAlign:"center", fontSize:20, fontWeight:900, color:"#FFBE0B",
+                    background:"#0e0b06", border:"1px solid #241d10", borderRadius:12, padding:"9px 0" }}>{s.value}</div>
+                  <button disabled={!s.on} onClick={()=>s.set(v=>Math.min(s.max, Math.max(s.min, v)+1))}
+                    style={{ width:40, height:44, borderRadius:12, border:"1px solid #241d10", background:"#100d09",
+                    color:"#FFBE0B", fontSize:18, fontWeight:900, cursor:s.on?"pointer":"default", fontFamily:"inherit" }}>+</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Generate — the shine button */}
+          <button onClick={generate} disabled={!anySelected || generating} style={{ ...GLOW_BTN,
+            position:"relative", overflow:"hidden", width:"100%", borderRadius:14,
+            padding:"16px", fontSize:16, letterSpacing:0.5,
+            opacity: anySelected ? 1 : 0.4 }}>
+            <span style={{ position:"absolute", top:0, bottom:0, left:0, width:80, pointerEvents:"none",
+              background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.16), transparent)",
+              animation: generating ? "ntcGenShine 0.55s ease infinite" : "ntcGenShine 3s ease 0.4s infinite" }} />
+            <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-160%) skewX(-18deg); }
+              55%, 100% { transform:translateX(300%) skewX(-18deg); } }`}</style>
+            {generating ? "Generating…" : "✨ Generate"}
+          </button>
+
+          {/* Load saved */}
+          {savedList.length > 0 && (
+            <button onClick={()=>setShowLoad(v=>!v)} style={{ width:"100%", marginTop:10, padding:"12px",
+              borderRadius:13, border:"1px dashed rgba(255,190,11,0.3)", background:"transparent",
+              color:"#c9a03a", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+              📂 Load a saved exercise ({savedList.length})
+            </button>
+          )}
+          {showLoad && savedList.map(s => (
+            <div key={s.id} style={{ display:"flex", alignItems:"center", gap:8, marginTop:8,
+              border:"1px solid #241d10", borderRadius:13, background:"#0e0b07", padding:"10px 12px" }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13.5, fontWeight:800, color:"#f3ead2", whiteSpace:"nowrap",
+                  overflow:"hidden", textOverflow:"ellipsis" }}>{s.name}</div>
+                <div style={{ fontSize:10.5, color:"#6f6749", marginTop:2 }}>
+                  {[s.sel.chords && `🤚 ${GEN_DIFF_META[s.diff.chords].label}`,
+                    s.sel.strum && `🎸 ${GEN_DIFF_META[s.diff.strum].label}`,
+                    s.sel.song && `🎵 ${GEN_DIFF_META[s.diff.song].label}`].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+              <button onClick={()=>loadSaved(s)} style={{ ...GLOW_BTN, borderRadius:10,
+                padding:"8px 16px", fontSize:12 }}>Open</button>
+              <button onClick={()=>deleteSaved(s.id)} aria-label="Delete" style={{ width:30, height:34,
+                borderRadius:10, border:"1px solid #241d10", background:"transparent", color:"#6f6749",
+                fontSize:14, cursor:"pointer" }}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+      </FixedLayer>
+    );
+  }
+
+  // ── Generated package view ──
+  const params = genParams(gen);
+  const tabs = [];
+  if (gen.sel.chords) tabs.push({ key:"drill", icon:"🤚", label:"Chords" });
+  if (gen.sel.strum)  tabs.push({ key:"strum", icon:"🎸", label:"Strum" });
+  if (gen.sel.song)   tabs.push({ key:"song",  icon:"🎵", label:"Song" });
+  tabs.push({ key:"tracker", icon:"🔥", label:"Tracker" });
+  const metaLine = [
+    gen.sel.chords && `${GEN_DIFF_META[gen.diff.chords].label} chords`,
+    gen.sel.strum && `${GEN_DIFF_META[gen.diff.strum].label} strumming`,
+    gen.sel.song && `${GEN_DIFF_META[gen.diff.song].label} song`,
+  ].filter(Boolean).join(" · ");
+
+  const go = (key) => { stopPlayback(); setActiveKey(key); };
+
+  return (
+    <FixedLayer>
+    <div style={overlayStyle}>
+      <div style={{ maxWidth:560, margin:"0 auto", padding:"14px 16px 60px" }}>
+        {/* Header: back / brand / close */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <button onClick={()=>{ stopPlayback(); setStage("setup"); }} style={{ padding:"7px 12px",
+            borderRadius:10, border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
+            fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>← Setup</button>
+          <div style={{ fontSize:9, color:"#6f6749", letterSpacing:2, textTransform:"uppercase" }}>
+            Generated Practice
+          </div>
+          <button onClick={close} aria-label="Close" style={{ width:32, height:32, borderRadius:10,
+            border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e", fontSize:15,
+            cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+        </div>
+
+        {/* Title + Regenerate / Save — above all views */}
+        <div style={{ textAlign:"center", margin:"14px 0 6px" }}>
+          <div style={{ fontSize:26, fontWeight:900, letterSpacing:0.4,
+            background:"linear-gradient(135deg,#FFE27A,#FFBE0B 50%,#F77F00)",
+            WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+            {gen.name}
+          </div>
+          <div style={{ fontSize:11.5, color:"#776b4d", marginTop:4, fontWeight:600 }}>{metaLine}</div>
+        </div>
+        <div style={{ display:"flex", gap:8, justifyContent:"center", margin:"12px 0 14px" }}>
+          {activeKey !== "tracker" && (
+            <button onClick={regenerate} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
+              borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
+              <span style={{ position:"absolute", top:0, bottom:0, left:0, width:60, pointerEvents:"none",
+                background:"linear-gradient(90deg, transparent, rgba(255,255,255,0.13), transparent)",
+                animation:"ntcGenShine 3.2s ease 1s infinite" }} />
+              🎲 Regenerate
+            </button>
+          )}
+          <button onClick={saveCurrent} style={{ padding:"11px 22px", borderRadius:12,
+            border:`1px solid ${justSaved ? "rgba(126,217,87,0.6)" : "rgba(255,190,11,0.35)"}`,
+            background:"#14100a", color: justSaved ? "#7ED957" : "#c9a03a",
+            fontSize:13.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit", transition:"all 0.2s" }}>
+            {justSaved ? "Saved ✓" : "💾 Save"}
+          </button>
+        </div>
+
+        {/* Tab pills */}
+        <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+          {tabs.map(t => {
+            const on = activeKey === t.key;
+            return (
+              <button key={t.key} onClick={()=>go(t.key)} style={{
+                flex:1, padding:"11px 6px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
+                border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
+                background: on
+                  ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
+                  : "#100d09",
+                color: on ? "#FFD60A" : "#8a7f5e", fontSize:12.5, fontWeight:800,
+                whiteSpace:"nowrap", transition:"all 0.2s ease" }}>
+                {t.icon} {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Panels — mounted via display toggle; keyed by content so a regenerate
+            remounts only the panels whose exercise actually changed. */}
+        {gen.sel.chords && (
+          <div style={{ display: activeKey==="drill" ? "block" : "none" }}>
+            <ChordsTab key={`drill-${gen.chords.join("|")}`} audio={audio} chordVariants={chordVariants}
+              updateVariant={updateVariant} sharedView={true} initialParam={params.drill} hideTitle={true} />
+          </div>
+        )}
+        {gen.sel.strum && (
+          <div style={{ display: activeKey==="strum" ? "block" : "none" }}>
+            <StrummingTab key={`strum-${gen.rows.join("|")}`} audio={audio} sharedView={true}
+              initialParam={params.strum} hideTitle={true} />
+          </div>
+        )}
+        {gen.sel.song && (
+          <div style={{ display: activeKey==="song" ? "block" : "none" }}>
+            <BuildSongTab key={`song-${gen.chords.join("|")}-${gen.rows.slice(0,2).join("|")}`} audio={audio}
+              initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant}
+              sharedView={true} initialParam={params.song} hideTitle={true} />
+          </div>
+        )}
+        <div style={{ display: activeKey==="tracker" ? "block" : "none" }}>
+          <TrackerTab context={context} hideGenerate={true} />
+        </div>
+      </div>
+    </div>
+    </FixedLayer>
   );
 }
 
@@ -7836,6 +8332,9 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
       </div>
 
       </div>{/* end centered column */}
+
+      {/* Exercise Generator — opened by the launcher on the package tracker */}
+      <ExerciseGeneratorHost audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} context="package" />
 
       {/* Bottom nav — fixed to the screen, centered to the same column width.
           Hidden when there's only one tab (single-exercise package): a one-button
