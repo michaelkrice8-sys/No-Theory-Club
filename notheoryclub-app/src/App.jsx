@@ -7937,6 +7937,25 @@ const GEN_STRUM_POOLS = {
 };
 
 const GEN_BPM = { easy: 60, medium: 65, hard: 70 };
+
+// What each difficulty means, shown live on the setup screen.
+const GEN_DIFF_DESC = {
+  chords: {
+    easy:   "The Anchored 4 — G (anchored), Cadd9, Em7 & Dsus4",
+    medium: "Open chords — G, C, Em, E, D, Am, Fmaj7, Dm",
+    hard:   "Open chords + variations — 7ths, slash chords, Bm & barre shapes",
+  },
+  strum: {
+    easy:   "Steady down-strums with a couple of gaps · 60 bpm",
+    medium: "Syncopated patterns with off-beat ups · 65 bpm",
+    hard:   "Sparse, off-beat-heavy patterns · 70 bpm",
+  },
+  song: {
+    easy:   "Your chords + strumming · 60 bpm · chord change every 2 bars",
+    medium: "Your chords + strumming · 65 bpm · chord change every 2 bars",
+    hard:   "Your chords + strumming · 70 bpm · chord change every bar",
+  },
+};
 const GEN_BEATS_PER_CHORD = { easy: 2, medium: 2, hard: 1 };
 
 // Generated session names, flavored by the toughest selected difficulty.
@@ -8181,7 +8200,8 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             </div>
           </div>
 
-          {/* Exercise rows: toggle + inline count + difficulty cycler */}
+          {/* Exercise rows: icon | label | inline count | check — one line, equal
+              heights whether selected or not, stepper filling the middle space. */}
           {rowsUI.map(r => {
             const on = sel[r.id];
             const d = GEN_DIFF_META[diff[r.id]];
@@ -8191,52 +8211,58 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               : r.id === "strum"
               ? { value: rowCount, set: setRowCount, min: 1, max: GEN_MAX_ROWS, unit: "rows" }
               : null;
-            const stepBtn = { width:34, height:34, borderRadius:10, border:"1px solid #241d10",
-              background:"#100d09", color:"#FFBE0B", fontSize:16, fontWeight:900,
+            const stepBtn = { width:30, height:36, borderRadius:10, border:"1px solid #241d10",
+              background:"#100d09", color:"#FFBE0B", fontSize:15, fontWeight:900,
               cursor:"pointer", fontFamily:"inherit", flexShrink:0 };
             return (
               <div key={r.id} style={{ display:"flex", gap:8, marginBottom:10, alignItems:"stretch" }}>
                 <div role="button" tabIndex={0} aria-pressed={on} onClick={()=>toggleSel(r.id)}
                   onKeyDown={e=>(e.key==="Enter"||e.key===" ")&&toggleSel(r.id)}
-                  style={{ flex:1, padding:"13px 14px", borderRadius:14, cursor:"pointer", userSelect:"none",
+                  style={{ flex:1, minWidth:0, padding:"10px 12px", borderRadius:14, cursor:"pointer",
+                    userSelect:"none", display:"flex", alignItems:"center", gap:10, minHeight:60,
+                    boxSizing:"border-box",
                     border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
                     background: on
                       ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
                       : "#0e0b07",
                     boxShadow: on ? "0 0 18px rgba(255,160,20,0.14)" : "none",
                     transition:"all 0.2s ease" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                    <span style={{ fontSize:20, opacity: on ? 1 : 0.5 }}>{r.icon}</span>
-                    <span style={{ flex:1, minWidth:0 }}>
-                      <span style={{ fontSize:14.5, fontWeight:900, display:"block", color: on ? "#FFD60A" : "#6f6749" }}>{r.label}</span>
-                      {r.sub && <span style={{ fontSize:10.5, color: on ? "#9a8f6e" : "#4a4433", fontWeight:600 }}>{r.sub}</span>}
-                    </span>
-                    {/* Selected indicator — the subtle "this is a toggle" cue */}
-                    <span aria-hidden="true" style={{ width:20, height:20, borderRadius:"50%", flexShrink:0,
-                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:900,
-                      border:`1.5px solid ${on ? "rgba(255,190,11,0.7)" : "#2a2417"}`,
-                      background: on ? "rgba(255,190,11,0.12)" : "transparent",
-                      color: on ? "#FFD60A" : "transparent", transition:"all 0.2s" }}>✓</span>
-                  </div>
+                  <span style={{ fontSize:19, opacity: on ? 1 : 0.5, flexShrink:0 }}>{r.icon}</span>
+                  <span style={{ flex:1, minWidth:0 }}>
+                    <span style={{ fontSize:13.5, fontWeight:900, display:"block",
+                      color: on ? "#FFD60A" : "#6f6749", whiteSpace:"nowrap", overflow:"hidden",
+                      textOverflow:"ellipsis" }}>{r.label}</span>
+                    {r.sub && <span style={{ fontSize:10, color: on ? "#9a8f6e" : "#4a4433",
+                      fontWeight:600, whiteSpace:"nowrap" }}>{r.sub}</span>}
+                  </span>
                   {on && stepper && (
-                    <div onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}
-                      style={{ display:"flex", alignItems:"center", gap:8, marginTop:11 }}>
+                    <span onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}
+                      style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
                       <button aria-label={`fewer ${stepper.unit}`}
                         onClick={()=>stepper.set(v=>Math.max(stepper.min, Math.min(stepper.max, v)-1))}
                         style={stepBtn}>−</button>
-                      <div style={{ flex:1, textAlign:"center", fontSize:15, fontWeight:900, color:"#FFBE0B",
-                        background:"#0c0a06", border:"1px solid #1c1710", borderRadius:10, padding:"7px 0" }}>
-                        {stepper.value} <span style={{ fontSize:10, color:"#7a6a3a", fontWeight:700 }}>{stepper.value === 1 ? stepper.unit.slice(0, -1) : stepper.unit}</span>
-                      </div>
+                      <span style={{ width:44, textAlign:"center", background:"#0c0a06",
+                        border:"1px solid #1c1710", borderRadius:10, padding:"3px 0 4px",
+                        display:"inline-flex", flexDirection:"column", alignItems:"center", lineHeight:1.15 }}>
+                        <span style={{ fontSize:15, fontWeight:900, color:"#FFBE0B" }}>{stepper.value}</span>
+                        <span style={{ fontSize:7.5, color:"#7a6a3a", fontWeight:700, letterSpacing:0.5,
+                          textTransform:"uppercase" }}>{stepper.value === 1 ? stepper.unit.slice(0, -1) : stepper.unit}</span>
+                      </span>
                       <button aria-label={`more ${stepper.unit}`}
                         onClick={()=>stepper.set(v=>Math.min(stepper.max, Math.max(stepper.min, v)+1))}
                         style={stepBtn}>+</button>
-                    </div>
+                    </span>
                   )}
+                  {/* Selected indicator — the subtle "this is a toggle" cue */}
+                  <span aria-hidden="true" style={{ width:20, height:20, borderRadius:"50%", flexShrink:0,
+                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:900,
+                    border:`1.5px solid ${on ? "rgba(255,190,11,0.7)" : "#2a2417"}`,
+                    background: on ? "rgba(255,190,11,0.12)" : "transparent",
+                    color: on ? "#FFD60A" : "transparent", transition:"all 0.2s" }}>✓</span>
                 </div>
                 <button onClick={()=>cycleDiff(r.id)} disabled={!on} aria-label={`${r.label} difficulty`} style={{
                   width:76, borderRadius:14, cursor: on ? "pointer" : "default", fontFamily:"inherit",
-                  fontSize:12.5, fontWeight:900, letterSpacing:0.5,
+                  fontSize:12.5, fontWeight:900, letterSpacing:0.5, flexShrink:0,
                   border:`1px solid ${on ? hexToRgba(d.color, 0.55) : "#1c1710"}`,
                   background: on
                     ? `radial-gradient(120% 160% at 50% 0%, ${hexToRgba(d.color, 0.16)} 0%, transparent 65%), #14100a`
@@ -8249,7 +8275,23 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               </div>
             );
           })}
-          <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", margin:"4px 0 22px", lineHeight:1.7 }}>
+
+          {/* What the chosen difficulties mean — updates live as they cycle */}
+          {anySelected && (
+            <div style={{ border:"1px solid #1c1710", borderRadius:13, background:"#0c0a06",
+              padding:"11px 13px", margin:"2px 0 8px" }}>
+              {rowsUI.filter(r => sel[r.id]).map(r => (
+                <div key={r.id} style={{ display:"flex", alignItems:"baseline", gap:7,
+                  fontSize:11, lineHeight:1.75, color:"#8a7f5e" }}>
+                  <span style={{ flexShrink:0 }}>{r.icon}</span>
+                  <span style={{ color: GEN_DIFF_META[diff[r.id]].color, fontWeight:900,
+                    flexShrink:0, minWidth:34 }}>{GEN_DIFF_META[diff[r.id]].label}</span>
+                  <span style={{ minWidth:0 }}>{GEN_DIFF_DESC[r.id][diff[r.id]]}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", margin:"0 0 20px", lineHeight:1.7 }}>
             Tap an exercise to include or skip it · tap its difficulty to cycle Easy → Med → Hard
           </div>
 
@@ -8301,6 +8343,11 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
 
   // ── Generated package view ──
   const params = genParams(gen);
+  // ChordsTab and the song builder strip "_anchor" slot keys back to open
+  // shapes whenever their anchored prop is false — so Easy pools must render
+  // with anchored={true} or the Anchored 4 silently become open chords.
+  const anchoredChords = (gen.sel.chords ? gen.diff.chords : gen.diff.song) === "easy";
+  const anchoredStrum = (gen.sel.strum ? gen.diff.strum : gen.diff.song) === "easy";
   const tabs = [];
   if (gen.sel.chords) tabs.push({ key:"drill", icon:"🤚", label:"Chords" });
   if (gen.sel.strum)  tabs.push({ key:"strum", icon:"🎸", label:"Strum" });
@@ -8384,8 +8431,8 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
         {gen.sel.chords && (
           <div style={{ display: activeKey==="drill" ? "block" : "none" }}>
             <div key={`drill-${gen.chords.join("|")}`} style={{ animation:"ntcPanelReveal 0.5s ease both" }}>
-              <ChordsTab audio={audio} chordVariants={chordVariants}
-                updateVariant={updateVariant} sharedView={true} initialParam={params.drill} hideTitle={true} />
+              <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant}
+                sharedView={true} initialParam={params.drill} hideTitle={true} anchored={anchoredChords} />
             </div>
           </div>
         )}
@@ -8393,7 +8440,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           <div style={{ display: activeKey==="strum" ? "block" : "none" }}>
             <div key={`strum-${gen.rows.join("|")}`} style={{ animation:"ntcPanelReveal 0.5s ease both" }}>
               <StrummingTab audio={audio} sharedView={true}
-                initialParam={params.strum} hideTitle={true} />
+                initialParam={params.strum} hideTitle={true} anchored={anchoredStrum} />
             </div>
           </div>
         )}
@@ -8402,7 +8449,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             <div key={`song-${gen.chords.join("|")}-${gen.rows.slice(0,2).join("|")}`} style={{ animation:"ntcPanelReveal 0.5s ease both" }}>
               <BuildSongTab audio={audio}
                 initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant}
-                sharedView={true} initialParam={params.song} hideTitle={true} />
+                sharedView={true} initialParam={params.song} hideTitle={true} anchored={anchoredChords} />
             </div>
           </div>
         )}
