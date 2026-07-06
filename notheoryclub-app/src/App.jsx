@@ -5335,6 +5335,8 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                   setChordIndex(0); setBeatCount(0);
                   if(beatRef) beatRef.current=0;
                   if(chordRef) chordRef.current=0;
+                  // Straight to the voicings for the new slot, basic pre-selected.
+                  if(HAS_VARIATIONS.has(chord)) setVariantPickerChord({ idx: customChords.length, base: chord, current: chord });
                   return;
                 }
                 if(isSel){
@@ -5458,6 +5460,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
         </div>
       )}
       {outsideKeyChord && (
+        <FixedLayer>
         <OutsideKeyModal
           chord={outsideKeyChord}
           possibleKeys={possibleKeys}
@@ -5468,11 +5471,14 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
             if(beatRef) beatRef.current=0;
             if(chordRef) chordRef.current=0;
             setOutsideKeyChord(null);
+            if(HAS_VARIATIONS.has(outsideKeyChord)) setVariantPickerChord({ idx: customChords.length, base: outsideKeyChord, current: outsideKeyChord });
           }}
           onCancel={()=>setOutsideKeyChord(null)}
         />
+        </FixedLayer>
       )}
       {variantPickerChord && (
+        <FixedLayer>
         <VariantPickerModal
           chord={typeof variantPickerChord==="object" ? variantPickerChord.base : variantPickerChord}
           currentVariant={typeof variantPickerChord==="object"
@@ -5489,6 +5495,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           }}
           onClose={()=>setVariantPickerChord(null)}
         />
+        </FixedLayer>
       )}
     </div>
   );
@@ -5698,6 +5705,7 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, p
       </div>
 
       {variantPickerSlot && (
+        <FixedLayer>
         <VariantPickerModal
           chord={variantPickerSlot.base}
           currentVariant={variantPickerSlot.current||"standard"}
@@ -5711,6 +5719,7 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, p
           }}
           onClose={()=>setVariantPickerSlot(null)}
         />
+        </FixedLayer>
       )}
     </div>
   );
@@ -7548,7 +7557,7 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   const nextChord = songChords.length > 1 ? songChords[upcoming] : null;
 
   return (
-    <div style={{ maxWidth:560, margin:"0 auto", paddingBottom:30 }}>
+    <div style={{ maxWidth:560, margin:"0 auto", padding:"24px 16px 30px" }}>
       <style>{`@keyframes ntcSongSlide { from { opacity:0; transform:translateX(42px) scale(0.97); }
         to { opacity:1; transform:none; } }`}</style>
 
@@ -7633,7 +7642,12 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                 return (
                   <button key={chord} disabled={full} aria-pressed={isSel} onClick={()=>{
                     stopIfPlaying();
+                    const newIdx = songChords.length;
+                    if (newIdx >= 10) return;
                     setSongChords(prev => prev.length >= 10 ? prev : [...prev, chord]);
+                    // Straight to the voicings for the slot just added — basic
+                    // shape already selected, one tap to keep or swap.
+                    if (HAS_VARIATIONS.has(chord)) setVoicingFor(newIdx);
                   }} style={{ position:"relative", borderRadius:14, padding:"6px 4px 8px",
                     cursor: full ? "default" : "pointer", fontFamily:"inherit",
                     border: isSel ? "2px solid rgba(255,190,11,0.75)" : "1px solid #241d10",
@@ -7675,8 +7689,11 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
           <div onClick={e=>e.stopPropagation()} style={{ background:"#100d09",
             border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px",
             maxWidth:420, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
-            <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:12 }}>
+            <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>
               {slotBase(songChords[voicingFor])} VOICINGS
+            </div>
+            <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12 }}>
+              basic shape selected — tap to keep or swap
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
               {(CHORD_VARIATION_MAP[slotBase(songChords[voicingFor])] || []).map(opt => {
@@ -7778,11 +7795,11 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
               <div style={{ textAlign:"center", fontSize:10, color:"#444", letterSpacing:1, marginBottom:5 }}>
                 ROW {row + 1}
               </div>
-              <div style={{ display:"flex", gap:6, justifyContent:"center", flexWrap:"nowrap" }}>
+              <div style={{ display:"flex", gap:4, justifyContent:"center", flexWrap:"nowrap" }}>
                 {Array(size).fill(null).map((_, i) => {
                   const idx = row * 8 + i;
                   return (
-                    <div key={idx} style={{ flex:"1 1 0", minWidth:0, maxWidth:54, aspectRatio:"1/1", display:"flex" }}>
+                    <div key={idx} style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1", display:"flex" }}>
                       <BuildBlock dir={DIRS16[i % 8]} active={strumActive[idx]} beat={currentStrum===idx&&isPlaying} fluid
                         onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
                           setStrumActive(p=>p.map((v,x)=>x===idx?!v:v)); }} />
