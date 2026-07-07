@@ -1031,7 +1031,9 @@ function App() {
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
       <style>{NTC_SLIDER_CSS}</style>
-      <div style={{ textAlign:"center", padding:"14px 16px 6px", background:"rgba(10,10,8,0.98)" }}>
+      <div style={{ position:"relative", textAlign:"center", padding:"14px 16px 6px", background:"rgba(10,10,8,0.98)" }}>
+        <HomeButton onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_) {}
+          window.location.href = window.location.origin + window.location.pathname; }} />
         <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5 }}>NO THEORY CLUB</div>
         <div style={{ fontSize:10, color:"#555" }}>Guitar Practice Tool</div>
       </div>
@@ -1086,8 +1088,9 @@ function App() {
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
       <style>{NTC_SLIDER_CSS}</style>
 
-      {/* Brand Header — logo returns to landing */}
-      <div style={{ textAlign:"center", padding:"16px 16px 12px" }}>
+      {/* Brand Header — logo returns to landing; explicit house button too */}
+      <div style={{ position:"relative", textAlign:"center", padding:"16px 16px 12px" }}>
+        <HomeButton onClick={goHome} />
         <span onClick={goHome} style={{ display:"inline-block", cursor:"pointer", fontSize:18, fontWeight:900,
           letterSpacing:1.5, background:"linear-gradient(135deg,#FFE27A,#FFBE0B 50%,#F77F00)",
           WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent",
@@ -6300,6 +6303,18 @@ function readCustomTrackerName() {
   return null;
 }
 
+// ── HomeButton ── warm house icon pinned top-right of any non-home view ──
+function HomeButton({ onClick }) {
+  return (
+    <button onClick={onClick} aria-label="Back to home" title="Home" style={{
+      position:"absolute", top:12, right:14, width:38, height:38, borderRadius:12,
+      border:"1px solid rgba(255,190,11,0.3)", background:"#100d09", color:"#c9a03a",
+      fontSize:17, cursor:"pointer", fontFamily:"inherit", zIndex:20,
+      boxShadow:"0 2px 10px rgba(0,0,0,0.4)", display:"flex", alignItems:"center",
+      justifyContent:"center" }}>🏠</button>
+  );
+}
+
 // ── FixedLayer ── renders overlays (modals, confetti canvas) into
 // document.body via a portal. Required because the app's tab-fade wrapper
 // animates with a CSS transform, and a transformed ancestor becomes the
@@ -6746,7 +6761,7 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
         <div style={{ fontSize:11, letterSpacing:3, color:"#7a6a3a", fontWeight:700, textTransform:"uppercase" }}>
           30-Day Challenge
         </div>
-        <div style={{ fontSize:24, fontWeight:900, marginTop:8, color:"#f3ead2", letterSpacing:0.3 }}>
+        <div style={{ fontSize:22, fontWeight:900, marginTop:8, color:"#f3ead2", letterSpacing:0.2 }}>
           Build the habit. <span style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
             WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>Keep the streak 🔥</span>
         </div>
@@ -9124,7 +9139,9 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
       <div style={{ maxWidth:560, margin:"0 auto", paddingBottom: tabs.length > 1 ? 96 : 24 }}>
 
       {/* Brand header */}
-      <div style={{ textAlign:"center", padding:"14px 16px 8px", flexShrink:0 }}>
+      <div style={{ position:"relative", textAlign:"center", padding:"14px 16px 8px", flexShrink:0 }}>
+        <HomeButton onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_) {}
+          window.location.href = window.location.origin + window.location.pathname; }} />
         <div style={{ fontSize:16, fontWeight:900, letterSpacing:1.5,
           background:"linear-gradient(135deg,#FFE27A,#FFBE0B 50%,#F77F00)",
           WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>NO THEORY CLUB</div>
