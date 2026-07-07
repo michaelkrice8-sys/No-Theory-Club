@@ -6251,6 +6251,16 @@ const TRACKER_TASKS = [
 ];
 const TRACKER_STORAGE_KEY = "ntc-30day-tracker-v1";
 
+// Day 1 → 30 package links for the prebuilt challenge. Relative hrefs so beta
+// days open beta packages and production days open production packages.
+const TRACKER_DAY_LINKS = [
+  "66b9d734","ed05a0c7","052aac68","123c8c68","4e2a9d0d","824b5bc5","281bbd14",
+  "52d4f617","43fd3f14","edb13305","e4445753","aa6ff78a","38114d5a","99c24baf",
+  "82893920","a2a3cea3","d244fc97","e754c634","af8f4779","e885b617","049360c9",
+  "b2ce6258","86f54e37","b42b8cc9","30844145","49bd419c","f26312be","48803d4f",
+  "d011938b","fb2ed6de",
+];
+
 // ── Persistent one-way flags (cloud-synced, never un-set) ──
 function readFlag(key) {
   try {
@@ -6271,6 +6281,15 @@ function persistBuildUnlocked() { persistFlag(BUILD_UNLOCK_KEY); }
 // Trophy modal shown once, ever — not on every login while the grid is full.
 function readCelebrated()       { return readFlag(CELEBRATED_KEY); }
 function persistCelebrated()    { persistFlag(CELEBRATED_KEY); }
+
+function readCustomTrackerTheme() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_TRACKER_KEY);
+    const saved = raw ? JSON.parse(raw) : null;
+    if (saved && !saved.deleted && saved.config) return saved.config.theme || DEFAULT_THEME;
+  } catch (_) {}
+  return null;
+}
 
 function readCustomTrackerName() {
   try {
@@ -6409,8 +6428,9 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
   // Build pill label follows the custom tracker's name once one exists;
   // falls back to "My Tracker" when the name won't fit the bubble.
   const [customName, setCustomName] = useState(readCustomTrackerName);
+  const [customThemeKey, setCustomThemeKey] = useState(readCustomTrackerTheme);
   useEffect(() => {
-    const refresh = () => setCustomName(readCustomTrackerName());
+    const refresh = () => { setCustomName(readCustomTrackerName()); setCustomThemeKey(readCustomTrackerTheme()); };
     window.addEventListener("ntc-custom-tracker-changed", refresh);
     return () => window.removeEventListener("ntc-custom-tracker-changed", refresh);
   }, []);
@@ -6543,20 +6563,27 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
               </>
             ),
             onClick: handleBuildClick, on: mode==="build" },
-        ].map(p => (
+        ].map(p => {
+          // Once a tracker exists, its theme colors the Build pill.
+          const acc = p.id === "build" && buildUnlocked && customThemeKey
+            ? (BUILD_THEMES[customThemeKey] || null) : null;
+          return (
           <button key={p.id} onClick={p.onClick} style={{
             position:"relative", flex:1, padding:"11px 8px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
-            border:`1px solid ${p.on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
+            border:`1px solid ${p.on ? (acc ? hexToRgba(acc.a, 0.55) : "rgba(255,190,11,0.55)") : "#241d10"}`,
             background: p.on
-              ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
-              : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.05) 0%, rgba(255,170,30,0) 60%), #100d09",
-            color: p.on ? "#FFD60A" : (p.id==="build" && !buildUnlocked ? "#6f6749" : "#8a7f5e"),
+              ? `radial-gradient(120% 160% at 50% 0%, ${acc ? hexToRgba(acc.b, 0.16) : "rgba(255,170,30,0.16)"} 0%, transparent 65%), #16110a`
+              : `radial-gradient(120% 160% at 50% 0%, ${acc ? hexToRgba(acc.b, 0.05) : "rgba(255,170,30,0.05)"} 0%, transparent 60%), #100d09`,
+            color: p.on ? (acc ? acc.a : "#FFD60A")
+              : acc ? hexToRgba(acc.a, 0.6)
+              : (p.id==="build" && !buildUnlocked ? "#6f6749" : "#8a7f5e"),
             fontSize:13, fontWeight:800, letterSpacing:0.3, whiteSpace:"nowrap",
-            boxShadow: p.on ? "0 0 18px rgba(255,160,20,0.16)" : "none",
+            boxShadow: p.on ? `0 0 18px ${acc ? hexToRgba(acc.b, 0.18) : "rgba(255,160,20,0.16)"}` : "none",
             transition:"all 0.22s ease" }}>
             {p.label}
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* Locked teaser — low-opacity bubble explaining how Build is earned.
@@ -6781,7 +6808,10 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
                 : isCelebrating ? "rgba(255,214,10,0.10)" : "transparent",
               transition:"background 0.3s" }}>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <span style={{ fontSize:14, fontWeight:900, color:isActive?"#FFBE0B":"#3a3325", letterSpacing:0.3, minWidth:46 }}>DAY {i+1}</span>
+                <a href={`?pkg=${TRACKER_DAY_LINKS[i]}`} style={{ fontSize:15, fontWeight:900,
+                  color:isActive?"#FFBE0B":"#3a3325", letterSpacing:0.3, minWidth:46,
+                  textDecoration:"underline", textUnderlineOffset:3,
+                  textDecorationColor: isActive ? "rgba(255,190,11,0.45)" : "rgba(255,255,255,0.14)" }}>DAY {i+1}</a>
                 {emoji && <span style={{ fontSize:14 }}>{emoji}</span>}
               </div>
               {TRACKER_TASKS.map(t => (
@@ -7016,6 +7046,11 @@ function BuildSetup({ existing, onSave, onCancel }) {
     onSave({ config, data });
   };
 
+  // Live preview: every accent on this screen follows the selected theme
+  // immediately, before Save — same derivation the tracker itself uses.
+  const T = BUILD_THEMES[theme] || BUILD_THEMES[DEFAULT_THEME];
+  const grad = `linear-gradient(135deg, ${T.a}, ${T.b})`;
+
   const fieldLabel = { fontSize:10, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
     fontWeight:700, marginBottom:7 };
   const inputStyle = { width:"100%", boxSizing:"border-box", background:"#0e0b06", border:"1px solid #241d10",
@@ -7028,7 +7063,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
           🛠️ Build
         </div>
         <div style={{ fontSize:24, fontWeight:900, marginTop:8, color:"#f3ead2", letterSpacing:0.3 }}>
-          Your challenge. <span style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
+          Your challenge. <span style={{ background:grad,
             WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>Your rules.</span>
         </div>
         <div style={{ fontSize:12.5, color:"#776b4d", marginTop:8, lineHeight:1.6 }}>
@@ -7048,13 +7083,13 @@ function BuildSetup({ existing, onSave, onCancel }) {
         <div style={fieldLabel}>Number of days ({BUILD_MIN_DAYS}–{BUILD_MAX_DAYS})</div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <button onClick={()=>setDays(d=>clampDays(Number(d)-1))} style={{ width:44, height:44, borderRadius:12,
-            border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B", fontSize:20, fontWeight:900,
+            border:"1px solid #241d10", background:"#100d09", color:T.a, fontSize:20, fontWeight:900,
             cursor:"pointer", fontFamily:"inherit" }}>−</button>
           <input type="number" value={days} min={BUILD_MIN_DAYS} max={BUILD_MAX_DAYS}
             onChange={e=>setDays(e.target.value)} onBlur={()=>setDays(d=>clampDays(d))}
-            style={{ ...inputStyle, textAlign:"center", fontSize:20, fontWeight:900, color:"#FFBE0B", flex:1 }} />
+            style={{ ...inputStyle, textAlign:"center", fontSize:20, fontWeight:900, color:T.a, flex:1 }} />
           <button onClick={()=>setDays(d=>clampDays(Number(d)+1))} style={{ width:44, height:44, borderRadius:12,
-            border:"1px solid #241d10", background:"#100d09", color:"#FFBE0B", fontSize:20, fontWeight:900,
+            border:"1px solid #241d10", background:"#100d09", color:T.a, fontSize:20, fontWeight:900,
             cursor:"pointer", fontFamily:"inherit" }}>+</button>
         </div>
       </div>
@@ -7072,7 +7107,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
         {tasks.map((t, i) => (
           <div key={t.id} style={{ display:"flex", gap:8, marginBottom:8, alignItems:"center" }}>
             <button onClick={()=>cycleIcon(i)} title="Tap to change icon" style={{ width:44, height:44,
-              borderRadius:12, border:"1px solid rgba(255,190,11,0.3)", background:"rgba(255,190,11,0.07)",
+              borderRadius:12, border:`1px solid ${hexToRgba(T.a, 0.3)}`, background:hexToRgba(T.a, 0.07),
               fontSize:20, cursor:"pointer", flexShrink:0 }}>{t.icon}</button>
             <input value={t.label} onChange={e=>setLabel(i, e.target.value)} maxLength={20}
               placeholder="Category name" style={{ ...inputStyle, flex:1 }} />
@@ -7085,7 +7120,7 @@ function BuildSetup({ existing, onSave, onCancel }) {
         ))}
         {tasks.length < BUILD_MAX_TASKS && (
           <button onClick={addTask} style={{ width:"100%", padding:"11px", borderRadius:12,
-            border:"1px dashed rgba(255,190,11,0.3)", background:"transparent", color:"#c9a03a",
+            border:`1px dashed ${hexToRgba(T.a, 0.35)}`, background:"transparent", color:T.a,
             fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
             + Add a category
           </button>
@@ -7112,8 +7147,12 @@ function BuildSetup({ existing, onSave, onCancel }) {
       </div>
 
       {/* Actions */}
-      <button onClick={save} style={{ ...GLOW_BTN, width:"100%",
-        borderRadius:13, padding:"15px", fontSize:15 }}>
+      <button onClick={save} style={{ width:"100%", borderRadius:13, padding:"15px", fontSize:15,
+        border:`1px solid ${hexToRgba(T.a, 0.55)}`,
+        background:`radial-gradient(120% 160% at 50% 0%, ${hexToRgba(T.b, 0.18)} 0%, ${hexToRgba(T.b, 0)} 65%), #16110a`,
+        color:T.a, fontWeight:900, cursor:"pointer", fontFamily:"inherit",
+        boxShadow:`0 0 22px ${hexToRgba(T.b, 0.18)}, inset 0 1px 0 rgba(255,255,255,0.04)`,
+        transition:"all 0.25s ease" }}>
         {existing ? "Save changes" : "Create my tracker 🛠️"}
       </button>
       {onCancel && (
