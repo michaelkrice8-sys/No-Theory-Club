@@ -6272,6 +6272,15 @@ function persistBuildUnlocked() { persistFlag(BUILD_UNLOCK_KEY); }
 function readCelebrated()       { return readFlag(CELEBRATED_KEY); }
 function persistCelebrated()    { persistFlag(CELEBRATED_KEY); }
 
+function readCustomTrackerName() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_TRACKER_KEY);
+    const saved = raw ? JSON.parse(raw) : null;
+    if (saved && !saved.deleted && saved.config && saved.config.name) return saved.config.name;
+  } catch (_) {}
+  return null;
+}
+
 // ── FixedLayer ── renders overlays (modals, confetti canvas) into
 // document.body via a portal. Required because the app's tab-fade wrapper
 // animates with a CSS transform, and a transformed ancestor becomes the
@@ -6397,6 +6406,18 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
   const [showLockedInfo, setShowLockedInfo] = useState(false);  // low-opacity teaser bubble
   const [showOpenAppInfo, setShowOpenAppInfo] = useState(false); // package view → full app
 
+  // Build pill label follows the custom tracker's name once one exists;
+  // falls back to "My Tracker" when the name won't fit the bubble.
+  const [customName, setCustomName] = useState(readCustomTrackerName);
+  useEffect(() => {
+    const refresh = () => setCustomName(readCustomTrackerName());
+    window.addEventListener("ntc-custom-tracker-changed", refresh);
+    return () => window.removeEventListener("ntc-custom-tracker-changed", refresh);
+  }, []);
+  const buildPillText = !buildUnlocked || !customName
+    ? "Build"
+    : (customName.length <= 14 ? customName : "My Tracker");
+
   const handleBuildClick = () => {
     if (context === "package") {
       // Package links have no Build view — teaser when locked, pointer to the
@@ -6512,20 +6533,19 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
         {[
           { id:"challenge", label:<>🔥 30-Day Challenge</>, onClick:()=>setMode("challenge"), on: mode==="challenge" },
           { id:"build",
-            label: buildUnlocked ? <>🛠️ Build</> : (
+            label: buildUnlocked ? <>🛠️ {buildPillText}</> : (
               <>
-                <span style={{ position:"relative", display:"inline-block", marginRight:8 }}>
-                  <span style={{ opacity:0.4 }}>🛠️</span>
-                  <span style={{ position:"absolute", right:-8, bottom:-3, fontSize:"1.1em",
-                    filter:"drop-shadow(0 1px 3px rgba(0,0,0,0.9))" }}>🔒</span>
-                </span>
-                Build
+                <span style={{ opacity:0.4, marginRight:6 }}>🛠️</span>
+                <span style={{ opacity:0.75 }}>Build</span>
+                {/* Lock badge pinned to the pill's top-right corner */}
+                <span style={{ position:"absolute", top:3, right:7, fontSize:13,
+                  filter:"drop-shadow(0 1px 3px rgba(0,0,0,0.9))" }}>🔒</span>
               </>
             ),
             onClick: handleBuildClick, on: mode==="build" },
         ].map(p => (
           <button key={p.id} onClick={p.onClick} style={{
-            flex:1, padding:"11px 8px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
+            position:"relative", flex:1, padding:"11px 8px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
             border:`1px solid ${p.on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
             background: p.on
               ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
@@ -6896,6 +6916,7 @@ function CustomTrackerSection({ hideGenerate = false }) {
     const withTs = { ...next, updatedAt: new Date().toISOString() };
     try { localStorage.setItem(CUSTOM_TRACKER_KEY, JSON.stringify(withTs)); } catch (_) {}
     setSaved(withTs);
+    try { window.dispatchEvent(new Event("ntc-custom-tracker-changed")); } catch (_) {}
   };
   if (!active || editing) {
     return (
@@ -7668,9 +7689,10 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
           padding:20, animation:"ntcModalFade 0.25s ease both" }}>
           <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#100d09",
-            border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px",
-            maxWidth:420, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+            border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px 14px",
+            maxWidth:420, width:"100%", maxHeight:"84dvh",
+            display:"flex", flexDirection:"column", overflow:"hidden" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4, flexShrink:0 }}>
               <div style={{ width:44 }} />
               <div style={{ fontSize:11, color:"#888", letterSpacing:2 }}>ADD A CHORD</div>
               {songChords.length > 0
@@ -7680,10 +7702,12 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                     padding:"5px 11px", borderRadius:9, fontFamily:"inherit" }}>Reset</button>
                 : <div style={{ width:44 }} />}
             </div>
-            <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12 }}>
+            <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12, flexShrink:0 }}>
               {songChords.length}/10 · basic shape added — tap a chip's ⚙ to change voicing
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+            {/* Scrollable grid; Done stays pinned to the window's bottom margin */}
+            <div style={{ overflowY:"auto", flex:1, minHeight:0, display:"grid",
+              gridTemplateColumns:"repeat(3,1fr)", gap:8, alignContent:"start" }}>
               {ALL_CHORDS.map(chord => {
                 const allowed = getAllowedChords([...new Set(songChords.map(slotBase))]);
                 const outside = allowed && !allowed.has(chord);
@@ -7724,8 +7748,8 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                 );
               })}
             </div>
-            <button onClick={()=>setAddOpen(false)} style={{ ...GLOW_BTN, width:"100%", marginTop:14,
-              borderRadius:12, padding:"12px", fontSize:14 }}>Done</button>
+            <button onClick={()=>setAddOpen(false)} style={{ ...GLOW_BTN, width:"100%", marginTop:12,
+              flexShrink:0, borderRadius:12, padding:"12px", fontSize:14 }}>Done</button>
           </div>
         </div>
         </FixedLayer>
@@ -8450,6 +8474,8 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
 
   // ── Generated package view ──
   const params = genParams(gen);
+  const trackerName = readCustomTrackerName();
+  const trackerTabLabel = !trackerName ? "Tracker" : (trackerName.length <= 10 ? trackerName : "My Tracker");
   // ChordsTab and the song builder strip "_anchor" slot keys back to open
   // shapes whenever their anchored prop is false — so Easy pools must render
   // with anchored={true} or the Anchored 4 silently become open chords.
@@ -8459,7 +8485,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   if (gen.sel.chords) tabs.push({ key:"drill", icon:"🤚", label:"Chords" });
   if (gen.sel.strum)  tabs.push({ key:"strum", icon:"🎸", label:"Strum" });
   if (gen.sel.song)   tabs.push({ key:"song",  icon:"🎵", label:"Song" });
-  tabs.push({ key:"tracker", icon:"🔥", label:"Tracker" });
+  tabs.push({ key:"tracker", icon:"🔥", label:trackerTabLabel });
   const metaLine = [
     gen.sel.chords && `${GEN_DIFF_META[gen.diff.chords].label} chords`,
     gen.sel.strum && `${GEN_DIFF_META[gen.diff.strum].label} strumming`,
@@ -8560,7 +8586,9 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           </div>
         )}
         <div style={{ display: activeKey==="tracker" ? "block" : "none" }}>
-          <TrackerTab context={context} hideGenerate={true} />
+          {/* The generator was launched from Build — show THEIR tracker only,
+              no 30-day challenge, no mode switcher. */}
+          <CustomTrackerSection hideGenerate={true} />
         </div>
       </div>
     </div>
