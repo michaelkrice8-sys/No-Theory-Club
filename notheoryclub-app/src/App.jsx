@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Component } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext, Component } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { CHORD_IMAGES } from "./chordImages";
@@ -118,19 +118,47 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 // REST helpers below, which continue to power Song Builder share links.
 const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Package links that are open to EVERYONE, no login required. The free-course
-// trial package lives here. Add more IDs to open more packages.
+// Master switch for the premium gate. false = no gating anywhere: Build modes,
+// the Song tab and the Tracker open for everyone (sync still runs for anyone
+// already signed in).
+const AUTH_ENABLED = true;
+
+// The features behind the gate. Everything else in the app — every tab, every
+// share link, every ?pkg= package — is free and open, no login required.
+// Gating happens at the FEATURE level via useFeatureGate() below.
+//
+// (Historical note: PUBLIC_PACKAGES used to be the allowlist of ?pkg= links
+// that bypassed the old app-wide gate. Under the feature-level model ALL
+// package links are open, so the list is no longer consulted — kept only as a
+// record of the old trial packages.)
 const PUBLIC_PACKAGES = ["983c3ac1", "7cb3898c", "e44930d9", "d1a9001e", "442f95ba"];
+
+// App-wide auth context. AuthProvider (bottom of this section) owns the
+// Supabase session, the tier check, the progress-sync engine and the gate
+// overlay; components reach it through useContext(AuthCtx) / useFeatureGate.
+const AuthCtx = createContext({
+  enabled: false,
+  status: "anon",      // checking | anon | evaluating | syncing | premium | free
+  authorized: true,     // convenience: gate disabled OR premium
+  userEmail: "",
+  syncEpoch: 0,         // bumps when a cloud pull changed localStorage → remount readers
+  engageGate: () => () => {},
+  signOut: () => {},
+});
 
 // Where the upgrade button sends non-premium users.
 const UPGRADE_URL = "https://www.skool.com/notheoryclub/plans";
 
 // Shared chrome for the gate screens (login / wall) — matches app branding.
-function GateShell({ children }) {
+// overlay=true renders panel content only (GateOverlayHost supplies the dimmed
+// backdrop behind it); overlay=false is the legacy full-page screen.
+function GateShell({ children, overlay = false }) {
   return (
-    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
+    <div style={{ display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", padding:"28px",
-      background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+      ...(overlay
+        ? { width:"100%", maxWidth:560, margin:"0 auto", background:"transparent" }
+        : { minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)" }),
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff", textAlign:"center" }}>
       <div style={{ fontSize:22, fontWeight:800, letterSpacing:3, marginBottom:6,
         background:"linear-gradient(135deg,#FFD166,#F77F00)",
@@ -138,6 +166,19 @@ function GateShell({ children }) {
       <div style={{ fontSize:13, color:"#8a8578", letterSpacing:2.5, textTransform:"uppercase", marginBottom:30 }}>Guitar Practice Tool</div>
       {children}
     </div>
+  );
+}
+
+// Standard corner lock for premium-gated controls (Build pills, Song tab,
+// Build tracker). Shown ONLY to non-premium viewers — once a member upgrades,
+// every lock disappears. Sits half on / half off the pill's top-right corner;
+// the parent must be position:relative.
+function GateLockBadge() {
+  return (
+    <span aria-hidden="true" style={{ position:"absolute", top:0, right:0,
+      transform:"translate(calc(45% - 5px), calc(-45% + 5px))",
+      opacity:0.82, fontSize:15, lineHeight:1, zIndex:2,
+      pointerEvents:"none", filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
   );
 }
 
@@ -156,28 +197,10 @@ function GateButton({ onClick, children, disabled }) {
   );
 }
 
-// Shown on both wall screens. Skoot's tier sync runs on a delay, so a member
-// who upgrades and opens the app right away will briefly still read as free.
-// This note turns that moment from "it's broken" into "it's on its way".
-function JustUpgradedNote() {
-  return (
-    <div style={{ fontSize:15.5, color:"#b5ae9d", lineHeight:1.8, marginTop:22,
-      maxWidth:430, padding:"16px 20px", borderRadius:14,
-      border:"1px solid rgba(255,209,102,0.25)", background:"rgba(255,209,102,0.05)" }}>
-      <b style={{ color:"#FFD166" }}>Just upgraded?</b> You're in — your access
-      switches on automatically within 2–4 hours.<br/>
-      Can't wait? DM me on Skool or email{" "}
-      <a href="mailto:michael@notheoryclub.com"
-        style={{ color:"#FFD166", textDecoration:"underline" }}>michael@notheoryclub.com</a>{" "}
-      and I'll flip it on right away.
-    </div>
-  );
-}
-
 // Login screen — email in, magic link out. No passwords.
 // Pre-checks membership so free members see the upgrade screen
 // immediately instead of receiving a pointless email.
-function GateLogin() {
+function GateLogin({ overlay = false }) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -239,15 +262,15 @@ function GateLogin() {
   };
 
   if (notPremium) return (
-    <GateShell>
+    <GateShell overlay={overlay}>
       <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
-      <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>The Practice App is for Premium members</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>This feature is for Premium members</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
-        Unlimited practice drills, the 30 Day Tracker, the Song Builder, and
-        everything else — it all comes with No Theory Club Premium.
+        Build your own drills, the Song Builder, and custom practice trackers
+        with progress that follows you across devices — it all comes with
+        No Theory Club Premium.
       </div>
       <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
-      <JustUpgradedNote />
       <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
         Already Premium? Make sure you use your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
         <span onClick={()=>{ setNotPremium(false); setEmail(""); }}
@@ -259,7 +282,7 @@ function GateLogin() {
   );
 
   if (sent) return (
-    <GateShell>
+    <GateShell overlay={overlay}>
       <div style={{ fontSize:52, marginBottom:16 }}>📬</div>
       <div style={{ fontSize:26, fontWeight:900, marginBottom:14 }}>Check your email</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:22 }}>
@@ -287,9 +310,9 @@ function GateLogin() {
   );
 
   return (
-    <GateShell>
+    <GateShell overlay={overlay}>
       <div style={{ fontSize:52, marginBottom:16 }}>🎸</div>
-      <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>Members sign in here</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>Sign in for Premium Features</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:26 }}>
         Enter the email you use for your <b style={{color:"#e8e2d2"}}>Skool account</b> and
         we'll email you a sign-in code. No password needed.
@@ -311,17 +334,17 @@ function GateLogin() {
 }
 
 // The wall — signed in, but not premium.
-function GateWall({ email, onSignOut }) {
+function GateWall({ email, onSignOut, overlay = false }) {
   return (
-    <GateShell>
+    <GateShell overlay={overlay}>
       <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
-      <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>The Practice App is for Premium members</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>This feature is for Premium members</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
-        Unlimited practice drills, the 30 Day Tracker, the Song Builder, and
-        everything else — it all comes with No Theory Club Premium.
+        Build your own drills, the Song Builder, and custom practice trackers
+        with progress that follows you across devices — it all comes with
+        No Theory Club Premium.
       </div>
       <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
-      <JustUpgradedNote />
       <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
         Already Premium? Make sure you signed in with your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
         Signed in as <span style={{ color:"#b5ae9d" }}>{email}</span> —{" "}
@@ -420,8 +443,10 @@ function mergeCustomTracker(local, cloud) {
 }
 
 // Pull cloud progress, merge with local, write back to BOTH sides.
-// Runs once per login, before the app renders.
+// Runs once per login. Returns true when the pull CHANGED something locally,
+// so the caller can remount components that read localStorage at mount.
 async function syncPullAndMerge(userId) {
+  let changedLocal = false;
   try {
     const { data: rows, error } = await supabaseAuth
       .from("progress").select("key, data");
@@ -440,6 +465,7 @@ async function syncPullAndMerge(userId) {
         : (key === BUILD_UNLOCK_KEY || key === CELEBRATED_KEY) ? mergeUnlock(local, remote)
         : mergeList(local, remote);
       if (merged == null) continue;
+      if (JSON.stringify(merged) !== JSON.stringify(local)) changedLocal = true;
       try { localStorage.setItem(key, JSON.stringify(merged)); } catch (_) {}
       if (JSON.stringify(merged) !== JSON.stringify(remote)) {
         toPush.push({ user_id: userId, key, data: merged, updated_at: new Date().toISOString() });
@@ -451,6 +477,7 @@ async function syncPullAndMerge(userId) {
   } catch (e) {
     console.log("progress sync (pull) skipped:", e && e.message ? e.message : e);
   }
+  return changedLocal;
 }
 
 // Watch localStorage for changes and push them up, debounced. Uses snapshot
@@ -501,69 +528,220 @@ function startSyncWatcher(userId) {
   return () => { clearInterval(interval); clearTimeout(pushTimer); };
 }
 
-// AccessGate — decides what renders:
-//   • Public package link (?pkg= on the allowlist)  → app, no login
-//   • Not signed in                                  → login screen
-//   • Signed in, premium                             → app
-//   • Signed in, not premium                         → the wall
-function AccessGate({ children }) {
-  const [phase, setPhase] = useState("checking"); // checking | login | syncing | wall | open
-  const [userEmail, setUserEmail] = useState("");
-  const watcherRef = useRef(null);
-  const openedForRef = useRef(null); // user id the gate has already evaluated
+// ─── AUTH PROVIDER + FEATURE GATE ────────────────────────────────────────────
+// The app is open to everyone. AuthProvider (mounted around <App/>) quietly
+// tracks the Supabase session, resolves the member's tier, and runs the
+// progress-sync engine for signed-in premium members — but it never blocks
+// rendering. Gating happens per-feature: Build modes, the Song tab and the
+// Tracker call useFeatureGate(), and GateOverlayHost fades the login / upgrade
+// wall in OVER the feature (visible but interaction-proof underneath).
 
-  // Stop the sync watcher if the gate ever unmounts.
+// Declarative gate hook. While `needed` is true and the visitor isn't
+// authorized, the gate overlay engages; it releases automatically when the
+// member becomes premium (post sign-in) or when `needed` flips false.
+// `onCancel` runs when the visitor backs out of the overlay — return them to
+// the previous, non-gated view.
+function useFeatureGate(needed, onCancel) {
+  const auth = useContext(AuthCtx);
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
+  const engaged = auth.enabled && needed && !auth.authorized;
+  useEffect(() => {
+    if (!engaged) return;
+    return auth.engageGate({ onCancel: () => { if (cancelRef.current) cancelRef.current(); } });
+  }, [engaged, auth.engageGate]); // engageGate is stable (useCallback)
+  return engaged;
+}
+
+// The overlay itself. Two layers, portaled to <body>:
+//   1. A transparent full-viewport blocker, up from the INSTANT a gate request
+//      exists — the visitor can see the feature during the brief peek but can
+//      never tap, scroll or trigger anything in it.
+//   2. The dimmed panel (login / wall / progress states), fading in after a
+//      short peek delay and fading out on success.
+const GATE_PEEK_MS = 700;   // how long the feature shows before the panel fades in
+const GATE_FADE_MS = 400;   // panel opacity transition
+
+function GateOverlayHost({ request, status, userEmail, onSignOut, onCancel }) {
+  const [shown, setShown] = useState(null);     // the request currently rendered (kept during fade-out)
+  const [visible, setVisible] = useState(false); // panel opacity state
+
+  // Track the live request; keep the old one around briefly for the fade-out.
+  useEffect(() => {
+    if (request) {
+      setShown(request);
+      setVisible(false);
+      const t = setTimeout(() => setVisible(true), GATE_PEEK_MS);
+      return () => clearTimeout(t);
+    }
+    // Request cleared (success or cancel): fade the panel out, then unmount.
+    setVisible(false);
+    if (shown) {
+      const t = setTimeout(() => setShown(null), GATE_FADE_MS + 50);
+      return () => clearTimeout(t);
+    }
+  }, [request]); // eslint-disable-line
+
+  // Freeze page scroll while the gate is engaged. overflow:hidden alone does
+  // NOT stop touch scrolling on iOS Safari (where most members are), so the
+  // body is pinned with position:fixed at its current scroll offset — the
+  // peek stays exactly where they were, and the offset is restored on release.
+  useEffect(() => {
+    if (!request) return;
+    const body = document.body;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const prev = {
+      position: body.style.position, top: body.style.top,
+      left: body.style.left, right: body.style.right,
+      width: body.style.width, overflow: body.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      try { window.scrollTo(0, scrollY); } catch (_) {}
+    };
+  }, [request]);
+
+  if (!shown) return null;
+  const live = Boolean(request); // false while fading out — everything click-through
+
+  let panel;
+  if (status === "anon") {
+    panel = <GateLogin overlay />;
+  } else if (status === "free") {
+    panel = <GateWall overlay email={userEmail} onSignOut={onSignOut} />;
+  } else if (status === "syncing") {
+    panel = (
+      <GateShell overlay>
+        <div style={{ fontSize:44, marginBottom:14 }}>🎸</div>
+        <div style={{ fontSize:16, color:"#8a8578" }}>Loading your progress…</div>
+      </GateShell>
+    );
+  } else {
+    // checking / evaluating (e.g. tapped a gated feature before the session
+    // finished resolving) — resolves to premium (auto-release), free or anon.
+    panel = (
+      <GateShell overlay>
+        <div style={{ fontSize:44, marginBottom:14 }}>🎸</div>
+        <div style={{ fontSize:16, color:"#8a8578" }}>One second…</div>
+      </GateShell>
+    );
+  }
+
+  return createPortal(
+    <>
+      {/* Layer 1 — interaction blocker, transparent, up immediately. */}
+      {live && (
+        <div
+          onClick={(e)=>{ e.stopPropagation(); }}
+          onContextMenu={(e)=>{ e.preventDefault(); }}
+          style={{ position:"fixed", inset:0, zIndex:99990,
+            background:"transparent", touchAction:"none" }} />
+      )}
+      {/* Layer 2 — the dimmed panel. Feature stays faintly visible behind it. */}
+      <div style={{ position:"fixed", inset:0, zIndex:99991,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        overflowY:"auto", padding:"24px 0", overscrollBehavior:"contain",
+        background:"rgba(10,10,10,0.88)",
+        backdropFilter:"blur(3px)", WebkitBackdropFilter:"blur(3px)",
+        opacity: (live && visible) ? 1 : 0,
+        transition:`opacity ${GATE_FADE_MS}ms ease`,
+        pointerEvents: (live && visible) ? "auto" : "none" }}>
+        {/* Back affordance — never trap the visitor. */}
+        <button onClick={onCancel}
+          style={{ position:"absolute", top:14, left:14, padding:"10px 16px",
+            borderRadius:12, border:"1px solid rgba(255,209,102,0.25)",
+            background:"rgba(255,209,102,0.05)", color:"#b5ae9d",
+            fontSize:15, fontWeight:700, cursor:"pointer",
+            fontFamily:"'Trebuchet MS', sans-serif" }}>
+          ← Back
+        </button>
+        {panel}
+      </div>
+    </>,
+    document.body
+  );
+}
+
+// AuthProvider — owns the session, the tier check and the sync engine.
+// Renders children UNCONDITIONALLY (the app is open); the gate overlay rides
+// on top only while a feature has requested it.
+//
+// Critical invariants carried over from the old AccessGate — do not remove:
+//   • openedForRef: token refreshes on tab focus re-fire onAuthStateChange for
+//     the SAME user — they must be no-ops. Re-evaluating caused remounts and,
+//     worse, session revocations via Supabase's refresh-token-reuse detection.
+//   • Never run Supabase queries synchronously inside the auth callback — it
+//     holds an internal lock and deadlocks the client. Defer with setTimeout.
+function AuthProvider({ children }) {
+  const [status, setStatus] = useState(AUTH_ENABLED ? "checking" : "anon");
+  const [userEmail, setUserEmail] = useState("");
+  const [syncEpoch, setSyncEpoch] = useState(0);
+  const [gateReq, setGateReq] = useState(null);
+  const watcherRef = useRef(null);
+  const openedForRef = useRef(null); // user id already evaluated
+  const reqSeq = useRef(0);
+
+  // Stop the sync watcher if the provider ever unmounts.
   useEffect(() => () => { if (watcherRef.current) watcherRef.current(); }, []);
 
-  // Public trial package bypasses everything.
-  const isPublicPkg = (() => {
-    try {
-      const pkg = new URLSearchParams(window.location.search).get("pkg");
-      return pkg != null && PUBLIC_PACKAGES.includes(pkg);
-    } catch (_) { return false; }
-  })();
-
   useEffect(() => {
-    if (isPublicPkg) { setPhase("open"); return; }
     let cancelled = false;
 
     const evaluate = async (session) => {
       if (cancelled) return;
-      if (!session) { openedForRef.current = null; setPhase("login"); return; }
+      if (!session) {
+        openedForRef.current = null;
+        if (watcherRef.current) { watcherRef.current(); watcherRef.current = null; }
+        setUserEmail("");
+        setStatus("anon");
+        return;
+      }
       // Same user, already evaluated (e.g. token refresh on tab focus):
-      // do nothing — never unmount the app underneath the member.
+      // do nothing — never re-run the pipeline underneath the member.
       if (openedForRef.current === session.user.id) return;
       openedForRef.current = session.user.id;
       const email = (session.user?.email || "").toLowerCase();
       setUserEmail(email);
+      setStatus("evaluating");
       try {
         const { data, error } = await supabaseAuth
           .from("members").select("tier").maybeSingle();
         if (error) throw error;
         if (cancelled) return;
         if (data && data.tier === "premium") {
-          // Pull cloud progress and merge BEFORE the app renders, so streaks
-          // and saved items are present on first paint on any device.
-          setPhase("syncing");
-          await Promise.race([
+          // Pull cloud progress and merge before opening the gated features,
+          // so streaks and saved items are present when the member lands in
+          // them. 6s race — sync can never block practice.
+          setStatus("syncing");
+          const changed = await Promise.race([
             syncPullAndMerge(session.user.id),
-            new Promise((res) => setTimeout(res, 6000)) // never block practice
+            new Promise((res) => setTimeout(() => res(false), 6000))
           ]);
           if (cancelled) return;
           if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
-          setPhase("open");
+          if (changed) setSyncEpoch((n) => n + 1); // remount localStorage readers
+          setStatus("premium");
         } else {
-          setPhase("wall");
+          setStatus("free");
         }
       } catch (_) {
-        // If the membership check itself fails (network blip), fail CLOSED to
-        // the wall rather than granting access — but never crash the app.
-        if (!cancelled) setPhase("wall");
+        // Membership check failed (network blip): fail CLOSED for the gated
+        // features — the rest of the app is open regardless.
+        if (!cancelled) setStatus("free");
       }
     };
 
-    // NOTE: never run Supabase queries synchronously inside the auth callback —
-    // it holds an internal lock and deadlocks the client. Defer with setTimeout.
     let running = false;
     const evaluateDeferred = (session) => {
       setTimeout(async () => {
@@ -575,28 +753,52 @@ function AccessGate({ children }) {
     supabaseAuth.auth.getSession().then(({ data }) => evaluateDeferred(data.session));
     const { data: sub } = supabaseAuth.auth.onAuthStateChange((_event, session) => evaluateDeferred(session));
     return () => { cancelled = true; sub?.subscription?.unsubscribe(); };
-  }, [isPublicPkg]);
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try { await supabaseAuth.auth.signOut(); } catch (_) {}
     openedForRef.current = null;
-    setPhase("login");
+    if (watcherRef.current) { watcherRef.current(); watcherRef.current = null; }
+    setUserEmail("");
+    setStatus("anon");
+  }, []);
+
+  // Register a gate request. Returns a release fn (idempotent — only clears
+  // its own request). One request at a time is enough: gated surfaces pass an
+  // `active`/tab condition so only the visible one engages.
+  const engageGate = useCallback((req) => {
+    const id = ++reqSeq.current;
+    setGateReq({ id, onCancel: req.onCancel });
+    return () => setGateReq((cur) => (cur && cur.id === id ? null : cur));
+  }, []);
+
+  // Back button on the overlay: run the requester's cancel (which navigates
+  // away from the gated feature — that tears the request down via the hook).
+  const cancelGate = useCallback(() => {
+    setGateReq((cur) => {
+      if (cur && cur.onCancel) { try { cur.onCancel(); } catch (_) {} }
+      return null;
+    });
+  }, []);
+
+  const ctx = {
+    enabled: AUTH_ENABLED,
+    status,
+    authorized: !AUTH_ENABLED || status === "premium",
+    userEmail,
+    syncEpoch,
+    engageGate,
+    signOut,
   };
 
-  if (phase === "open") return children;
-  if (phase === "login") return <GateLogin />;
-  if (phase === "wall") return <GateWall email={userEmail} onSignOut={signOut} />;
-  if (phase === "syncing") return (
-    <GateShell>
-      <div style={{ fontSize:44, marginBottom:14 }}>🎸</div>
-      <div style={{ fontSize:16, color:"#8a8578" }}>Loading your progress…</div>
-    </GateShell>
-  );
   return (
-    <GateShell>
-      <div style={{ fontSize:44, marginBottom:14 }}>🎸</div>
-      <div style={{ fontSize:16, color:"#8a8578" }}>Loading…</div>
-    </GateShell>
+    <AuthCtx.Provider value={ctx}>
+      {children}
+      {AUTH_ENABLED && (
+        <GateOverlayHost request={gateReq} status={status} userEmail={userEmail}
+          onSignOut={signOut} onCancel={cancelGate} />
+      )}
+    </AuthCtx.Provider>
   );
 }
 
@@ -956,17 +1158,12 @@ function App() {
   const audio = useAudio();
   const [chordVariants, setChordVariants] = useState({G:"G",C:"C",Em:"Em",D:"D",Am:"Am",A:"A",E:"E",Dm:"Dm",Bm:"Bm","Fmaj7":"Fmaj7"});
 
-  // Dev-tools access, resolved from the live Supabase session.
-  const [isDev, setIsDev] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    supabaseAuth.auth.getSession().then(({ data }) => {
-      if (cancelled) return;
-      const email = ((data && data.session && data.session.user && data.session.user.email) || "").toLowerCase();
-      setIsDev(DEV_EMAILS.includes(email));
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
+  // Live auth state (session, tier, sync epoch) from the provider.
+  const auth = useContext(AuthCtx);
+
+  // Dev-tools access — derived from the live session email, so signing in
+  // mid-session (via a feature gate) lights dev tools up without a reload.
+  const isDev = DEV_EMAILS.includes((auth.userEmail || "").toLowerCase());
   const updateVariant = (chord, variant) => setChordVariants(p=>({...p,[chord]:variant}));
 
   // Landing screen: shown on a clean load (no shared exercise URL). Shared links
@@ -1006,6 +1203,28 @@ function App() {
   const goHome = () => { setView("landing"); setDest(null); };
   const pickFromLanding = (id) => { setDest(id); setView("app"); };
 
+  // ── Feature gate: Song tab ──
+  // (The Tracker tab is FREE — the 30-Day Challenge is open to everyone; only
+  // the Build custom-tracker inside it is premium, gated within TrackerTab.)
+  // Navigation is never blocked — the feature renders (the peek) and the gate
+  // overlay engages on top. Backing out returns to the last non-gated view.
+  const anySharedUrl = hasSharedSong || hasSharedDrill || hasSharedStrum ||
+    hasSharedStrumProg || hasSharedPattern || hasSharedPackage;
+  const currentTab = dest || "strum";
+  const gatedTabOpen = !anySharedUrl && view === "app" && dest !== "devtools" &&
+    currentTab === "song";
+  const lastSafeRef = useRef({ view: "landing", dest: null });
+  useEffect(() => {
+    if (anySharedUrl) return;
+    if (view === "landing" || (dest !== "song" && dest !== "devtools")) {
+      lastSafeRef.current = { view, dest };
+    }
+  }, [view, dest, anySharedUrl]);
+  useFeatureGate(gatedTabOpen, () => {
+    const prev = lastSafeRef.current || { view: "landing", dest: null };
+    setView(prev.view); setDest(prev.dest);
+  });
+
   // Fade the tab content in when entering the app and on each tab switch.
   // Declared up here (before any early return) so hook order stays stable.
   // Uses a keyframe animation re-triggered via forced reflow so it always runs
@@ -1041,7 +1260,7 @@ function App() {
   // A package link (?pkg=) renders the combined multi-exercise share view. It
   // owns its full-page layout (pinned streak strip + bottom nav), so render it
   // bare, before the other shared returns.
-  if(hasSharedPackage) return <PackageShareView audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />;
+  if(hasSharedPackage) return <PackageShareView key={"sync"+auth.syncEpoch} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />;
 
   // SongBuilder controls its OWN full-page layout (sticky header, fixed bottom bar).
   // Render it bare so we don't constrain it inside a maxWidth wrapper.
@@ -1142,7 +1361,7 @@ function App() {
                 whiteSpace:"nowrap", fontFamily:"inherit",
                 boxShadow: on ? "0 0 22px rgba(255,160,20,0.18), inset 0 1px 0 rgba(255,255,255,0.04)" : "none",
                 transition:"all 0.22s ease",
-              }}>{t.label}</button>
+              }}>{t.label}{t.id==="song" && auth.enabled && !auth.authorized && <GateLockBadge />}</button>
             );
           })}
         </div>
@@ -1153,17 +1372,25 @@ function App() {
       <style>{`@keyframes ntcFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }`}</style>
       <div ref={fadeRef} style={{ animation:"ntcFadeIn 0.4s ease both" }}>
         <div style={{ display: activeTab==="strum" ? "block" : "none" }}>
-          <StrummingTab audio={audio} />
+          <StrummingTab audio={audio} active={activeTab==="strum"} />
         </div>
         <div style={{ display: activeTab==="chords" ? "block" : "none" }}>
-          <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} />
+          <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} active={activeTab==="chords"} />
         </div>
-        <div style={{ display: activeTab==="song" ? "block" : "none" }}>
+        {/* key={syncEpoch}: after a cloud progress pull that CHANGED localStorage
+            (at most once per sign-in), remount the Song tab so merged saved
+            songs are on screen. Navigation lives in App state (dest), so a
+            member who just signed in through the gate stays standing in the
+            tab they opened. Strumming/Chords are deliberately NOT keyed —
+            remounting them would reset an in-progress Build mode — and the
+            Tracker refreshes itself in place (see TrackerTab) so a member who
+            signed in from the Build tracker stays standing in Build. */}
+        <div key={"sync-song"+auth.syncEpoch} style={{ display: activeTab==="song" ? "block" : "none" }}>
           <SongBuilderTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant}
             isDev={isDev} onOpenDev={() => setDest("devtools")} />
         </div>
         <div style={{ display: activeTab==="tracker" ? "block" : "none" }}>
-          <TrackerTab />
+          <TrackerTab active={activeTab==="tracker"} />
         </div>
       </div>
 
@@ -1355,6 +1582,14 @@ function ChordCarousel({ chords, value, onChange }) {
 function StrummingTab({ audio, sharedView=false, active=true, initialParam=null, onExport=null, hideTitle=false, anchored=false }) {
   const { init, playClick, playStrum, playChordStrum } = audio;
   const [mode, setMode] = useState(onExport ? "build" : "practice");
+
+  // Premium gate on Build mode — main-app context only (share views and the
+  // dev package builder pass sharedView/onExport and are exempt). Entering
+  // Build isn't blocked: it renders as the peek and the gate overlay engages
+  // on top. Backing out returns to Practice.
+  const auth = useContext(AuthCtx);
+  useFeatureGate(active && !sharedView && !onExport && mode === "build",
+    () => setMode("practice"));
   const [pattern, setPattern] = useState(null);
   const [activeBtn, setActiveBtn] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1555,6 +1790,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
             sub="Every pattern uses the same motion — ghost strokes keep the rhythm, they just miss the strings." />
 
           <ModeTabs options={[["practice","🎸 Practice"],["build","🛠 Build"]]}
+            locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
             value={mode} onChange={m=>{ setMode(m); stopMetronome(); setIsPlaying(false); }} />
         </>
       )}
@@ -1632,6 +1868,13 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
 function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, active=true, initialParam=null, onExport=null, anchored=false }) {
   const { init, playChordClick, playChordStrum } = audio;
   const [viewMode, setViewMode] = useState(onExport ? "build" : "presets");
+
+  // Premium gate on Build Your Own — main-app context only (share views and
+  // the dev package builder pass sharedView/onExport and are exempt). Build
+  // renders as the peek; the gate overlay engages on top. Back → Presets.
+  const auth = useContext(AuthCtx);
+  useFeatureGate(active && !sharedView && !onExport && viewMode === "build",
+    () => setViewMode("presets"));
   const [selectedPack, setSelectedPack] = useState(null);
   const [customChords, setCustomChords] = useState([]);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1938,6 +2181,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
             sub={<>The goal is a clean chord <em style={{color:"#666"}}>before</em> the beat hits.</>} />
 
           <ModeTabs options={[["presets","🎵 Presets"],["build","🛠 Build Your Own"]]}
+            locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
             value={viewMode} onChange={m=>{ setViewMode(m); stopMetronome(); setIsPlaying(false);
               setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }} />
         </>
@@ -5287,14 +5531,14 @@ const MODE_GRADIENTS = [
   "linear-gradient(135deg, #D4720A, #9A3E00)",
 ];
 
-function ModeTabs({ options, value, onChange }) {
+function ModeTabs({ options, value, onChange, locked = [] }) {
   return (
     <div style={{ display:"flex", gap:8, marginBottom:18, width:"100%" }}>
       {options.map(([m,label])=>{
         const on = value===m;
         return (
           <button key={m} onClick={()=>onChange(m)} style={{
-            flex:1, padding:"13px 12px", borderRadius:14,
+            flex:1, position:"relative", padding:"13px 12px", borderRadius:14,
             border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
             background: on
               ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
@@ -5303,7 +5547,7 @@ function ModeTabs({ options, value, onChange }) {
             fontSize:14, fontWeight:900, letterSpacing:0.3,
             boxShadow: on ? "0 0 22px rgba(255,160,20,0.18)" : "none",
             cursor:"pointer", transition:"all 0.22s ease", fontFamily:"inherit",
-          }}>{label}</button>
+          }}>{label}{locked.includes(m) && <GateLockBadge />}</button>
         );
       })}
     </div>
@@ -6442,7 +6686,7 @@ function useTrackerConfetti() {
   return { canvasRef, launch };
 }
 
-function TrackerTab({ context = "app", hideGenerate = false }) {
+function TrackerTab({ context = "app", hideGenerate = false, active = true }) {
   const [data, setData] = useState(trackerInit);
   const [loaded, setLoaded] = useState(false);
   const [celebrating, setCelebrating] = useState(null);
@@ -6459,6 +6703,31 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
   const [justUnlocked, setJustUnlocked] = useState(false);   // drives the unlock animation
   const [showLockedInfo, setShowLockedInfo] = useState(false);  // low-opacity teaser bubble
   const [showOpenAppInfo, setShowOpenAppInfo] = useState(false); // package view → full app
+
+  // Premium gate on the BUILD tracker only — the 30-Day Challenge itself is
+  // free for everyone. Build renders as the peek; the overlay engages on top.
+  // Back → the challenge. (The earned day-30 unlock still applies underneath.)
+  const auth = useContext(AuthCtx);
+  useFeatureGate(active && context === "app" && mode === "build",
+    () => setMode("challenge"));
+
+  // After a cloud progress pull that changed localStorage (once per sign-in),
+  // refresh in place instead of remounting — a member who just signed in from
+  // the Build gate stays standing in Build with merged data on screen.
+  const syncEpochRef = useRef(auth.syncEpoch);
+  useEffect(() => {
+    if (auth.syncEpoch === syncEpochRef.current) return;
+    syncEpochRef.current = auth.syncEpoch;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("d")) return; // viewing a shared tracker — leave it alone
+      const saved = localStorage.getItem(TRACKER_STORAGE_KEY);
+      if (saved) setData(JSON.parse(saved));
+    } catch (_) {}
+    setBuildUnlocked(readBuildUnlocked());
+    setCustomName(readCustomTrackerName());
+    setCustomThemeKey(readCustomTrackerTheme());
+  }, [auth.syncEpoch]); // eslint-disable-line
 
   // Build pill label follows the custom tracker's name once one exists;
   // falls back to "My Tracker" when the name won't fit the bubble.
@@ -6588,13 +6857,18 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
         {[
           { id:"challenge", label:<>🔥 30-Day Challenge</>, onClick:()=>setMode("challenge"), on: mode==="challenge" },
           { id:"build",
-            label: buildUnlocked ? <>🛠️ {buildPillText}</> : (
+            label: (
               <>
-                <span style={{ opacity:0.4, marginRight:6 }}>🛠️</span>
-                <span style={{ opacity:0.75 }}>Build</span>
-                {/* Lock badge pinned to the pill's top-right corner */}
-                <span style={{ position:"absolute", top:3, right:7, fontSize:13,
-                  filter:"drop-shadow(0 1px 3px rgba(0,0,0,0.9))" }}>🔒</span>
+                {buildUnlocked ? <>🛠️ {buildPillText}</> : (
+                  <>
+                    <span style={{ opacity:0.4, marginRight:6 }}>🛠️</span>
+                    <span style={{ opacity:0.75 }}>Build</span>
+                  </>
+                )}
+                {/* Premium lock — standardized corner badge, non-premium only.
+                    (Members see no lock; the earned day-30 state still shows
+                    the greyed preview inside.) */}
+                {auth.enabled && !auth.authorized && <GateLockBadge />}
               </>
             ),
             onClick: handleBuildClick, on: mode==="build" },
@@ -6898,8 +7172,8 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
           the Exercise Generator button waiting for them. ── */}
       {mode === "build" && context === "app" && (
         buildUnlocked
-          ? <CustomTrackerSection hideGenerate={hideGenerate} />
-          : <LockedBuildPreview totalDaysActive={totalDaysActive} />
+          ? <CustomTrackerSection key={"sync"+auth.syncEpoch} hideGenerate={hideGenerate} />
+          : <LockedBuildPreview key={"sync"+auth.syncEpoch} totalDaysActive={totalDaysActive} />
       )}
 
       <div style={{ textAlign:"center", paddingTop:28, color:"#332e22", fontSize:11 }}>
@@ -9449,13 +9723,15 @@ function LandingScreen({ onPick, streak, isDev = false, onDev = null }) {
   );
 }
 
-// ─── DEFAULT EXPORT — App wrapped in access gate + error boundary ─────────────
+// ─── DEFAULT EXPORT — App wrapped in auth provider + error boundary ──────────
+// The app renders for everyone immediately; AuthProvider tracks the session
+// and serves the feature-level gate overlay (Build modes / Song tab / Tracker).
 export default function AppWithBoundary() {
   return (
     <ErrorBoundary>
-      <AccessGate>
+      <AuthProvider>
         <App />
-      </AccessGate>
+      </AuthProvider>
     </ErrorBoundary>
   );
 }
