@@ -169,6 +169,18 @@ function GateShell({ children, overlay = false }) {
   );
 }
 
+// Standard corner lock for premium-gated controls (Build pills, Song tab,
+// Build tracker). Shown ONLY to non-premium viewers — once a member upgrades,
+// every lock disappears. Sits half on / half off the pill's top-right corner;
+// the parent must be position:relative.
+function GateLockBadge() {
+  return (
+    <span aria-hidden="true" style={{ position:"absolute", top:0, right:0,
+      transform:"translate(45%, -45%)", fontSize:15, lineHeight:1, zIndex:2,
+      pointerEvents:"none", filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
+  );
+}
+
 function GateButton({ onClick, children, disabled }) {
   return (
     <button onClick={onClick} disabled={disabled}
@@ -253,8 +265,8 @@ function GateLogin({ overlay = false }) {
       <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
       <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>This feature is for Premium members</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
-        Build your own drills, the Song Builder, and the 30 Day Tracker with
-        progress that follows you across devices — it all comes with
+        Build your own drills, the Song Builder, and custom practice trackers
+        with progress that follows you across devices — it all comes with
         No Theory Club Premium.
       </div>
       <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
@@ -299,7 +311,7 @@ function GateLogin({ overlay = false }) {
   return (
     <GateShell overlay={overlay}>
       <div style={{ fontSize:52, marginBottom:16 }}>🎸</div>
-      <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>Members sign in here</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>Sign in for Premium Features</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:26 }}>
         Enter the email you use for your <b style={{color:"#e8e2d2"}}>Skool account</b> and
         we'll email you a sign-in code. No password needed.
@@ -327,8 +339,8 @@ function GateWall({ email, onSignOut, overlay = false }) {
       <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
       <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>This feature is for Premium members</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
-        Build your own drills, the Song Builder, and the 30 Day Tracker with
-        progress that follows you across devices — it all comes with
+        Build your own drills, the Song Builder, and custom practice trackers
+        with progress that follows you across devices — it all comes with
         No Theory Club Premium.
       </div>
       <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
@@ -569,13 +581,34 @@ function GateOverlayHost({ request, status, userEmail, onSignOut, onCancel }) {
     }
   }, [request]); // eslint-disable-line
 
-  // Freeze page scroll while the gate is engaged (the blocker eats touch
-  // scrolling; this handles mouse wheels and keyboard scrolling too).
+  // Freeze page scroll while the gate is engaged. overflow:hidden alone does
+  // NOT stop touch scrolling on iOS Safari (where most members are), so the
+  // body is pinned with position:fixed at its current scroll offset — the
+  // peek stays exactly where they were, and the offset is restored on release.
   useEffect(() => {
     if (!request) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    const body = document.body;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const prev = {
+      position: body.style.position, top: body.style.top,
+      left: body.style.left, right: body.style.right,
+      width: body.style.width, overflow: body.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      try { window.scrollTo(0, scrollY); } catch (_) {}
+    };
   }, [request]);
 
   if (!shown) return null;
@@ -617,7 +650,7 @@ function GateOverlayHost({ request, status, userEmail, onSignOut, onCancel }) {
       {/* Layer 2 — the dimmed panel. Feature stays faintly visible behind it. */}
       <div style={{ position:"fixed", inset:0, zIndex:99991,
         display:"flex", alignItems:"center", justifyContent:"center",
-        overflowY:"auto", padding:"24px 0",
+        overflowY:"auto", padding:"24px 0", overscrollBehavior:"contain",
         background:"rgba(10,10,10,0.88)",
         backdropFilter:"blur(3px)", WebkitBackdropFilter:"blur(3px)",
         opacity: (live && visible) ? 1 : 0,
@@ -1169,18 +1202,20 @@ function App() {
   const goHome = () => { setView("landing"); setDest(null); };
   const pickFromLanding = (id) => { setDest(id); setView("app"); };
 
-  // ── Feature gate: Song tab + Tracker tab ──
+  // ── Feature gate: Song tab ──
+  // (The Tracker tab is FREE — the 30-Day Challenge is open to everyone; only
+  // the Build custom-tracker inside it is premium, gated within TrackerTab.)
   // Navigation is never blocked — the feature renders (the peek) and the gate
   // overlay engages on top. Backing out returns to the last non-gated view.
   const anySharedUrl = hasSharedSong || hasSharedDrill || hasSharedStrum ||
     hasSharedStrumProg || hasSharedPattern || hasSharedPackage;
   const currentTab = dest || "strum";
   const gatedTabOpen = !anySharedUrl && view === "app" && dest !== "devtools" &&
-    (currentTab === "song" || currentTab === "tracker");
+    currentTab === "song";
   const lastSafeRef = useRef({ view: "landing", dest: null });
   useEffect(() => {
     if (anySharedUrl) return;
-    if (view === "landing" || (dest !== "song" && dest !== "tracker" && dest !== "devtools")) {
+    if (view === "landing" || (dest !== "song" && dest !== "devtools")) {
       lastSafeRef.current = { view, dest };
     }
   }, [view, dest, anySharedUrl]);
@@ -1325,7 +1360,7 @@ function App() {
                 whiteSpace:"nowrap", fontFamily:"inherit",
                 boxShadow: on ? "0 0 22px rgba(255,160,20,0.18), inset 0 1px 0 rgba(255,255,255,0.04)" : "none",
                 transition:"all 0.22s ease",
-              }}>{t.label}</button>
+              }}>{t.label}{t.id==="song" && auth.enabled && !auth.authorized && <GateLockBadge />}</button>
             );
           })}
         </div>
@@ -1342,17 +1377,19 @@ function App() {
           <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} active={activeTab==="chords"} />
         </div>
         {/* key={syncEpoch}: after a cloud progress pull that CHANGED localStorage
-            (at most once per sign-in), remount the two progress-holding tabs so
-            merged streaks/saved songs are on screen. Navigation lives in App
-            state (dest), so a member who just signed in through the gate stays
-            standing in the tab they opened. Strumming/Chords are deliberately
-            NOT keyed — remounting them would reset an in-progress Build mode. */}
+            (at most once per sign-in), remount the Song tab so merged saved
+            songs are on screen. Navigation lives in App state (dest), so a
+            member who just signed in through the gate stays standing in the
+            tab they opened. Strumming/Chords are deliberately NOT keyed —
+            remounting them would reset an in-progress Build mode — and the
+            Tracker refreshes itself in place (see TrackerTab) so a member who
+            signed in from the Build tracker stays standing in Build. */}
         <div key={"sync-song"+auth.syncEpoch} style={{ display: activeTab==="song" ? "block" : "none" }}>
           <SongBuilderTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant}
             isDev={isDev} onOpenDev={() => setDest("devtools")} />
         </div>
-        <div key={"sync-tracker"+auth.syncEpoch} style={{ display: activeTab==="tracker" ? "block" : "none" }}>
-          <TrackerTab />
+        <div style={{ display: activeTab==="tracker" ? "block" : "none" }}>
+          <TrackerTab active={activeTab==="tracker"} />
         </div>
       </div>
 
@@ -1549,6 +1586,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
   // dev package builder pass sharedView/onExport and are exempt). Entering
   // Build isn't blocked: it renders as the peek and the gate overlay engages
   // on top. Backing out returns to Practice.
+  const auth = useContext(AuthCtx);
   useFeatureGate(active && !sharedView && !onExport && mode === "build",
     () => setMode("practice"));
   const [pattern, setPattern] = useState(null);
@@ -1751,6 +1789,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
             sub="Every pattern uses the same motion — ghost strokes keep the rhythm, they just miss the strings." />
 
           <ModeTabs options={[["practice","🎸 Practice"],["build","🛠 Build"]]}
+            locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
             value={mode} onChange={m=>{ setMode(m); stopMetronome(); setIsPlaying(false); }} />
         </>
       )}
@@ -1832,6 +1871,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
   // Premium gate on Build Your Own — main-app context only (share views and
   // the dev package builder pass sharedView/onExport and are exempt). Build
   // renders as the peek; the gate overlay engages on top. Back → Presets.
+  const auth = useContext(AuthCtx);
   useFeatureGate(active && !sharedView && !onExport && viewMode === "build",
     () => setViewMode("presets"));
   const [selectedPack, setSelectedPack] = useState(null);
@@ -2140,6 +2180,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
             sub={<>The goal is a clean chord <em style={{color:"#666"}}>before</em> the beat hits.</>} />
 
           <ModeTabs options={[["presets","🎵 Presets"],["build","🛠 Build Your Own"]]}
+            locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
             value={viewMode} onChange={m=>{ setViewMode(m); stopMetronome(); setIsPlaying(false);
               setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }} />
         </>
@@ -5489,14 +5530,14 @@ const MODE_GRADIENTS = [
   "linear-gradient(135deg, #D4720A, #9A3E00)",
 ];
 
-function ModeTabs({ options, value, onChange }) {
+function ModeTabs({ options, value, onChange, locked = [] }) {
   return (
     <div style={{ display:"flex", gap:8, marginBottom:18, width:"100%" }}>
       {options.map(([m,label])=>{
         const on = value===m;
         return (
           <button key={m} onClick={()=>onChange(m)} style={{
-            flex:1, padding:"13px 12px", borderRadius:14,
+            flex:1, position:"relative", padding:"13px 12px", borderRadius:14,
             border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
             background: on
               ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
@@ -5505,7 +5546,7 @@ function ModeTabs({ options, value, onChange }) {
             fontSize:14, fontWeight:900, letterSpacing:0.3,
             boxShadow: on ? "0 0 22px rgba(255,160,20,0.18)" : "none",
             cursor:"pointer", transition:"all 0.22s ease", fontFamily:"inherit",
-          }}>{label}</button>
+          }}>{label}{locked.includes(m) && <GateLockBadge />}</button>
         );
       })}
     </div>
@@ -6644,7 +6685,7 @@ function useTrackerConfetti() {
   return { canvasRef, launch };
 }
 
-function TrackerTab({ context = "app", hideGenerate = false }) {
+function TrackerTab({ context = "app", hideGenerate = false, active = true }) {
   const [data, setData] = useState(trackerInit);
   const [loaded, setLoaded] = useState(false);
   const [celebrating, setCelebrating] = useState(null);
@@ -6661,6 +6702,31 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
   const [justUnlocked, setJustUnlocked] = useState(false);   // drives the unlock animation
   const [showLockedInfo, setShowLockedInfo] = useState(false);  // low-opacity teaser bubble
   const [showOpenAppInfo, setShowOpenAppInfo] = useState(false); // package view → full app
+
+  // Premium gate on the BUILD tracker only — the 30-Day Challenge itself is
+  // free for everyone. Build renders as the peek; the overlay engages on top.
+  // Back → the challenge. (The earned day-30 unlock still applies underneath.)
+  const auth = useContext(AuthCtx);
+  useFeatureGate(active && context === "app" && mode === "build",
+    () => setMode("challenge"));
+
+  // After a cloud progress pull that changed localStorage (once per sign-in),
+  // refresh in place instead of remounting — a member who just signed in from
+  // the Build gate stays standing in Build with merged data on screen.
+  const syncEpochRef = useRef(auth.syncEpoch);
+  useEffect(() => {
+    if (auth.syncEpoch === syncEpochRef.current) return;
+    syncEpochRef.current = auth.syncEpoch;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("d")) return; // viewing a shared tracker — leave it alone
+      const saved = localStorage.getItem(TRACKER_STORAGE_KEY);
+      if (saved) setData(JSON.parse(saved));
+    } catch (_) {}
+    setBuildUnlocked(readBuildUnlocked());
+    setCustomName(readCustomTrackerName());
+    setCustomThemeKey(readCustomTrackerTheme());
+  }, [auth.syncEpoch]); // eslint-disable-line
 
   // Build pill label follows the custom tracker's name once one exists;
   // falls back to "My Tracker" when the name won't fit the bubble.
@@ -6790,13 +6856,18 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
         {[
           { id:"challenge", label:<>🔥 30-Day Challenge</>, onClick:()=>setMode("challenge"), on: mode==="challenge" },
           { id:"build",
-            label: buildUnlocked ? <>🛠️ {buildPillText}</> : (
+            label: (
               <>
-                <span style={{ opacity:0.4, marginRight:6 }}>🛠️</span>
-                <span style={{ opacity:0.75 }}>Build</span>
-                {/* Lock badge pinned to the pill's top-right corner */}
-                <span style={{ position:"absolute", top:3, right:7, fontSize:13,
-                  filter:"drop-shadow(0 1px 3px rgba(0,0,0,0.9))" }}>🔒</span>
+                {buildUnlocked ? <>🛠️ {buildPillText}</> : (
+                  <>
+                    <span style={{ opacity:0.4, marginRight:6 }}>🛠️</span>
+                    <span style={{ opacity:0.75 }}>Build</span>
+                  </>
+                )}
+                {/* Premium lock — standardized corner badge, non-premium only.
+                    (Members see no lock; the earned day-30 state still shows
+                    the greyed preview inside.) */}
+                {auth.enabled && !auth.authorized && <GateLockBadge />}
               </>
             ),
             onClick: handleBuildClick, on: mode==="build" },
@@ -7100,8 +7171,8 @@ function TrackerTab({ context = "app", hideGenerate = false }) {
           the Exercise Generator button waiting for them. ── */}
       {mode === "build" && context === "app" && (
         buildUnlocked
-          ? <CustomTrackerSection hideGenerate={hideGenerate} />
-          : <LockedBuildPreview totalDaysActive={totalDaysActive} />
+          ? <CustomTrackerSection key={"sync"+auth.syncEpoch} hideGenerate={hideGenerate} />
+          : <LockedBuildPreview key={"sync"+auth.syncEpoch} totalDaysActive={totalDaysActive} />
       )}
 
       <div style={{ textAlign:"center", paddingTop:28, color:"#332e22", fontSize:11 }}>
