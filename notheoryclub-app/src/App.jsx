@@ -567,7 +567,7 @@ function GateOverlayHost({ request, status, userEmail, onSignOut, onCancel }) {
       const t = setTimeout(() => setShown(null), GATE_FADE_MS + 50);
       return () => clearTimeout(t);
     }
-  }, [request]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [request]); // eslint-disable-line
 
   // Freeze page scroll while the gate is engaged (the blocker eats touch
   // scrolling; this handles mouse wheels and keyboard scrolling too).
