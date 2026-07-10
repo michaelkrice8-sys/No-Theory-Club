@@ -176,7 +176,8 @@ function GateShell({ children, overlay = false }) {
 function GateLockBadge() {
   return (
     <span aria-hidden="true" style={{ position:"absolute", top:0, right:0,
-      transform:"translate(45%, -45%)", fontSize:15, lineHeight:1, zIndex:2,
+      transform:"translate(calc(45% - 5px), calc(-45% + 5px))",
+      opacity:0.82, fontSize:15, lineHeight:1, zIndex:2,
       pointerEvents:"none", filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
   );
 }
