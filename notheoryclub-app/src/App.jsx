@@ -156,6 +156,24 @@ function GateButton({ onClick, children, disabled }) {
   );
 }
 
+// Shown on both wall screens. Skoot's tier sync runs on a delay, so a member
+// who upgrades and opens the app right away will briefly still read as free.
+// This note turns that moment from "it's broken" into "it's on its way".
+function JustUpgradedNote() {
+  return (
+    <div style={{ fontSize:15.5, color:"#b5ae9d", lineHeight:1.8, marginTop:22,
+      maxWidth:430, padding:"16px 20px", borderRadius:14,
+      border:"1px solid rgba(255,209,102,0.25)", background:"rgba(255,209,102,0.05)" }}>
+      <b style={{ color:"#FFD166" }}>Just upgraded?</b> You're in — your access
+      switches on automatically within 2–4 hours.<br/>
+      Can't wait? DM me on Skool or email{" "}
+      <a href="mailto:michael@notheoryclub.com"
+        style={{ color:"#FFD166", textDecoration:"underline" }}>michael@notheoryclub.com</a>{" "}
+      and I'll flip it on right away.
+    </div>
+  );
+}
+
 // Login screen — email in, magic link out. No passwords.
 // Pre-checks membership so free members see the upgrade screen
 // immediately instead of receiving a pointless email.
@@ -229,6 +247,7 @@ function GateLogin() {
         everything else — it all comes with No Theory Club Premium.
       </div>
       <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
+      <JustUpgradedNote />
       <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
         Already Premium? Make sure you use your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
         <span onClick={()=>{ setNotPremium(false); setEmail(""); }}
@@ -302,6 +321,7 @@ function GateWall({ email, onSignOut }) {
         everything else — it all comes with No Theory Club Premium.
       </div>
       <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
+      <JustUpgradedNote />
       <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
         Already Premium? Make sure you signed in with your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
         Signed in as <span style={{ color:"#b5ae9d" }}>{email}</span> —{" "}
