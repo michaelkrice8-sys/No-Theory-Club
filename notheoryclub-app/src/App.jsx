@@ -370,6 +370,22 @@ const SYNC_KEYS = [
   "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY,
   "ntc-generated-v1", "ntc-songbuilder-v1"
 ];
+
+// DATA-SAFETY GUARD. All merges here are unions — an "empty" value (all-false
+// tracker, empty list, un-unlocked flag) carries ZERO information and can only
+// do damage if pushed: a fresh browser writing its blank defaults over a
+// member's real cloud progress is how a 15-day streak dies. Never push these.
+// (The custom tracker is exempt: its {deleted:true} tombstone is meaningful.)
+function isMeaninglessProgress(key, data) {
+  if (data == null) return true;
+  if (key === TRACKER_KEY) {
+    return Array.isArray(data) &&
+      data.every(d => !d || Object.values(d).every(v => !v));
+  }
+  if (key === BUILD_UNLOCK_KEY || key === CELEBRATED_KEY) return !data.unlocked;
+  if (key === CUSTOM_TRACKER_KEY) return false;
+  return Array.isArray(data) && data.length === 0;
+}
 const TRACKER_KEY = "ntc-30day-tracker-v1";
 
 function syncReadLocal(key) {
@@ -443,8 +459,11 @@ function mergeCustomTracker(local, cloud) {
 }
 
 // Pull cloud progress, merge with local, write back to BOTH sides.
-// Runs once per login. Returns true when the pull CHANGED something locally,
-// so the caller can remount components that read localStorage at mount.
+// Runs once per login. Returns { ok, changed }:
+//   ok      — the cloud was actually read (a FAILED pull must never be treated
+//             as "cloud is empty"; the caller must not start pushing on it)
+//   changed — the pull changed something locally, so the caller can refresh
+//             components that read localStorage at mount.
 async function syncPullAndMerge(userId) {
   let changedLocal = false;
   try {
@@ -467,6 +486,7 @@ async function syncPullAndMerge(userId) {
       if (merged == null) continue;
       if (JSON.stringify(merged) !== JSON.stringify(local)) changedLocal = true;
       try { localStorage.setItem(key, JSON.stringify(merged)); } catch (_) {}
+      if (isMeaninglessProgress(key, merged)) continue; // never push blanks
       if (JSON.stringify(merged) !== JSON.stringify(remote)) {
         toPush.push({ user_id: userId, key, data: merged, updated_at: new Date().toISOString() });
       }
@@ -474,10 +494,22 @@ async function syncPullAndMerge(userId) {
     if (toPush.length) {
       await supabaseAuth.from("progress").upsert(toPush, { onConflict: "user_id,key" });
     }
+    return { ok: true, changed: changedLocal };
   } catch (e) {
-    console.log("progress sync (pull) skipped:", e && e.message ? e.message : e);
+    console.log("progress sync (pull) failed:", e && e.message ? e.message : e);
+    return { ok: false, changed: changedLocal };
   }
-  return changedLocal;
+}
+
+// Pull with retries (network blips on older members' connections are common).
+// Resolves { ok:false } only after every attempt fails.
+async function syncPullWithRetry(userId, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    const result = await syncPullAndMerge(userId);
+    if (result.ok) return result;
+    await new Promise((res) => setTimeout(res, 1500 * (i + 1)));
+  }
+  return { ok: false, changed: false };
 }
 
 // Watch localStorage for changes and push them up, debounced. Uses snapshot
@@ -496,7 +528,7 @@ function startSyncWatcher(userId) {
       user_id: userId, key,
       data: (() => { try { return JSON.parse(pending[key]); } catch (_) { return null; } })(),
       updated_at: new Date().toISOString()
-    })).filter(r => r.data != null);
+    })).filter(r => r.data != null && !isMeaninglessProgress(r.key, r.data));
     pending = {};
     if (!rows.length) return;
     try {
@@ -720,17 +752,31 @@ function AuthProvider({ children }) {
         if (error) throw error;
         if (cancelled) return;
         if (data && data.tier === "premium") {
-          // Pull cloud progress and merge before opening the gated features,
-          // so streaks and saved items are present when the member lands in
-          // them. 6s race — sync can never block practice.
+          // Pull cloud progress and merge before opening the gated features.
+          // 6s race so sync can never block practice — but the race ONLY
+          // affects when the UI opens. THE WATCHER NEVER STARTS UNTIL A PULL
+          // HAS SUCCEEDED: pushing local state without having read the cloud
+          // is how a fresh browser's blank defaults overwrite a member's real
+          // streak. On timeout the pull keeps going in the background and the
+          // watcher starts when it lands; if every retry fails, this session
+          // stays read-only (local practice still works, merges next login).
           setStatus("syncing");
-          const changed = await Promise.race([
-            syncPullAndMerge(session.user.id),
-            new Promise((res) => setTimeout(() => res(false), 6000))
+          const pullPromise = syncPullWithRetry(session.user.id);
+          const applyPull = (result) => {
+            if (cancelled || !result || result.ok !== true) return;
+            if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
+            if (result.changed) setSyncEpoch((n) => n + 1); // refresh localStorage readers
+          };
+          const raced = await Promise.race([
+            pullPromise,
+            new Promise((res) => setTimeout(() => res("timeout"), 6000))
           ]);
           if (cancelled) return;
-          if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
-          if (changed) setSyncEpoch((n) => n + 1); // remount localStorage readers
+          if (raced === "timeout") {
+            pullPromise.then(applyPull); // let it land in the background
+          } else {
+            applyPull(raced);
+          }
           setStatus("premium");
         } else {
           setStatus("free");
