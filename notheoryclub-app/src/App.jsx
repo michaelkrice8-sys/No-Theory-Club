@@ -370,6 +370,22 @@ const SYNC_KEYS = [
   "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY,
   "ntc-generated-v1", "ntc-songbuilder-v1"
 ];
+
+// DATA-SAFETY GUARD. All merges here are unions — an "empty" value (all-false
+// tracker, empty list, un-unlocked flag) carries ZERO information and can only
+// do damage if pushed: a fresh browser writing its blank defaults over a
+// member's real cloud progress is how a 15-day streak dies. Never push these.
+// (The custom tracker is exempt: its {deleted:true} tombstone is meaningful.)
+function isMeaninglessProgress(key, data) {
+  if (data == null) return true;
+  if (key === TRACKER_KEY) {
+    return Array.isArray(data) &&
+      data.every(d => !d || Object.values(d).every(v => !v));
+  }
+  if (key === BUILD_UNLOCK_KEY || key === CELEBRATED_KEY) return !data.unlocked;
+  if (key === CUSTOM_TRACKER_KEY) return false;
+  return Array.isArray(data) && data.length === 0;
+}
 const TRACKER_KEY = "ntc-30day-tracker-v1";
 
 function syncReadLocal(key) {
@@ -443,8 +459,11 @@ function mergeCustomTracker(local, cloud) {
 }
 
 // Pull cloud progress, merge with local, write back to BOTH sides.
-// Runs once per login. Returns true when the pull CHANGED something locally,
-// so the caller can remount components that read localStorage at mount.
+// Runs once per login. Returns { ok, changed }:
+//   ok      — the cloud was actually read (a FAILED pull must never be treated
+//             as "cloud is empty"; the caller must not start pushing on it)
+//   changed — the pull changed something locally, so the caller can refresh
+//             components that read localStorage at mount.
 async function syncPullAndMerge(userId) {
   let changedLocal = false;
   try {
@@ -467,6 +486,7 @@ async function syncPullAndMerge(userId) {
       if (merged == null) continue;
       if (JSON.stringify(merged) !== JSON.stringify(local)) changedLocal = true;
       try { localStorage.setItem(key, JSON.stringify(merged)); } catch (_) {}
+      if (isMeaninglessProgress(key, merged)) continue; // never push blanks
       if (JSON.stringify(merged) !== JSON.stringify(remote)) {
         toPush.push({ user_id: userId, key, data: merged, updated_at: new Date().toISOString() });
       }
@@ -474,10 +494,22 @@ async function syncPullAndMerge(userId) {
     if (toPush.length) {
       await supabaseAuth.from("progress").upsert(toPush, { onConflict: "user_id,key" });
     }
+    return { ok: true, changed: changedLocal };
   } catch (e) {
-    console.log("progress sync (pull) skipped:", e && e.message ? e.message : e);
+    console.log("progress sync (pull) failed:", e && e.message ? e.message : e);
+    return { ok: false, changed: changedLocal };
   }
-  return changedLocal;
+}
+
+// Pull with retries (network blips on older members' connections are common).
+// Resolves { ok:false } only after every attempt fails.
+async function syncPullWithRetry(userId, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    const result = await syncPullAndMerge(userId);
+    if (result.ok) return result;
+    await new Promise((res) => setTimeout(res, 1500 * (i + 1)));
+  }
+  return { ok: false, changed: false };
 }
 
 // Watch localStorage for changes and push them up, debounced. Uses snapshot
@@ -496,7 +528,7 @@ function startSyncWatcher(userId) {
       user_id: userId, key,
       data: (() => { try { return JSON.parse(pending[key]); } catch (_) { return null; } })(),
       updated_at: new Date().toISOString()
-    })).filter(r => r.data != null);
+    })).filter(r => r.data != null && !isMeaninglessProgress(r.key, r.data));
     pending = {};
     if (!rows.length) return;
     try {
@@ -720,17 +752,31 @@ function AuthProvider({ children }) {
         if (error) throw error;
         if (cancelled) return;
         if (data && data.tier === "premium") {
-          // Pull cloud progress and merge before opening the gated features,
-          // so streaks and saved items are present when the member lands in
-          // them. 6s race — sync can never block practice.
+          // Pull cloud progress and merge before opening the gated features.
+          // 6s race so sync can never block practice — but the race ONLY
+          // affects when the UI opens. THE WATCHER NEVER STARTS UNTIL A PULL
+          // HAS SUCCEEDED: pushing local state without having read the cloud
+          // is how a fresh browser's blank defaults overwrite a member's real
+          // streak. On timeout the pull keeps going in the background and the
+          // watcher starts when it lands; if every retry fails, this session
+          // stays read-only (local practice still works, merges next login).
           setStatus("syncing");
-          const changed = await Promise.race([
-            syncPullAndMerge(session.user.id),
-            new Promise((res) => setTimeout(() => res(false), 6000))
+          const pullPromise = syncPullWithRetry(session.user.id);
+          const applyPull = (result) => {
+            if (cancelled || !result || result.ok !== true) return;
+            if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
+            if (result.changed) setSyncEpoch((n) => n + 1); // refresh localStorage readers
+          };
+          const raced = await Promise.race([
+            pullPromise,
+            new Promise((res) => setTimeout(() => res("timeout"), 6000))
           ]);
           if (cancelled) return;
-          if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
-          if (changed) setSyncEpoch((n) => n + 1); // remount localStorage readers
+          if (raced === "timeout") {
+            pullPromise.then(applyPull); // let it land in the background
+          } else {
+            applyPull(raced);
+          }
           setStatus("premium");
         } else {
           setStatus("free");
@@ -1166,12 +1212,45 @@ function App() {
   const isDev = DEV_EMAILS.includes((auth.userEmail || "").toLowerCase());
   const updateVariant = (chord, variant) => setChordVariants(p=>({...p,[chord]:variant}));
 
+  // Deep link straight into the Exercise Generator (?generate=1 or ?gen=1) —
+  // shareable from Skool posts / emails. Lands on the Tracker tab with the
+  // generator overlay opened on top; the param is stripped once consumed.
+  const [hasGenParam] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const p = new URLSearchParams(window.location.search);
+    return p.has("generate") || p.has("gen");
+  });
+
   // Landing screen: shown on a clean load (no shared exercise URL). Shared links
   // hit the early returns below and never reach this, so they skip the landing.
-  const [view, setView] = useState("landing"); // "landing" | "app"
+  const [view, setView] = useState(hasGenParam ? "app" : "landing"); // "landing" | "app"
   // Which destination the user picked from the landing. "song" routes to the
   // hidden Build-a-Song (beta) view; the others are the 3 main tabs.
-  const [dest, setDest] = useState(null); // "strum" | "chords" | "tracker" | "song"
+  const [dest, setDest] = useState(hasGenParam ? "tracker" : null); // "strum" | "chords" | "tracker" | "song"
+
+  // One-shot flag: open the generator overlay as soon as the app shell (and
+  // with it ExerciseGeneratorHost) is mounted. Set by the ?generate deep link
+  // and by the landing screen's Generate Exercise launcher.
+  const [pendingGenOpen, setPendingGenOpen] = useState(hasGenParam);
+  useEffect(() => {
+    if (!pendingGenOpen || view !== "app") return;
+    setPendingGenOpen(false);
+    // The host's listener attaches in its own effect (children run first on
+    // this same commit); the short delay is belt-and-braces for the
+    // landing → app transition.
+    setTimeout(() => {
+      try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {}
+    }, 60);
+    // Consume the deep-link param so a reload doesn't reopen the generator.
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("generate") || url.searchParams.has("gen")) {
+        url.searchParams.delete("generate");
+        url.searchParams.delete("gen");
+        window.history.replaceState({}, "", url.pathname + (url.search || "") + url.hash);
+      }
+    } catch (_) {}
+  }, [pendingGenOpen, view]);
 
   // Paint the page background (html/body) with the same warm radial glow as the
   // app, and tint the mobile browser chrome to match, so the top/bottom strips
@@ -1202,6 +1281,9 @@ function App() {
 
   const goHome = () => { setView("landing"); setDest(null); };
   const pickFromLanding = (id) => { setDest(id); setView("app"); };
+  // Landing's Generate Exercise launcher: enter the app on the Tracker tab and
+  // pop the generator overlay on top of it once the host is mounted.
+  const openGeneratorFromLanding = () => { setDest("tracker"); setView("app"); setPendingGenOpen(true); };
 
   // ── Feature gate: Song tab ──
   // (The Tracker tab is FREE — the 30-Day Challenge is open to everyone; only
@@ -1289,6 +1371,7 @@ function App() {
   // ── Landing screen (clean visit) ──
   if(view === "landing") {
     return <LandingScreen onPick={pickFromLanding} streak={landingStreak}
+      onGenerate={openGeneratorFromLanding}
       isDev={isDev} onDev={() => { setView("app"); setDest("devtools"); }} />;
   }
 
@@ -6686,7 +6769,10 @@ function useTrackerConfetti() {
   return { canvasRef, launch };
 }
 
-function TrackerTab({ context = "app", hideGenerate = false, active = true }) {
+function TrackerTab({ context = "app", hideGenerate = false, active = true, embedded = false }) {
+  // `embedded`: rendered inside the Exercise Generator overlay — challenge
+  // view only (no mode switcher, no footer, no outer page padding). Same
+  // storage, streaks and celebrations as the main Tracker tab.
   const [data, setData] = useState(trackerInit);
   const [loaded, setLoaded] = useState(false);
   const [celebrating, setCelebrating] = useState(null);
@@ -6847,12 +6933,14 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true }) {
   const statL = { fontSize:9.5, color:"#6f6749", textTransform:"uppercase", letterSpacing:1, fontWeight:700, marginTop:6 };
 
   return (
-    <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 60px" }}>
+    <div style={{ maxWidth:560, margin:"0 auto", padding: embedded ? "4px 0 20px" : "18px 16px 60px" }}>
       <FixedLayer>
         <canvas ref={canvasRef} style={{ position:"fixed", top:0, left:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:9999 }} />
       </FixedLayer>
 
-      {/* ── Mode switcher: 30-Day Challenge / Build (locked until day 30) ── */}
+      {/* ── Mode switcher: 30-Day Challenge / Build (locked until day 30).
+          Hidden in embedded mode — the generator shows one tracker only. ── */}
+      {!embedded && (
       <div style={{ display:"flex", gap:8, marginBottom:20 }}>
         {[
           { id:"challenge", label:<>🔥 30-Day Challenge</>, onClick:()=>setMode("challenge"), on: mode==="challenge" },
@@ -6894,6 +6982,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true }) {
           );
         })}
       </div>
+      )}
 
       {/* Locked teaser — low-opacity bubble explaining how Build is earned.
           Portaled so it centers on the SCREEN, not the tall tracker column. */}
@@ -7176,9 +7265,11 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true }) {
           : <LockedBuildPreview key={"sync"+auth.syncEpoch} totalDaysActive={totalDaysActive} />
       )}
 
-      <div style={{ textAlign:"center", paddingTop:28, color:"#332e22", fontSize:11 }}>
-        © {new Date().getFullYear()} No Theory Club · All rights reserved.
-      </div>
+      {!embedded && (
+        <div style={{ textAlign:"center", paddingTop:28, color:"#332e22", fontSize:11 }}>
+          © {new Date().getFullYear()} No Theory Club · All rights reserved.
+        </div>
+      )}
     </div>
   );
 }
@@ -8488,19 +8579,21 @@ function genParams(gen) {
 }
 
 // ── Launcher — the shiny entry button rendered on every tracker ──
-function GenerateLauncherButton({ theme = null }) {
+function GenerateLauncherButton({ theme = null, onClick = null, style = null }) {
   // Matches the custom tracker's chosen theme; house gold by default.
+  // `onClick` override: the landing screen routes into the app before opening
+  // (the generator host isn't mounted there); trackers use the default event.
   const a = theme ? theme.a : "#FFBE0B";
   const b = theme ? theme.b : "#FFAA1E";
   const text = theme ? theme.a : "#FFD60A";
   return (
-    <button onClick={() => { try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {} }}
+    <button onClick={onClick || (() => { try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {} })}
       style={{ position:"relative", overflow:"hidden", width:"100%",
         border:`1px solid ${hexToRgba(a, 0.55)}`,
         background:`radial-gradient(120% 160% at 50% 0%, ${hexToRgba(b, 0.18)} 0%, ${hexToRgba(b, 0)} 65%), #16110a`,
         color:text, fontWeight:900, cursor:"pointer", fontFamily:"inherit",
         boxShadow:`0 0 22px ${hexToRgba(b, 0.18)}, inset 0 1px 0 rgba(255,255,255,0.04)`,
-        borderRadius:14, padding:"14px", fontSize:14.5, letterSpacing:0.4, marginBottom:22 }}>
+        borderRadius:14, padding:"14px", fontSize:14.5, letterSpacing:0.4, marginBottom:22, ...(style || {}) }}>
       <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 28%, 100% { transform:translateX(100%); } }`}</style>
       <span style={{ position:"absolute", inset:0, pointerEvents:"none",
         background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.14) 50%, transparent 60%)",
@@ -8508,6 +8601,27 @@ function GenerateLauncherButton({ theme = null }) {
       ⚡ Generate Exercise
     </button>
   );
+}
+
+// ── Tracker shown inside a generated session — connects the session to THEIR
+// tracker. Until the 30-Day Challenge is completed (Build unlocked) and a
+// custom tracker exists, that's the 30-Day Challenge itself; after that it's
+// their custom Build tracker. Decided per open so finishing day 30 or creating
+// a tracker is reflected the next time the generator opens. ──
+function GeneratorTrackerSection() {
+  const [target] = useState(() => {
+    let hasCustom = false;
+    try {
+      const raw = localStorage.getItem(CUSTOM_TRACKER_KEY);
+      const saved = raw ? JSON.parse(raw) : null;
+      hasCustom = !!(saved && !saved.deleted && saved.config);
+    } catch (_) {}
+    return (readBuildUnlocked() && hasCustom) ? "custom" : "challenge";
+  });
+  if (target === "custom") return <CustomTrackerSection hideGenerate={true} />;
+  // Embedded 30-Day Challenge: same storage / streak / celebration as the main
+  // Tracker tab; context "package" keeps the premium Build gate hook inert.
+  return <TrackerTab context="package" hideGenerate={true} embedded={true} />;
 }
 
 // ── The generator itself. Mounted once per host view (main app shell and
@@ -8934,9 +9048,10 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           </div>
         )}
         <div style={{ display: activeKey==="tracker" ? "block" : "none" }}>
-          {/* The generator was launched from Build — show THEIR tracker only,
-              no 30-day challenge, no mode switcher. */}
-          <CustomTrackerSection hideGenerate={true} />
+          {/* THEIR tracker, whichever one they're currently living in: the
+              30-Day Challenge until it's done, their custom Build tracker
+              once one exists. No mode switcher either way. */}
+          <GeneratorTrackerSection />
         </div>
       </div>
     </div>
@@ -9558,7 +9673,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 // ─── LANDING SCREEN ──────────────────────────────────────────────────────────
 // Clean title screen shown on a fresh visit (no shared exercise URL). The four
 // cards navigate to each tab. Fade-in + warm-glow dark buttons.
-function LandingScreen({ onPick, streak, isDev = false, onDev = null }) {
+function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev = null }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMounted(true), 20); return () => clearTimeout(t); }, []);
 
@@ -9703,9 +9818,18 @@ function LandingScreen({ onPick, streak, isDev = false, onDev = null }) {
           </button>
         </div>
 
+        {/* Generate Exercise — the same shine launcher that lives on the
+            trackers, promoted to the home screen. Routes into the app and
+            opens the generator overlay directly. */}
+        {onGenerate && (
+          <div style={{ width:"100%", marginTop:14, ...rise(0.6) }}>
+            <GenerateLauncherButton onClick={onGenerate} style={{ marginBottom:0 }} />
+          </div>
+        )}
+
         {/* Founder-only: legacy authoring suite */}
         {isDev && onDev && (
-          <div style={{ width:"100%", marginTop:18, textAlign:"center", ...rise(0.6) }}>
+          <div style={{ width:"100%", marginTop:18, textAlign:"center", ...rise(0.68) }}>
             <button onClick={onDev} style={{ padding:"8px 18px", borderRadius:10,
               border:"1px solid #241d10", background:"transparent", color:"#5a5238",
               fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit", letterSpacing:1 }}>
