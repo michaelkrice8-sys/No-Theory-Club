@@ -1745,7 +1745,7 @@ function App() {
     { id:"chords",   label:"🤚 Chords" },
     { id:"strum",    label:"🎸 Strum" },
     { id:"song",     label:"🎵 Song", locked:true },
-    { id:"generate", label:"⚡ Generate", locked:true },
+    { id:"generate", label:"⚡ Generate" },
   ];
   const YOURS_PILLS = [
     { id:"tracker",  label:"🔥 My Tracker" },
@@ -9495,8 +9495,12 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   // landing (or the ?generate=1 link) used to drop members into the Sandbox on
   // Chords, because closing the overlay just revealed whatever tab the launcher
   // had navigated to underneath. They should land back where they started.
-  const gated = useFeatureGate(
-    context === "app" && !onPick && stage !== null && (!inline || active), () => {
+  // Generate an Exercise is FREE. It used to sit behind the premium gate, but
+  // it is the one feature that shows a newcomer what the app is for in a single
+  // tap — gating it meant the strongest demo was the one nobody could reach.
+  // useFeatureGate is still called (never conditionally) so hook order is
+  // stable; passing false simply means it never engages.
+  const gated = useFeatureGate(false, () => {
     close();
     if (onGateCancel) { try { onGateCancel(); } catch (_) {} }
   });
@@ -11535,16 +11539,7 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
                 <GenerateLauncherButton onClick={onGenerate}
                   style={{ marginBottom:0, borderRadius:lu(1.4),
                     padding:lu(1.4), fontSize:lu(1.45) }} />
-                {/* Same lock slot geometry as the cards above, so it lines up
-                    on the same vertical axis instead of hanging off the corner. */}
-                {premiumLocked && (
-                  <span aria-hidden="true" style={{ position:"absolute",
-                    right:LOCK_RIGHT, width:LOCK_W, height:lu(2), top:"50%",
-                    transform:"translateY(-50%)", display:"flex",
-                    alignItems:"center", justifyContent:"center",
-                    fontSize:lu(1.5), lineHeight:lu(2), opacity:0.95, pointerEvents:"none",
-                    filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
-                )}
+                {/* No padlock: the generator is free. */}
               </div>
             )}
           </div>
