@@ -6342,24 +6342,24 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           is the actual physical exercise. Sliding between rows would just be a
           list of chord names. Each chip carries its fret so you know where the
           barre goes without opening the diagram. */}
-      <div style={{ marginTop:4, marginBottom:12 }}>
+      <div style={{ marginTop:8, marginBottom:12 }}>
         <button onClick={()=>setBarreOpen(o=>!o)}
           aria-expanded={barreOpen}
-          style={{ width:"100%", display:"flex", alignItems:"center", gap:9,
-            padding:"11px 13px", borderRadius:13, cursor:"pointer", fontFamily:"inherit",
-            border:`1px solid ${barreOpen ? "rgba(255,190,11,0.5)" : "#241d10"}`,
+          style={{ width:"100%", display:"flex", alignItems:"center", gap:11,
+            padding:"16px 16px", borderRadius:15, cursor:"pointer", fontFamily:"inherit",
+            border:`1.5px solid ${barreOpen ? "rgba(255,190,11,0.55)" : "rgba(255,190,11,0.26)"}`,
             background: barreOpen
-              ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.14) 0%, rgba(255,170,30,0) 70%), #16110a"
-              : "#100d09",
-            color: barreOpen ? "#FFD60A" : "#8a7f5e", transition:"all 0.2s" }}>
-          <span style={{ fontSize:15 }}>🤘</span>
-          <span style={{ flex:1, textAlign:"left", fontSize:13, fontWeight:900, letterSpacing:0.2 }}>
+              ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 70%), #16110a"
+              : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.07) 0%, rgba(255,170,30,0) 70%), #120e08",
+            color: barreOpen ? "#FFD60A" : "#c9bd93", transition:"all 0.2s" }}>
+          <span style={{ fontSize:21 }}>🤘</span>
+          <span style={{ flex:1, textAlign:"left", fontSize:17, fontWeight:900, letterSpacing:0.3 }}>
             Barre chords
           </span>
-          <span style={{ fontSize:10.5, color:"#6f6749", fontWeight:700 }}>
+          <span style={{ fontSize:12.5, color:"#8a7f5e", fontWeight:700 }}>
             {barreOpen ? "" : "24 shapes"}
           </span>
-          <span style={{ fontSize:12, transform: barreOpen ? "rotate(180deg)" : "none",
+          <span style={{ fontSize:15, transform: barreOpen ? "rotate(180deg)" : "none",
             transition:"transform 0.2s" }}>▾</span>
         </button>
 
