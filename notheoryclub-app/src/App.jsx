@@ -1448,6 +1448,11 @@ async function loadBuffer(ctx, srcOrB64) {
   return await ctx.decodeAudioData(bytes.buffer);
 }
 
+// Set by useAudio so the chord picker can warm a barre sample the moment it is
+// selected, rather than at the instant it first needs to be heard. One audio
+// context exists for the whole app, so a module-level handle is honest here.
+let warmBarre = null;
+
 // ─── SHARED AUDIO HOOK ──────────────────────────────────────────────────────
 function useAudio() {
   const ctxRef = useRef(null);
@@ -1505,15 +1510,40 @@ function useAudio() {
   // for that chord only. Each key is requested once — the in-flight promise is
   // cached, so a fast strum can't start the same download twice.
   const barrePending = useRef({});
+  const barreAllQueued = useRef(false);
   const ensureBarre = useCallback((key) => {
     const ctx = ctxRef.current;
-    if (!ctx || chordBufsRef.current[key] || barrePending.current[key]) return;
-    const url = CHORD_AUDIO_BARRE[key];
-    if (!url) return;
-    barrePending.current[key] = loadBuffer(ctx, url)
-      .then(buf => { chordBufsRef.current[key] = buf; })
-      .catch(() => { delete barrePending.current[key]; });
+    if (!ctx) return;
+    const fetchOne = (k) => {
+      if (chordBufsRef.current[k] || barrePending.current[k]) return;
+      const url = CHORD_AUDIO_BARRE[k];
+      if (!url) return;
+      barrePending.current[k] = loadBuffer(ctx, url)
+        .then(buf => { chordBufsRef.current[k] = buf; })
+        .catch(() => { delete barrePending.current[k]; });
+    };
+    fetchOne(key);
+    // Touching one barre chord almost always means more are coming — a drill
+    // cycles through several, and the picker sits right next to the rest. So
+    // the first one also queues the remaining 51 in the background. It is
+    // ~800 KB once, only for someone who actually opened the barre section,
+    // and it means the SECOND chord is never late.
+    if (!barreAllQueued.current) {
+      barreAllQueued.current = true;
+      Object.keys(CHORD_AUDIO_BARRE).forEach(k => { if (k !== key) fetchOne(k); });
+    }
   }, []);
+  // Selecting a chord is a user gesture, so it may open the AudioContext — and
+  // it has to, because ensureBarre needs one to decode into. Without this the
+  // prefetch silently did nothing until the first Play, which is exactly the
+  // moment it was supposed to be ready for.
+  useEffect(() => {
+    warmBarre = (key) => {
+      const go = () => ensureBarre(key);
+      if (ctxRef.current) go();
+      else init().then(go).catch(() => {});
+    };
+  }, [ensureBarre, init]);
 
   const playChordStrum = useCallback((chord, isDown, semitones=0) => {
     // A barre chord may be voiced by its nearest recorded neighbour, shifted.
@@ -1531,6 +1561,12 @@ function useAudio() {
     if (CHORD_AUDIO_BARRE[r.key+"_down"]) { ensureBarre(r.key+"_down"); ensureBarre(r.key+"_up"); }
     const buf = chordBufsRef.current[r.key+"_"+(isDown?"down":"up")];
     const gainMult = chord.endsWith("_anchor") ? 0.85 : 1.0;
+    // The generic DOWN_WAV / UP_WAV fallback is byte-identical to the G chord.
+    // For a chord with no recording at all that is a reasonable stand-in, but
+    // a barre chord DOES have a recording — it just hasn't arrived yet — and
+    // playing a G in its place teaches the wrong sound. Stay silent instead;
+    // the sample lands within a beat and every strum after it is correct.
+    if (!buf && CHORD_AUDIO_BARRE[r.key + "_down"]) return;
     playBuf(buf||(isDown?downRef.current:upRef.current),
       (isDown?1.0:0.75)*gainMult, semitones + r.shift);
   }, [playBuf, ensureBarre]);
@@ -6359,6 +6395,9 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                       <button key={b.key} disabled={full}
                         onClick={()=>{
                           if(isPlaying){stopMetronome();setIsPlaying(false);}
+                          // Start the download on SELECT, not on the first
+                          // strum — by the time Play is pressed it has landed.
+                          try { warmBarre && warmBarre(b.key + "_down"); } catch(_) {}
                           if(!allowDuplicates && sel){
                             setCustomChords(p=>p.filter(c=>c!==b.key));
                           } else {
