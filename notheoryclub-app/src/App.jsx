@@ -453,10 +453,15 @@ function syncReadLocal(key) {
 
 // Tracker merge: union of completed tasks, day by day. Practising on two
 // devices should never erase a ticked box on either.
-function mergeTracker(local, cloud) {
-  if (!Array.isArray(local)) return Array.isArray(cloud) ? cloud : null;
-  if (!Array.isArray(cloud)) return local;
-  const len = Math.max(local.length, cloud.length);
+// `days` is the length this grid is SUPPOSED to be. Without it the merge took
+// Math.max(local, cloud), so a cloud copy left at the wrong length by the old
+// resetAll() bug grew the local grid back on every sign-in — and then pushed
+// that length to every other device. The grid's own length is the authority;
+// a 7-Day tracker is seven days no matter what either side is holding.
+function mergeTracker(local, cloud, days) {
+  if (!Array.isArray(local)) return Array.isArray(cloud) ? trackerFit(cloud, days) : null;
+  if (!Array.isArray(cloud)) return trackerFit(local, days);
+  const len = days || Math.max(local.length, cloud.length);
   const merged = [];
   for (let i = 0; i < len; i++) {
     const a = local[i] || {}, b = cloud[i] || {};
@@ -578,7 +583,8 @@ async function syncPullAndMerge(userId) {
       const local = syncReadLocal(key);
       const remote = key in cloud ? cloud[key] : null;
       const merged =
-          (key === TRACKER_KEY || key === TRACKER_KEY_7) ? mergeTracker(local, remote)
+          (key === TRACKER_KEY || key === TRACKER_KEY_7)
+            ? mergeTracker(local, remote, key === TRACKER_KEY_7 ? TRACKER_DAYS_7 : TRACKER_DAYS)
         : key === CUSTOM_TRACKER_KEY ? mergeCustomTracker(local, remote)
         : key === ROUTINES_KEY       ? mergeRoutines(local, remote)
         : key === ROUTINES_LAST_KEY  ? mergeLastRoutine(local, remote)
@@ -7436,6 +7442,24 @@ function trackerInit(days = TRACKER_DAYS) {
     Object.fromEntries(TRACKER_TASKS.map(t => [t.id, false]))
   );
 }
+
+// Force a saved grid to the right number of days, keeping the ticks it has.
+//
+// resetAll() used to call trackerInit() with no argument, which always returns
+// 30 days — so resetting the 7-Day grid wrote a 30-day array into the 7-Day
+// key. After that the 7-Day grid rendered 30 boxes and its streak counted over
+// 30, which reads exactly like "it isn't saving". The call is fixed below, but
+// anyone who already hit it has a wrong-length array saved, and the cloud copy
+// is wrong too — so every read repairs it rather than trusting what it finds.
+function trackerFit(arr, days) {
+  if (!Array.isArray(arr) || !arr.length) return trackerInit(days);
+  if (arr.length === days) return arr;
+  const out = trackerInit(days);
+  for (let i = 0; i < Math.min(days, arr.length); i++) {
+    if (arr[i] && typeof arr[i] === "object") out[i] = { ...out[i], ...arr[i] };
+  }
+  return out;
+}
 function trackerStreak(data) {
   if (!Array.isArray(data) || !data.length) return 0;
   let lastActive = -1;
@@ -7515,7 +7539,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
     try {
       const raw = localStorage.getItem(cfg.storageKey);
       const parsed = raw ? JSON.parse(raw) : null;
-      if (Array.isArray(parsed) && parsed.length) return parsed;
+      if (Array.isArray(parsed) && parsed.length) return trackerFit(parsed, cfg.days);
     } catch (_) {}
     return trackerInit(cfg.days);
   });
@@ -7561,7 +7585,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
       const params = new URLSearchParams(window.location.search);
       if (params.get("d")) return; // viewing a shared tracker — leave it alone
       const saved = localStorage.getItem(gridCfg.storageKey);
-      if (saved) setData(JSON.parse(saved));
+      if (saved) setData(trackerFit(JSON.parse(saved), gridCfg.days));
     } catch (_) {}
     setBuildUnlocked(readBuildUnlocked());
     setCustomName(readCustomTrackerName());
@@ -7604,7 +7628,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
         if (decoded) { setData(decoded); setLoaded(true); return; }
       }
       const saved = localStorage.getItem(gridCfg.storageKey);
-      if (saved) setData(JSON.parse(saved));
+      if (saved) setData(trackerFit(JSON.parse(saved), gridCfg.days));
     } catch (_) {}
     setLoaded(true);
   }, []);
@@ -7632,7 +7656,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
     let next = trackerInit(cfg.days);
     try {
       const raw = localStorage.getItem(cfg.storageKey);
-      if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) next = parsed; }
+      if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) next = trackerFit(parsed, cfg.days); }
     } catch (_) {}
     setGridVariant(v); setData(next); setMode(v);
     try { localStorage.setItem(TRACKER_LAST_KEY, JSON.stringify({ variant: v, at: new Date().toISOString() })); } catch (_) {}
@@ -7682,8 +7706,8 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
   }
 
   function resetAll() {
-    if (window.confirm("Reset all 30 days? This can't be undone.")) {
-      setData(trackerInit());
+    if (window.confirm(`Reset all ${gridCfg.days} days? This can't be undone.`)) {
+      setData(trackerInit(gridCfg.days));
       // Surgical: only strip the tracker's own ?d= param, preserve everything else.
       try {
         const params = new URLSearchParams(window.location.search);
@@ -8030,7 +8054,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
       <div style={{ display:"flex", justifyContent:"center", marginTop:22 }}>
         <button onClick={resetAll} style={{ background:"transparent", border:"1px solid #241d10", color:"#6f6749",
           fontSize:11, fontFamily:"inherit", padding:"8px 16px", borderRadius:10, cursor:"pointer", letterSpacing:1 }}>
-          Reset all 30 days
+          Reset all {gridCfg.days} days
         </button>
       </div>
 
@@ -11431,7 +11455,35 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
   // width, the hero, the cards, the icons, the text, the padlocks — the screen
   // simply gets bigger and keeps its proportions exactly. Nothing is stretched
   // or re-arranged, so there is no separate tablet layout to maintain.
-  const LU = "clamp(10px, calc(10px + (100vw - 480px) * 0.0104167), 13px)";
+  // The unit grew with WIDTH, but what runs out is HEIGHT. On a laptop the unit
+  // hit its 13px cap and the home page became 983px of content in an 800px
+  // window — so the first screen anyone sees had to be scrolled.
+  //
+  // 1.28dvh is the height budget: the whole screen measures 75.6 units tall, so
+  // 75.6 x 1.28dvh fills ~97% of the viewport and always fits. Taking the
+  // SMALLER of the two rules means whichever runs out first wins.
+  //
+  // The 10px floor is deliberate. Every phone 480px wide or under keeps exactly
+  // the sizing that was signed off; only wide-but-short screens — laptops,
+  // tablets in landscape — get pulled down by the height rule.
+  // Read outward-in: the WIDTH rule is clamped to 10-13px on its own, so every
+  // phone keeps exactly the sizing that was signed off. Only then is the HEIGHT
+  // budget allowed to pull it further down, and a 7px floor stops a very short
+  // window shrinking the page into something unreadable.
+  //
+  // 1.22dvh, not the ~1.32 the arithmetic suggests: the page is ~76 units tall
+  // on a wide screen but ~85 on a narrow one, because the card text wraps onto
+  // more lines. The budget has to clear the TALLEST case or the smallest phones
+  // still scroll by a few pixels — which is all it takes for a scrollbar.
+  //
+  // A phone held in LANDSCAPE (390px tall) is the one case still left scrolling.
+  // Fitting six cards and a hero into that would need a ~5px unit, i.e. 8px
+  // body text, which is worse than the scroll.
+  //
+  // Wrapping the width clamp first is what makes this safe: putting the height
+  // rule inside the clamp let the width formula (which drops below 10 under
+  // 480px) leak through and shrink ordinary phones too.
+  const LU = "max(6.3px, min(clamp(10px, calc(10px + (100vw - 480px) * 0.0104167), 13px), 1.20dvh))";
   const lu = (n) => `calc(var(--ntc-l) * ${n})`;
 
   // Right-rail geometry, shared by the cards and the Generate launcher so every
@@ -11528,18 +11580,37 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
     textTransform:"uppercase", padding:`${lu(0.1)} ${lu(0.4)} ${lu(0.8)}`,
   };
 
+  // justifyContent centres the column when the screen is taller than the
+  // content — a laptop or an iPad otherwise left it stranded at the top with a
+  // void underneath. On a phone the content fills the height and it does
+  // nothing.
   return (
     <div style={{ "--ntc-l":LU, minHeight:"100dvh",
       background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff",
-      display:"flex", flexDirection:"column", alignItems:"center" }}>
+      display:"flex", flexDirection:"column", alignItems:"center",
+      justifyContent:"center" }}>
       {/* On a tablet the content is far shorter than the screen, so top-aligning
           it left a huge void underneath. Centring vertically only on wide
           screens; on a phone the content is taller than the viewport and this
           would do nothing anyway. min-height (not height) means a long page
           still grows rather than clipping. */}
-      <div style={{ width:"100%", maxWidth:lu(48), padding:`0 ${lu(2.2)} ${lu(1.4)}`,
-        display:"flex", flexDirection:"column", alignItems:"center", flex:1 }}>
+      {/* boxSizing is the whole ball game here. This column is flex:1 inside a
+          minHeight:100dvh parent, and without border-box its padding is added
+          ON TOP of that full viewport height — so the page overflowed by
+          exactly its own bottom padding, on every device, no matter how small
+          the type got. Shrinking the unit could never have fixed it. */}
+      {/* No flex:1 here, and no marginTop:auto on the footer below.
+          Together those pinned the footer to the bottom of a box forced to
+          100dvh — and that box always ended up a couple of pixels taller than
+          the viewport, so the page scrolled by 2-6px no matter how small the
+          type got. Shrinking the unit could never fix it because the overflow
+          wasn't content, it was the stretch itself.
+          Now the column is simply as tall as what's in it, and the height
+          budget above keeps that inside the viewport. */}
+      <div style={{ width:"100%", maxWidth:lu(48), padding:`0 ${lu(2.2)} ${lu(1.2)}`,
+        boxSizing:"border-box",
+        display:"flex", flexDirection:"column", alignItems:"center" }}>
 
         {/* Hero */}
         {/* The "Guitar Practice Tool" eyebrow used to sit here. It said the same
@@ -11605,7 +11676,7 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
           </div>
         )}
 
-        <div style={{ marginTop:"auto", paddingTop:lu(2), fontSize:lu(1.1), color:"#332e22",
+        <div style={{ paddingTop:lu(1.4), fontSize:lu(1.1), color:"#332e22",
           textAlign:"center", ...rise(0.7) }}>
           © {new Date().getFullYear()} No Theory Club · All rights reserved.
         </div>
