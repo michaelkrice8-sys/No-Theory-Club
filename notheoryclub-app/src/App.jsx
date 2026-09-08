@@ -6,14 +6,22 @@ import { CHORD_AUDIO, DOWN_WAV, UP_WAV } from "./chordAudio";
 import { CHORD_IMAGES_ANCHORS } from "./chordImages_anchors";
 import { CHORD_AUDIO_ANCHORS } from "./chordAudio_anchors";
 import { CHORD_IMAGES_VARIATIONS } from "./chordImages_variations";
+import { CHORD_IMAGES_BARRE } from "./chordImages_barre";
+import { CHORD_IMAGES_EXTRA } from "./chordImages_extra";
+import { CHORD_AUDIO_EXTRA } from "./chordAudio_extra";
+import { CHORD_AUDIO_BARRE } from "./chordAudio_barre";
 import { CHORD_AUDIO_VARIATIONS } from "./chordAudio_variations";
 
 // Merge all sets — variations last so they override originals
-const ALL_CHORD_IMAGES = { ...CHORD_IMAGES, ...CHORD_IMAGES_ANCHORS, ...CHORD_IMAGES_VARIATIONS };
+const ALL_CHORD_IMAGES = { ...CHORD_IMAGES, ...CHORD_IMAGES_ANCHORS, ...CHORD_IMAGES_VARIATIONS,
+  ...CHORD_IMAGES_BARRE, ...CHORD_IMAGES_EXTRA };
 const ALL_CHORD_AUDIO  = { ...CHORD_AUDIO,  ...CHORD_AUDIO_ANCHORS,  ...CHORD_AUDIO_VARIATIONS  };
 // Explicit E override — forces normalized version, bypasses original loud recording
 ALL_CHORD_AUDIO["E_down"] = CHORD_AUDIO_VARIATIONS["E_down"];
 ALL_CHORD_AUDIO["E_up"]   = CHORD_AUDIO_VARIATIONS["E_up"];
+// Asus4 / Bm7 / D-F#, plus the Dsus4 up-strum replacement. Spread LAST so
+// D_anchor_up overrides the original, which was a second down-strum take.
+Object.assign(ALL_CHORD_AUDIO, CHORD_AUDIO_EXTRA);
 
 // ─── ERROR BOUNDARY ──────────────────────────────────────────────────────────
 // Catches render crashes anywhere in the app (e.g. a malformed share link) and
@@ -146,6 +154,21 @@ const AuthCtx = createContext({
   signOut: () => {},
 });
 
+// iOS Safari, but NOT an already-installed home-screen app (which is exempt
+// from the 7-day storage purge, so the nudge would be pointless there).
+// Chrome/Firefox on iOS also run WebKit, so they get the same treatment.
+const IS_IOS_SAFARI = (() => {
+  try {
+    const ua = navigator.userAgent || "";
+    const iOS = /iPad|iPhone|iPod/.test(ua) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS
+    if (!iOS) return false;
+    const standalone = window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    return !standalone;
+  } catch (_) { return false; }
+})();
+
 // Where the upgrade button sends non-premium users.
 const UPGRADE_URL = "https://www.skool.com/notheoryclub/plans";
 
@@ -175,9 +198,17 @@ function GateShell({ children, overlay = false }) {
 // the parent must be position:relative.
 function GateLockBadge() {
   return (
+    // The box must be BIGGER than the glyph. An emoji renders taller than its
+    // em box, so at fontSize:15 with lineHeight:1 the padlock's shackle spilled
+    // out of a 15px-tall span — and because this span carries a drop-shadow
+    // FILTER, the browser rasterises it to the element's own bounds and the
+    // overflow was cut clean off. Nothing was clipping it from outside; the
+    // element was simply too small for its own glyph.
     <span aria-hidden="true" style={{ position:"absolute", top:0, right:0,
       transform:"translate(calc(45% - 5px), calc(-45% + 5px))",
-      opacity:0.82, fontSize:15, lineHeight:1, zIndex:2,
+      opacity:0.82, fontSize:15, lineHeight:"20px",
+      width:20, height:20, display:"flex",
+      alignItems:"center", justifyContent:"center", zIndex:2,
       pointerEvents:"none", filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
   );
 }
@@ -200,7 +231,10 @@ function GateButton({ onClick, children, disabled }) {
 // Login screen — email in, magic link out. No passwords.
 // Pre-checks membership so free members see the upgrade screen
 // immediately instead of receiving a pointless email.
-function GateLogin({ overlay = false }) {
+// `heading` / `blurb` let the first-visit prompt reuse this whole email → code
+// → verifyOtp flow with its own copy, instead of duplicating it. Defaults are
+// the original gate wording, so every existing caller is unchanged.
+function GateLogin({ overlay = false, heading = null, blurb = null }) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -312,10 +346,12 @@ function GateLogin({ overlay = false }) {
   return (
     <GateShell overlay={overlay}>
       <div style={{ fontSize:52, marginBottom:16 }}>🎸</div>
-      <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>Sign in for Premium Features</div>
+      <div style={{ fontSize:26, fontWeight:900, marginBottom:12 }}>
+        {heading || "Sign in for Premium Features"}
+      </div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:400, marginBottom:26 }}>
-        Enter the email you use for your <b style={{color:"#e8e2d2"}}>Skool account</b> and
-        we'll email you a sign-in code. No password needed.
+        {blurb || <>Enter the email you use for your <b style={{color:"#e8e2d2"}}>Skool account</b> and
+          we'll email you a sign-in code. No password needed.</>}
       </div>
       <input type="email" value={email} placeholder="you@example.com"
         onChange={(e)=>setEmail(e.target.value)}
@@ -328,6 +364,21 @@ function GateLogin({ overlay = false }) {
       <GateButton onClick={send} disabled={busy}>{busy ? "Sending…" : "Email me a sign-in code"}</GateButton>
       <div style={{ fontSize:15, color:"#8a8578", marginTop:22, maxWidth:380, lineHeight:1.7 }}>
         Don't receive the link? DM me on Skool and I'll sort you out.
+        {IS_IOS_SAFARI && (
+          <>
+            <br /><br />
+            {/* Safari deletes a site's stored login after 7 days without a
+                visit — that is the single biggest reason iPhone members get
+                asked to sign in again and again. Home-screen web apps are
+                EXEMPT from that purge, so this is the one real fix, and it is
+                not something the app can do for them. */}
+            <span style={{ color:"#b5ae9d" }}>
+              On iPhone? Tap <b style={{ color:"#e8e2d2" }}>Share → Add to Home Screen</b> and
+              open it from there — Safari clears saved logins after a week, but the
+              home-screen app keeps you signed in.
+            </span>
+          </>
+        )}
       </div>
     </GateShell>
   );
@@ -365,10 +416,15 @@ function GateWall({ email, onSignOut, overlay = false }) {
 const BUILD_UNLOCK_KEY   = "ntc-build-unlocked-v1"; // {unlocked:true, at:ISO}
 const CELEBRATED_KEY     = "ntc-30day-celebrated-v1"; // {unlocked:true, at:ISO} — trophy modal shown once, ever
 const CUSTOM_TRACKER_KEY = "ntc-custom-tracker-v1"; // {config, data, updatedAt} or {deleted:true, updatedAt}
+const TRACKER_KEY_7      = "ntc-7day-tracker-v1";  // the 7-Day grid
+const TRACKER_LAST_KEY   = "ntc-tracker-last-v1";  // {variant, at} — grid last used
+const ROUTINES_KEY       = "ntc-routines-v1";   // [{id,name,items,createdAt,updatedAt,deleted?}]
+const ROUTINES_LAST_KEY  = "ntc-routines-last-v1"; // {id, at} — most recently created/opened
 const SYNC_KEYS = [
   "ntc_drills", "ntc_patterns", "ntc_songs", "ntc_strum", "ntc_strum_tab",
-  "ntc-30day-tracker-v1", CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY,
-  "ntc-generated-v1", "ntc-songbuilder-v1"
+  "ntc-30day-tracker-v1", TRACKER_KEY_7, TRACKER_LAST_KEY,
+  CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY,
+  "ntc-generated-v1", "ntc-songbuilder-v1", ROUTINES_KEY, ROUTINES_LAST_KEY
 ];
 
 // DATA-SAFETY GUARD. All merges here are unions — an "empty" value (all-false
@@ -378,7 +434,7 @@ const SYNC_KEYS = [
 // (The custom tracker is exempt: its {deleted:true} tombstone is meaningful.)
 function isMeaninglessProgress(key, data) {
   if (data == null) return true;
-  if (key === TRACKER_KEY) {
+  if (key === TRACKER_KEY || key === TRACKER_KEY_7) {
     return Array.isArray(data) &&
       data.every(d => !d || Object.values(d).every(v => !v));
   }
@@ -426,6 +482,49 @@ function mergeList(local, cloud) {
     if (!seen.has(sig)) { seen.add(sig); merged.push(item); }
   }
   return merged;
+}
+
+// Routine merge: by id, newest updatedAt wins.
+//
+// Routines CANNOT use mergeList. That one de-duplicates by exact content, so
+// editing a routine on your phone would sync as a SECOND routine rather than
+// replacing the original — you'd slowly accumulate near-identical copies of
+// everything you ever tweaked. Same reasoning as mergeCustomTracker: anything
+// the member edits in place has to merge on identity, not on content.
+//
+// A {deleted:true} tombstone is a normal row here, so deleting on one device
+// propagates instead of the routine coming back on the next pull.
+// Rows carry an explicit `order`. Without it a merge re-sorted by updatedAt and
+// silently threw away whatever order the member had dragged them into.
+function routineSortKey(r, i) {
+  return typeof r.order === "number" ? r.order : 1e6 + i;
+}
+function mergeRoutines(local, cloud) {
+  if (!Array.isArray(local)) return Array.isArray(cloud) ? cloud : null;
+  if (!Array.isArray(cloud)) return local;
+  const byId = new Map();
+  for (const r of [...cloud, ...local]) {
+    if (!r || !r.id) continue;
+    const prev = byId.get(r.id);
+    if (!prev) { byId.set(r.id, r); continue; }
+    const a = Date.parse(r.updatedAt || 0) || 0;
+    const b = Date.parse(prev.updatedAt || 0) || 0;
+    if (a >= b) byId.set(r.id, r);
+  }
+  const merged = [...byId.values()];
+  return merged.sort((x, y) => {
+    const ox = routineSortKey(x, merged.indexOf(x)), oy = routineSortKey(y, merged.indexOf(y));
+    if (ox !== oy) return ox - oy;
+    return (Date.parse(y.updatedAt || 0) || 0) - (Date.parse(x.updatedAt || 0) || 0);
+  });
+}
+
+// "Last opened routine" pointer: newest wins, so the device you most recently
+// practised on decides what reopens.
+function mergeLastRoutine(local, cloud) {
+  if (!local) return cloud || null;
+  if (!cloud) return local;
+  return (Date.parse(cloud.at || 0) || 0) > (Date.parse(local.at || 0) || 0) ? cloud : local;
 }
 
 // Unlock-flag merge: once unlocked anywhere, unlocked everywhere. A member
@@ -479,8 +578,11 @@ async function syncPullAndMerge(userId) {
       const local = syncReadLocal(key);
       const remote = key in cloud ? cloud[key] : null;
       const merged =
-          key === TRACKER_KEY        ? mergeTracker(local, remote)
+          (key === TRACKER_KEY || key === TRACKER_KEY_7) ? mergeTracker(local, remote)
         : key === CUSTOM_TRACKER_KEY ? mergeCustomTracker(local, remote)
+        : key === ROUTINES_KEY       ? mergeRoutines(local, remote)
+        : key === ROUTINES_LAST_KEY  ? mergeLastRoutine(local, remote)
+        : key === TRACKER_LAST_KEY   ? mergeLastRoutine(local, remote)
         : (key === BUILD_UNLOCK_KEY || key === CELEBRATED_KEY) ? mergeUnlock(local, remote)
         : mergeList(local, remote);
       if (merged == null) continue;
@@ -552,12 +654,25 @@ function startSyncWatcher(userId) {
 
   const interval = setInterval(check, 3000);
   const onHide = () => { check(); clearTimeout(pushTimer); flush(); };
-  document.addEventListener("visibilitychange", () => {
+  // NAMED so the cleanup below can actually remove it. This handler used to be
+  // an inline arrow, which left it unremovable: signOut() stopped the interval
+  // but both listeners survived, still closed over the OLD userId. Signing in
+  // as anyone else then meant the next tab-hide pushed the current
+  // localStorage into the PREVIOUS member's progress rows — and because every
+  // merge is a union, that data stuck there permanently. The GateWall's "use a
+  // different email" link makes that a two-click path, so it had to go.
+  const onVisibility = () => {
     if (document.visibilityState === "hidden") onHide();
-  });
+  };
+  document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("beforeunload", onHide);
 
-  return () => { clearInterval(interval); clearTimeout(pushTimer); };
+  return () => {
+    clearInterval(interval);
+    clearTimeout(pushTimer);
+    document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("beforeunload", onHide);
+  };
 }
 
 // ─── AUTH PROVIDER + FEATURE GATE ────────────────────────────────────────────
@@ -715,6 +830,72 @@ function GateOverlayHost({ request, status, userEmail, onSignOut, onCancel }) {
 //     worse, session revocations via Supabase's refresh-token-reuse detection.
 //   • Never run Supabase queries synchronously inside the auth callback — it
 //     holds an internal lock and deadlocks the client. Defer with setTimeout.
+// ─── FIRST-VISIT SIGN-IN PROMPT ──────────────────────────────────────────────
+// Shown to anyone who isn't signed in, once per browsing session. Unlike the
+// premium gate this blocks NOTHING: there is a real ✕, and dismissing it leaves
+// the whole app usable exactly as before — just with no cloud sync and no
+// premium features, which is the honest trade and is stated on the panel.
+//
+// Deliberately NOT shown on share links (?pkg=, ?song=, ?drill=, …). Those are
+// the growth loop: someone opening a friend's exercise must land straight in
+// it. Putting a sign-in panel in front of a shared link is the fastest way to
+// kill sharing, and it's the same exemption the feature gate already makes.
+//
+// Dismissal is sessionStorage, not localStorage: it comes back on their next
+// visit (as intended) but a page reload doesn't nag them again.
+const SIGNIN_PROMPT_DISMISSED = "ntc-signin-prompt-dismissed";
+
+const PROMPT_PEEK_MS = 1000;  // let the home screen land before asking
+const PROMPT_FADE_MS = 450;
+
+function FirstVisitPrompt({ onClose }) {
+  // Fade in a beat after arrival rather than slamming up on load — the member
+  // sees what the app actually is before being asked for an email. Same shape
+  // as the premium gate's peek, just a touch longer.
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setVisible(true), PROMPT_PEEK_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  return createPortal(
+    <div style={{ position:"fixed", inset:0, zIndex:99980,
+      display:"flex", alignItems:"center", justifyContent:"center",
+      overflowY:"auto", padding:"24px 0", overscrollBehavior:"contain",
+      background:"rgba(10,10,10,0.92)",
+      backdropFilter:"blur(3px)", WebkitBackdropFilter:"blur(3px)",
+      opacity: visible ? 1 : 0,
+      pointerEvents: visible ? "auto" : "none",
+      transition:`opacity ${PROMPT_FADE_MS}ms ease` }}>
+      {/* The ✕ is the whole point — this must never feel like a wall. */}
+      <button onClick={onClose} aria-label="Close"
+        style={{ position:"absolute", top:14, right:14, width:40, height:40,
+          borderRadius:12, border:"1px solid rgba(255,209,102,0.25)",
+          background:"rgba(255,209,102,0.05)", color:"#b5ae9d",
+          fontSize:20, fontWeight:700, cursor:"pointer", lineHeight:1,
+          fontFamily:"'Trebuchet MS', sans-serif" }}>
+        ✕
+      </button>
+      <div style={{ width:"100%" }}>
+        <GateLogin overlay
+          heading="Save your progress"
+          blurb={<>Sign in to keep your streak safe, sync across your phone and
+            laptop, and unlock Premium features. It's a code by email — no
+            password.</>} />
+        <div style={{ textAlign:"center", marginTop:4 }}>
+          <button onClick={onClose}
+            style={{ background:"none", border:"none", color:"#8a8578",
+              fontSize:14, textDecoration:"underline", cursor:"pointer",
+              fontFamily:"'Trebuchet MS', sans-serif", padding:"8px 12px" }}>
+            Not now — keep practising
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function AuthProvider({ children }) {
   const [status, setStatus] = useState(AUTH_ENABLED ? "checking" : "anon");
   const [userEmail, setUserEmail] = useState("");
@@ -751,7 +932,13 @@ function AuthProvider({ children }) {
           .from("members").select("tier").maybeSingle();
         if (error) throw error;
         if (cancelled) return;
-        if (data && data.tier === "premium") {
+        // "vip" is accepted as well as "premium". The webhooks normalise VIP
+        // down to 'premium' before writing, so a row should never say 'vip' —
+        // but a manual fix in the Supabase table easily could, and locking a
+        // paying VIP member out because of the spelling would be invisible
+        // until they complained.
+        const tier = (data && typeof data.tier === "string") ? data.tier.trim().toLowerCase() : "";
+        if (tier === "premium" || tier === "vip") {
           // Pull cloud progress and merge before opening the gated features.
           // 6s race so sync can never block practice — but the race ONLY
           // affects when the UI opens. THE WATCHER NEVER STARTS UNTIL A PULL
@@ -802,7 +989,14 @@ function AuthProvider({ children }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    try { await supabaseAuth.auth.signOut(); } catch (_) {}
+    // scope:"local" signs out THIS browser only.
+    //
+    // supabase-js defaults to scope:"global", which destroys every refresh
+    // token the member has — so tapping "use a different email" on the wall
+    // here also silently logged them out on their phone, their tablet and any
+    // other browser. That is a direct cause of "I keep having to log in".
+    // Nobody expects a sign-out on one device to end the others.
+    try { await supabaseAuth.auth.signOut({ scope: "local" }); } catch (_) {}
     openedForRef.current = null;
     if (watcherRef.current) { watcherRef.current(); watcherRef.current = null; }
     setUserEmail("");
@@ -827,6 +1021,32 @@ function AuthProvider({ children }) {
     });
   }, []);
 
+  // ── First-visit sign-in prompt ──
+  // Only once `status` has actually RESOLVED to "anon". Firing on the initial
+  // "checking" state would flash the panel at signed-in members on every load,
+  // which is exactly the kind of thing that made the old gate feel hostile.
+  const [showPrompt, setShowPrompt] = useState(false);
+  useEffect(() => {
+    if (!AUTH_ENABLED) return;
+    if (status !== "anon") { setShowPrompt(false); return; } // signed in → never
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem(SIGNIN_PROMPT_DISMISSED) === "1"; } catch (_) {}
+    if (dismissed) return;
+    // Share links stay frictionless — see the note on FirstVisitPrompt.
+    let onShareLink = false;
+    try {
+      const p = new URLSearchParams(window.location.search);
+      onShareLink = ["pkg","song","id","drill","strum","strumprog","pattern"].some(k => p.has(k));
+    } catch (_) {}
+    if (onShareLink) return;
+    setShowPrompt(true);
+  }, [status]);
+
+  const dismissPrompt = useCallback(() => {
+    try { sessionStorage.setItem(SIGNIN_PROMPT_DISMISSED, "1"); } catch (_) {}
+    setShowPrompt(false);
+  }, []);
+
   const ctx = {
     enabled: AUTH_ENABLED,
     status,
@@ -843,6 +1063,10 @@ function AuthProvider({ children }) {
       {AUTH_ENABLED && (
         <GateOverlayHost request={gateReq} status={status} userEmail={userEmail}
           onSignOut={signOut} onCancel={cancelGate} />
+      )}
+      {/* Suppressed while the premium gate is up, so the two never stack. */}
+      {AUTH_ENABLED && showPrompt && !gateReq && (
+        <FirstVisitPrompt onClose={dismissPrompt} />
       )}
     </AuthCtx.Provider>
   );
@@ -924,16 +1148,100 @@ const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
 // Format for chordAudio.js:   "CHORDNAME_down": "data:audio/wav;base64,XXX"
 //                              "CHORDNAME_up":   "data:audio/wav;base64,XXX"
 const CHORD_CATEGORIES = {
-  "7":   ["A7","Am7","B7","C7","D7","E7","G7"],
-  "sus": ["Dsus4"],
+  "7":   ["A7","Am7","B7","C7","D7","E7","G7","Bm7"],
+  "sus": ["Dsus4","Asus4"],
   "add": ["Cadd9"],
-  "/":   ["C/G","G/B","C/B","Am/G"],
+  "/":   ["C/G","G/B","C/B","Am/G","D/F#"],
 };
 // All chords available in the advanced assign mode picker
 const ALL_CHORDS_EXTENDED = [
   ...ALL_CHORDS,
   ...Object.values(CHORD_CATEGORIES).flat(),
 ];
+// ─── BARRE CHORDS ────────────────────────────────────────────────────────────
+// Taken from the diagrams, not guessed. Each row changes GRIP halfway:
+//
+//   Majors   F..A#  = E shape, 6th-string root, frets 1-6
+//            Bb..E  = A shape, 5th-string root, frets 1-7
+//   Minors   Fm..A#m = Em shape, 6th-string root, frets 1-6
+//            Bm..Em  = Am shape, 5th-string root, frets 2-7
+//
+// Splitting at the halfway point is what keeps every chord at fret 7 or below
+// instead of marching up to fret 12, which is why B is played as an A shape at
+// fret 2 rather than an E shape at fret 7.
+//
+// `rec: true` marks a chord Michael is recording. The rest borrow their nearest
+// recorded neighbour OF THE SAME SHAPE and resample by the fret difference —
+// so a substitute is always the same grip, one fret away, and never crosses
+// the shape boundary where the timbre changes.
+//
+// Keys are the diagram filename plus "_barre", so A#.png -> "A#_barre":
+//   image  ALL_CHORD_IMAGES["A#_barre"]
+//   audio  ALL_CHORD_AUDIO["A#_barre_down"] / ["A#_barre_up"]
+// Adding a real recording for any of these retires its substitute instantly.
+const BARRE_ROWS = {
+  major: [
+    { n:"F",  lab:"F",       fret:1, shape:"E", rec:true  },
+    { n:"F#", lab:"F\u266f", fret:2, shape:"E", rec:true  },
+    { n:"G",  lab:"G",       fret:3, shape:"E", rec:true  },
+    { n:"G#", lab:"G\u266f", fret:4, shape:"E", rec:true  },
+    { n:"A",  lab:"A",       fret:5, shape:"E", rec:true  },
+    { n:"A#", lab:"A\u266f", fret:6, shape:"E", rec:true  },
+    { n:"Bb", lab:"B\u266d", fret:1, shape:"A", rec:true  },
+    { n:"B",  lab:"B",       fret:2, shape:"A", rec:true  },
+    { n:"C",  lab:"C",       fret:3, shape:"A", rec:true  },
+    { n:"C#", lab:"C\u266f", fret:4, shape:"A", rec:true  },
+    { n:"D",  lab:"D",       fret:5, shape:"A", rec:true  },
+    { n:"D#", lab:"D\u266f", fret:6, shape:"A", rec:true  },
+    { n:"E",  lab:"E",       fret:7, shape:"A", rec:true  },
+  ],
+  minor: [
+    { n:"Fm",  lab:"Fm",       fret:1, shape:"Em", rec:true  },
+    { n:"F#m", lab:"F\u266fm", fret:2, shape:"Em", rec:true  },
+    { n:"Gm",  lab:"Gm",       fret:3, shape:"Em", rec:true  },
+    { n:"G#m", lab:"G\u266fm", fret:4, shape:"Em", rec:true  },
+    { n:"Am",  lab:"Am",       fret:5, shape:"Em", rec:true  },
+    { n:"A#m", lab:"A\u266fm", fret:6, shape:"Em", rec:true  },
+    // Same pitch as A#m above, but the Am shape at fret 1 — a genuinely
+    // different grip, recorded and drawn separately.
+    { n:"Bbm", lab:"B\u266dm", fret:1, shape:"Am", rec:true  },
+    { n:"Bm",  lab:"Bm",       fret:2, shape:"Am", rec:true  },
+    { n:"Cm",  lab:"Cm",       fret:3, shape:"Am", rec:true  },
+    { n:"C#m", lab:"C\u266fm", fret:4, shape:"Am", rec:true  },
+    { n:"Dm",  lab:"Dm",       fret:5, shape:"Am", rec:true  },
+    { n:"D#m", lab:"D\u266fm", fret:6, shape:"Am", rec:true  },
+    { n:"Em",  lab:"Em",       fret:7, shape:"Am", rec:true  },
+  ],
+};
+
+// Resolve each chord to the sample it plays. Within a shape the fret number IS
+// the semitone number, so the shift is simply the fret difference.
+function buildBarreRow(rows) {
+  return rows.map(c => {
+    const sameShape = rows.filter(o => o.shape === c.shape && o.rec);
+    let src = c;
+    if (!c.rec && sameShape.length) {
+      src = sameShape.reduce((best, o) =>
+        Math.abs(o.fret - c.fret) < Math.abs(best.fret - c.fret) ? o : best, sameShape[0]);
+    }
+    return { key:c.n + "_barre", label:c.lab, fret:c.fret, shape:c.shape,
+      recorded:c.rec, srcKey:src.n + "_barre", shift:c.fret - src.fret };
+  });
+}
+const BARRE_MAJORS = buildBarreRow(BARRE_ROWS.major);
+const BARRE_MINORS = buildBarreRow(BARRE_ROWS.minor);
+const BARRE_ALL = [...BARRE_MAJORS, ...BARRE_MINORS];
+const BARRE_BY_KEY = Object.fromEntries(BARRE_ALL.map(b => [b.key, b]));
+
+// Which sample a slot actually plays, and by how many semitones it is shifted.
+// Anything that isn't a barre chord answers "itself, unshifted", so every
+// existing call site behaves exactly as before.
+function resolveChordAudio(slot) {
+  const b = BARRE_BY_KEY[slot];
+  if (!b) return { key: slot, shift: 0 };
+  return { key: b.srcKey, shift: b.shift };
+}
+
 const BEATS_OPTIONS = [1, 2, 4];
 
 // ─── RANDOM CHORD SEQUENCE ──────────────────────────────────────────────────
@@ -958,7 +1266,7 @@ function makeRandSeq(len, total) {
 // ─── CHORD VARIATION SYSTEM ──────────────────────────────────────────────────
 // Slash chord display names → audio/image key
 const CHORD_NAME_TO_KEY = {
-  "C/G":"CG", "G/B":"GB", "C/B":"CB", "Am/G":"AmG",
+  "C/G":"CG", "G/B":"GB", "C/B":"CB", "Am/G":"AmG", "D/F#":"DFs",
   "Dsus4":"D_anchor", "Cadd9":"C_anchor",
 };
 function normalizeKey(chord) { return CHORD_NAME_TO_KEY[chord] || chord; }
@@ -969,23 +1277,47 @@ const CHORD_VARIATION_MAP = {
   "G":     [{key:"G",label:"G"},{key:"G_anchor",label:"Anchored"},{key:"G7",label:"G7"}],
   "C":     [{key:"C",label:"C"},{key:"C_anchor",label:"Cadd9"},{key:"C7",label:"C7"},{key:"C/G",label:"C/G"},{key:"C/B",label:"C/B"}],
   "Em":    [{key:"Em",label:"Em"},{key:"Em_anchor",label:"Em7"}],
-  "D":     [{key:"D",label:"D"},{key:"D_anchor",label:"Dsus4"},{key:"D7",label:"D7"}],
+  "D":     [{key:"D",label:"D"},{key:"D_anchor",label:"Dsus4"},{key:"D7",label:"D7"},{key:"D/F#",label:"D/F#"}],
   "Am":    [{key:"Am",label:"Am"},{key:"Am7",label:"Am7"},{key:"Am/G",label:"Am/G"}],
-  "A":     [{key:"A",label:"A"},{key:"A7",label:"A7"}],
+  "A":     [{key:"A",label:"A"},{key:"A7",label:"A7"},{key:"Asus4",label:"Asus4"}],
   "E":     [{key:"E",label:"E"},{key:"E7",label:"E7"}],
   "Dm":    [{key:"Dm",label:"Dm"}],
-  "Bm":    [{key:"Bm",label:"Bm"},{key:"B7",label:"B7"}],
+  "Bm":    [{key:"Bm",label:"Bm"},{key:"B7",label:"B7"},{key:"Bm7",label:"Bm7"}],
   "Fmaj7": [{key:"Fmaj7",label:"Fmaj7"},{key:"F",label:"F (Easy)"}],
 };
 const HAS_VARIATIONS = new Set(Object.keys(CHORD_VARIATION_MAP).filter(c => CHORD_VARIATION_MAP[c].length > 1));
 
+// ─── BASE64 THAT SURVIVES REAL TEXT ──────────────────────────────────────────
+// Plain btoa() throws on any character outside Latin-1, so a single em dash —
+// or a curly quote, or an emoji — in an exercise name didn't degrade, it threw
+// InvalidCharacterError and the "use this" button silently did nothing. That
+// was reachable just by naming a drill with an apostrophe from a phone
+// keyboard, and by exporting a chord pack, since "Pack #1 — The Anchored 4"
+// carries an em dash.
+//
+// Encoding to UTF-8 bytes first fixes it. Pure-ASCII payloads produce
+// byte-identical output to the old pair, so every share link already in the
+// wild still encodes and decodes exactly as before.
+function b64Encode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function b64Decode(str) {
+  const bin = atob(str);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  try { return new TextDecoder().decode(bytes); } catch (_) { return bin; }
+}
+
 // ─── CHORD DRILL URL ENCODING ────────────────────────────────────────────────
 function encodeChordDrill(chords, bpm, beatsPerChord, name, variants, random) {
-  return btoa(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord, n: name||"", v: variants||{}, r: random?1:0 }));
+  return b64Encode(JSON.stringify({ c: chords, b: bpm, p: beatsPerChord, n: name||"", v: variants||{}, r: random?1:0 }));
 }
 function decodeChordDrill(str) {
   try {
-    const obj = JSON.parse(atob(str));
+    const obj = JSON.parse(b64Decode(str));
     return { chords: Array.isArray(obj.c)?obj.c:[], bpm: Number(obj.b)||60, beatsPerChord: Number(obj.p)||2, name: obj.n||"", chordVariants: obj.v||{}, random: !!obj.r };
   } catch { return null; }
 }
@@ -1000,11 +1332,11 @@ function encodeStrumDrill(name, strumActive, rowSizes, songChords, bpm, beatsPer
   const r2 = rs.length>=2 ? 1 : 0;
   const s1 = rs[0]||8;
   const s2 = rs[1]||8;
-  return btoa(JSON.stringify({ n:name, sa, rs, r2, s1, s2, c:songChords, b:bpm, p:beatsPerChord, v:chordVariants||{}, cp:capo||0, rnd: random?1:0 }));
+  return b64Encode(JSON.stringify({ n:name, sa, rs, r2, s1, s2, c:songChords, b:bpm, p:beatsPerChord, v:chordVariants||{}, cp:capo||0, rnd: random?1:0 }));
 }
 function decodeStrumDrill(str) {
   try {
-    const obj = JSON.parse(atob(str));
+    const obj = JSON.parse(b64Decode(str));
     const strumActive = Array(64).fill(false);
     (obj.sa||[]).forEach(i=>{ if(i<64) strumActive[i]=true; });
     // Prefer new rs array; fall back to old r2/s1/s2 format
@@ -1080,6 +1412,7 @@ const VARIANT_KEY_TO_BASE = (() => {
 function slotBase(slot) { return VARIANT_KEY_TO_BASE[slot] || slot; }
 // Display label for a slot (e.g. "C_anchor" -> "Cadd9", "C/B" -> "C/B", "C" -> "C")
 function slotLabel(slot) {
+  if (BARRE_BY_KEY[slot]) return BARRE_BY_KEY[slot].label;
   const base = slotBase(slot);
   const opt = (CHORD_VARIATION_MAP[base] || []).find(o => o.key === slot);
   return opt ? opt.label : slot;
@@ -1099,9 +1432,19 @@ function defaultBuild(len) { return Array(len).fill(null).map((_,i) => i%2===0);
 function generateRandomPattern() {
   return { name:"Random", active:[true,...Array(7).fill(null).map(()=>Math.random()>0.3)], songs:[] };
 }
-async function loadBuffer(ctx, b64) {
-  const bin = atob(b64), bytes = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+// Accepts either inline base64 (every original sample) or a URL into
+// public/ (the barre set, which is fetched on demand rather than bundled).
+async function loadBuffer(ctx, srcOrB64) {
+  let bytes;
+  if (srcOrB64.startsWith("/") || srcOrB64.startsWith("http")) {
+    const res = await fetch(srcOrB64);
+    if (!res.ok) throw new Error("audio " + res.status + " " + srcOrB64);
+    bytes = new Uint8Array(await res.arrayBuffer());
+  } else {
+    const bin = atob(srcOrB64);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  }
   return await ctx.decodeAudioData(bytes.buffer);
 }
 
@@ -1157,12 +1500,40 @@ function useAudio() {
     playBuf(isDown?downRef.current:upRef.current, isDown?1.0:0.75);
   }, [playBuf]);
 
+  // Barre samples are fetched the first time one is needed, then kept. A member
+  // who never opens the barre section never downloads them; one who does pays
+  // for that chord only. Each key is requested once — the in-flight promise is
+  // cached, so a fast strum can't start the same download twice.
+  const barrePending = useRef({});
+  const ensureBarre = useCallback((key) => {
+    const ctx = ctxRef.current;
+    if (!ctx || chordBufsRef.current[key] || barrePending.current[key]) return;
+    const url = CHORD_AUDIO_BARRE[key];
+    if (!url) return;
+    barrePending.current[key] = loadBuffer(ctx, url)
+      .then(buf => { chordBufsRef.current[key] = buf; })
+      .catch(() => { delete barrePending.current[key]; });
+  }, []);
+
   const playChordStrum = useCallback((chord, isDown, semitones=0) => {
-    const key=chord+"_"+(isDown?"down":"up");
-    const buf=chordBufsRef.current[key];
+    // A barre chord may be voiced by its nearest recorded neighbour, shifted.
+    // That shift ADDS to whatever the caller passed (the capo), so a capo on a
+    // transposed barre lands on the right pitch. Non-barre chords resolve to
+    // themselves with a zero shift, so nothing else changes.
+    //
+    // A real recording always wins: if the exact sample has been added, use it
+    // untouched and drop the shift.
+    // Kick off the fetch for BOTH directions the moment a barre chord is
+    // touched, so the up-strum is ready before the beat that needs it.
+    if (CHORD_AUDIO_BARRE[chord+"_down"]) { ensureBarre(chord+"_down"); ensureBarre(chord+"_up"); }
+    const exact = chordBufsRef.current[chord+"_"+(isDown?"down":"up")];
+    const r = exact ? { key: chord, shift: 0 } : resolveChordAudio(chord);
+    if (CHORD_AUDIO_BARRE[r.key+"_down"]) { ensureBarre(r.key+"_down"); ensureBarre(r.key+"_up"); }
+    const buf = chordBufsRef.current[r.key+"_"+(isDown?"down":"up")];
     const gainMult = chord.endsWith("_anchor") ? 0.85 : 1.0;
-    playBuf(buf||(isDown?downRef.current:upRef.current), (isDown?1.0:0.75)*gainMult, semitones);
-  }, [playBuf]);
+    playBuf(buf||(isDown?downRef.current:upRef.current),
+      (isDown?1.0:0.75)*gainMult, semitones + r.shift);
+  }, [playBuf, ensureBarre]);
 
   const playChordClick = useCallback((accent) => {
     const ctx=ctxRef.current; if(!ctx) return;
@@ -1174,7 +1545,7 @@ function useAudio() {
     o.start(ctx.currentTime); o.stop(ctx.currentTime+0.09);
   }, []);
 
-  return { init, playClick, playStrum, playChordStrum, playChordClick, ready, getContext: ()=>ctxRef.current };
+  return { init, playClick, playStrum, playChordStrum, playChordClick, ensureBarre, ready, getContext: ()=>ctxRef.current };
 }
 
 // ─── MAIN APP ───────────────────────────────────────────────────────────────
@@ -1224,9 +1595,17 @@ function App() {
   // Landing screen: shown on a clean load (no shared exercise URL). Shared links
   // hit the early returns below and never reach this, so they skip the landing.
   const [view, setView] = useState(hasGenParam ? "app" : "landing"); // "landing" | "app"
-  // Which destination the user picked from the landing. "song" routes to the
-  // hidden Build-a-Song (beta) view; the others are the 3 main tabs.
-  const [dest, setDest] = useState(hasGenParam ? "tracker" : null); // "strum" | "chords" | "tracker" | "song"
+  // Top-level destination. The three practice tools (Chords / Strumming / Song
+  // Builder) are no longer separate tabs — they live together inside the Guitar
+  // Sandbox, which keeps the bottom bar to four items on a phone.
+  //   "sandbox" | "routines" | "tracker" | "devtools"
+  // "generate" is deliberately NOT a destination: it's an action that opens the
+  // generator overlay over whatever you were already doing.
+  const [dest, setDest] = useState(hasGenParam ? "generate" : null);
+
+  // Which tool is showing inside the Sandbox. All three stay mounted (display
+  // toggle) so an in-progress Build or a half-written song survives switching.
+  const [sandboxTool, setSandboxTool] = useState("chords"); // "chords" | "strum" | "song"
 
   // One-shot flag: open the generator overlay as soon as the app shell (and
   // with it ExerciseGeneratorHost) is mounted. Set by the ?generate deep link
@@ -1280,31 +1659,56 @@ function App() {
   }, [view]);
 
   const goHome = () => { setView("landing"); setDest(null); };
-  const pickFromLanding = (id) => { setDest(id); setView("app"); };
-  // Landing's Generate Exercise launcher: enter the app on the Tracker tab and
-  // pop the generator overlay on top of it once the host is mounted.
-  const openGeneratorFromLanding = () => { setDest("tracker"); setView("app"); setPendingGenOpen(true); };
+  // Landing cards map to a destination, and the three tool cards additionally
+  // pick which tool the Sandbox opens on.
+  const pickFromLanding = (id) => {
+    if (id === "chords" || id === "strum" || id === "song") {
+      setSandboxTool(id); setDest("sandbox");
+    } else {
+      setDest(id);
+    }
+    setView("app");
+  };
+  // Generate Exercise is an overlay, not a place. Enter the app on the Sandbox
+  // and pop the generator on top once its host is mounted.
+  //
+  // genFromHomeRef remembers that the member arrived via the landing launcher
+  // (or the ?generate=1 link) rather than the Generate tab. If they back out of
+  // the premium gate, closing the overlay would otherwise strand them in the
+  // Sandbox on Chords — a tab they never chose — so send them home instead.
+  const genFromHomeRef = useRef(hasGenParam);
+  const openGeneratorFromLanding = () => {
+    genFromHomeRef.current = true;
+    setDest("generate"); setView("app");
+  };
+  const handleGeneratorGateCancel = useCallback(() => {
+    if (!genFromHomeRef.current) return;   // opened from the Generate tab — stay put
+    genFromHomeRef.current = false;
+    setView("landing"); setDest(null);
+  }, []);
 
-  // ── Feature gate: Song tab ──
-  // (The Tracker tab is FREE — the 30-Day Challenge is open to everyone; only
-  // the Build custom-tracker inside it is premium, gated within TrackerTab.)
-  // Navigation is never blocked — the feature renders (the peek) and the gate
+  // ── Feature gates ──
+  // Premium: the Song Builder (inside the Sandbox) and My Practice Routines.
+  // FREE: Chords, Strumming and the Tracker — only the Build custom-tracker
+  // inside the Tracker is premium, and that gates itself within TrackerTab.
+  // Navigation is never blocked: the feature renders (the peek) and the gate
   // overlay engages on top. Backing out returns to the last non-gated view.
   const anySharedUrl = hasSharedSong || hasSharedDrill || hasSharedStrum ||
     hasSharedStrumProg || hasSharedPattern || hasSharedPackage;
-  const currentTab = dest || "strum";
-  const gatedTabOpen = !anySharedUrl && view === "app" && dest !== "devtools" &&
-    currentTab === "song";
-  const lastSafeRef = useRef({ view: "landing", dest: null });
+  const currentTab = dest || "sandbox";
+  const onGatedSurface =
+    (currentTab === "sandbox" && sandboxTool === "song") || currentTab === "routines";
+  const gatedTabOpen = !anySharedUrl && view === "app" && dest !== "devtools" && onGatedSurface;
+  const lastSafeRef = useRef({ view: "landing", dest: null, tool: "chords" });
   useEffect(() => {
     if (anySharedUrl) return;
-    if (view === "landing" || (dest !== "song" && dest !== "devtools")) {
-      lastSafeRef.current = { view, dest };
+    if (view === "landing" || (!onGatedSurface && dest !== "devtools")) {
+      lastSafeRef.current = { view, dest, tool: sandboxTool };
     }
-  }, [view, dest, anySharedUrl]);
+  }, [view, dest, sandboxTool, onGatedSurface, anySharedUrl]);
   useFeatureGate(gatedTabOpen, () => {
-    const prev = lastSafeRef.current || { view: "landing", dest: null };
-    setView(prev.view); setDest(prev.dest);
+    const prev = lastSafeRef.current || { view: "landing", dest: null, tool: "chords" };
+    setView(prev.view); setDest(prev.dest); setSandboxTool(prev.tool || "chords");
   });
 
   // Fade the tab content in when entering the app and on each tab switch.
@@ -1312,8 +1716,13 @@ function App() {
   // Uses a keyframe animation re-triggered via forced reflow so it always runs
   // without remounting the (state-holding) tab components.
   const fadeRef = useRef(null);
-  const fadeKey = view + "/" + (dest || "strum");
+  const fadeKey = view + "/" + (dest || "sandbox");
   useEffect(() => {
+    // Start every view at the top. Tabs are toggled with display:none inside one
+    // long scrolling page, so the window keeps whatever offset you had — and the
+    // My Tracker card sits near the BOTTOM of the home screen, so tapping it
+    // dropped you into the tracker already scrolled past its own pills.
+    try { window.scrollTo(0, 0); } catch (_) {}
     const el = fadeRef.current;
     if (!el) return;
     el.style.animation = "none";
@@ -1322,19 +1731,48 @@ function App() {
     el.style.animation = "ntcFadeIn 0.4s ease both";
   }, [fadeKey]);
 
-  const handleTabChange = (newTab) => {
-    // Tell whichever tab is playing to stop (it listens for this event). This
-    // avoids passing reactive props that would trigger cross-component updates.
-    try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(e){}
-    setDest(newTab);
-  };
+  // ── Contextual nav ──
+  // The pill bar shows only the section you're in, mirroring the two boxes on
+  // the home screen. Entering from a Guitar Sandbox card gives you the three
+  // tools (plus the generator); entering from My Tracker or My Practice
+  // Routines gives you just those two. Home is the switch between sections.
+  const section = (activeTabId) =>
+    (activeTabId === "tracker" || activeTabId === "routines") ? "yours" : "sandbox";
+  // (generate falls through to "sandbox" — it sits in that box on the home screen)
+  const currentSection = section(dest || "sandbox");
 
-  const tabs = [
-    { id:"strum",   label:"🎸 Strumming" },
-    { id:"chords",  label:"🤚 Chords" },
-    { id:"song",    label:"🎵 Song" },
-    { id:"tracker", label:"🔥 Tracker" },
+  const SANDBOX_PILLS = [
+    { id:"chords",   label:"🤚 Chords" },
+    { id:"strum",    label:"🎸 Strum" },
+    { id:"song",     label:"🎵 Song", locked:true },
+    { id:"generate", label:"⚡ Generate", locked:true },
   ];
+  const YOURS_PILLS = [
+    { id:"tracker",  label:"🔥 My Tracker" },
+    { id:"routines", label:"📋 Routines", locked:true },
+  ];
+  const tabs = currentSection === "yours" ? YOURS_PILLS : SANDBOX_PILLS;
+
+  // In the Sandbox the pills drive which TOOL is showing; in Yours they drive
+  // the destination itself.
+  const pillValue = dest === "generate" ? "generate"
+    : currentSection === "yours" ? (dest || "tracker")
+    : sandboxTool;
+  const onPillClick = (id) => {
+    try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(e){}
+    // Generate is a real destination now — it renders inside the shell with the
+    // pills and home button still on screen, like every other tab.
+    if (id === "generate") { setDest("generate"); return; }
+    if (currentSection === "yours") setDest(id);
+    else {
+      // Set BOTH. Coming from the Generate tab, changing only the tool left
+      // dest === "generate", so the generator stayed on screen and the tap
+      // looked like the app had frozen — with the gate's click-blocker still
+      // up, there was then no way back out.
+      setSandboxTool(id);
+      setDest("sandbox");
+    }
+  };
 
   // Share view — clean layout, no tabs
   const anyShared = hasSharedSong || hasSharedDrill || hasSharedStrum || hasSharedStrumProg || hasSharedPattern || hasSharedPackage;
@@ -1372,6 +1810,7 @@ function App() {
   if(view === "landing") {
     return <LandingScreen onPick={pickFromLanding} streak={landingStreak}
       onGenerate={openGeneratorFromLanding}
+      premiumLocked={auth.enabled && !auth.authorized}
       isDev={isDev} onDev={() => { setView("app"); setDest("devtools"); }} />;
   }
 
@@ -1404,7 +1843,7 @@ function App() {
   }
 
   // ── Main app: 4-tab shell (Strumming / Chords / Song / Tracker) ──
-  const activeTab = dest || "strum";
+  const activeTab = dest || "sandbox";
   return (
     <div style={{ minHeight:"100vh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
@@ -1429,22 +1868,28 @@ function App() {
         padding:"6px 16px 14px",
         background:"linear-gradient(180deg, rgba(13,11,8,0.96) 0%, rgba(13,11,8,0.85) 55%, rgba(13,11,8,0) 100%)",
         backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)" }}>
-        <div style={{ display:"flex", gap:8, maxWidth:520, margin:"0 auto" }}>
+        <div style={{ display:"flex", gap:8, maxWidth:560, margin:"0 auto" }}>
           {tabs.map(t => {
-            const on = activeTab === t.id;
+            const on = pillValue === t.id;
             return (
-              <button key={t.id} onClick={()=>handleTabChange(t.id)} style={{
-                flex:1, position:"relative", padding:"12px 8px", borderRadius:14,
+              <button key={t.id} onClick={()=>onPillClick(t.id)} style={{
+                // minWidth:0 lets a flex item shrink BELOW its text width. Without
+                // it, four nowrap pills refused to shrink and pushed the page
+                // ~62px wide at 320px and ~7px at 375px — the "doesn't fit my
+                // screen" reports. clamp() keeps the label readable as it tightens.
+                flex:"1 1 0", minWidth:0,
+                position:"relative", padding:`12px clamp(3px, 1.6vw, 10px)`, borderRadius:14,
                 border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
                 background: on
                   ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #16110a"
                   : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.05) 0%, rgba(255,170,30,0) 60%), #100d09",
                 color: on ? "#FFD60A" : "#8a7f5e",
-                fontSize:13, fontWeight:800, letterSpacing:0.3, cursor:"pointer",
-                whiteSpace:"nowrap", fontFamily:"inherit",
+                fontSize: "clamp(11px, 3.1vw, 13px)",
+                fontWeight:800, letterSpacing:0.3,
+                cursor:"pointer", whiteSpace:"nowrap", fontFamily:"inherit",
                 boxShadow: on ? "0 0 22px rgba(255,160,20,0.18), inset 0 1px 0 rgba(255,255,255,0.04)" : "none",
                 transition:"all 0.22s ease",
-              }}>{t.label}{t.id==="song" && auth.enabled && !auth.authorized && <GateLockBadge />}</button>
+              }}>{t.label}{t.locked && auth.enabled && !auth.authorized && <GateLockBadge />}</button>
             );
           })}
         </div>
@@ -1454,11 +1899,17 @@ function App() {
           The visible tab fades in via the ntcFadeIn keyframe on each switch. */}
       <style>{`@keyframes ntcFadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }`}</style>
       <div ref={fadeRef} style={{ animation:"ntcFadeIn 0.4s ease both" }}>
-        <div style={{ display: activeTab==="strum" ? "block" : "none" }}>
-          <StrummingTab audio={audio} active={activeTab==="strum"} />
+        {/* ── GUITAR SANDBOX — Chords / Strumming / Song Builder ──
+            All three stay mounted so switching tools never throws away an
+            in-progress Build or a half-written song. */}
+        {/* No second pill row here — the single contextual bar above already
+            shows this section's tools. */}
+        <div style={{ display: activeTab==="sandbox" ? "block" : "none" }}>
+        <div style={{ display: activeTab==="sandbox" && sandboxTool==="strum" ? "block" : "none" }}>
+          <StrummingTab audio={audio} active={activeTab==="sandbox" && sandboxTool==="strum"} />
         </div>
-        <div style={{ display: activeTab==="chords" ? "block" : "none" }}>
-          <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} active={activeTab==="chords"} />
+        <div style={{ display: activeTab==="sandbox" && sandboxTool==="chords" ? "block" : "none" }}>
+          <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} active={activeTab==="sandbox" && sandboxTool==="chords"} />
         </div>
         {/* key={syncEpoch}: after a cloud progress pull that CHANGED localStorage
             (at most once per sign-in), remount the Song tab so merged saved
@@ -1468,17 +1919,26 @@ function App() {
             remounting them would reset an in-progress Build mode — and the
             Tracker refreshes itself in place (see TrackerTab) so a member who
             signed in from the Build tracker stays standing in Build. */}
-        <div key={"sync-song"+auth.syncEpoch} style={{ display: activeTab==="song" ? "block" : "none" }}>
+        <div key={"sync-song"+auth.syncEpoch} style={{ display: activeTab==="sandbox" && sandboxTool==="song" ? "block" : "none" }}>
           <SongBuilderTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant}
             isDev={isDev} onOpenDev={() => setDest("devtools")} />
+        </div>
+        </div>{/* end Guitar Sandbox */}
+
+        <div key={"sync-routines"+auth.syncEpoch} style={{ display: activeTab==="routines" ? "block" : "none" }}>
+          <PracticeRoutinesTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant}
+            active={activeTab==="routines"} />
         </div>
         <div style={{ display: activeTab==="tracker" ? "block" : "none" }}>
           <TrackerTab active={activeTab==="tracker"} />
         </div>
+        <div style={{ display: activeTab==="generate" ? "block" : "none" }}>
+          <ExerciseGeneratorHost audio={audio} chordVariants={chordVariants} updateVariant={updateVariant}
+            context="app" inline active={activeTab==="generate"}
+            onGateCancel={handleGeneratorGateCancel} />
+        </div>
       </div>
 
-      {/* Exercise Generator — opened by the launcher on any tracker */}
-      <ExerciseGeneratorHost audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} context="app" />
     </div>
   );
 }
@@ -1845,10 +2305,21 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
   const totalBlocks = mode==="build" ? rowSizes.reduce((a,b)=>a+b,0) : 8;
   const displayPattern = pattern ? pattern.active : Array(8).fill(true);
 
-  // Export current build pattern as a strum payload (for the Package builder).
+  // What a "use this" export contains. This read buildActive unconditionally,
+  // which is only the Build grid — so with the Practice tab restored below, a
+  // preset pattern would have exported an empty 64-slot grid instead of the
+  // eight beats actually on screen. It now follows whichever mode is showing.
+  const inPracticeMode = mode === "practice";
+  const exportReady = inPracticeMode ? !!pattern : buildActive.some(Boolean);
+  const exportName = inPracticeMode
+    ? (pattern ? pattern.name : "Strum")
+    : (sharedViewName || "Strum");
   const exportPayload = () => {
-    const ba=[...buildActive]; while(ba.length<64) ba.push(false);
-    return encodeStrumDrill(sharedViewName||"Strum", ba, rowSizes, [], bpm, 2, {}, 0);
+    // A preset is a single 8-beat row; the builder can be several rows.
+    const src = inPracticeMode ? displayPattern : buildActive;
+    const sizes = inPracticeMode ? [8] : rowSizes;
+    const ba = [...src]; while (ba.length < 64) ba.push(false);
+    return encodeStrumDrill(exportName, ba, sizes, [], bpm, 2, {}, 0);
   };
 
   return (
@@ -1857,25 +2328,34 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
 
       {onExport && (
         <div style={{ width:"100%", marginBottom:12 }}>
-          <button onClick={()=>onExport("strum", exportPayload(), "Strum pattern")}
+          <button onClick={()=>onExport("strum", exportPayload(), exportName)}
+            disabled={!exportReady}
             style={{ width:"100%", padding:"12px", borderRadius:12,
               border:"1px solid rgba(255,190,11,0.5)",
-              background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
-              color:"#FFD60A", fontSize:14, fontWeight:900, cursor:"pointer", fontFamily:"inherit" }}>
-            ✓ Use this in package
+              background: exportReady ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a" : "#100d09",
+              color: exportReady ? "#FFD60A" : "#3a3528", fontSize:14, fontWeight:900,
+              cursor: exportReady ? "pointer" : "not-allowed", fontFamily:"inherit" }}>
+            {exportReady ? "✓ Use this in package"
+              : inPracticeMode ? "Pick a pattern first" : "Tap some beats first"}
           </button>
         </div>
       )}
 
-      {!sharedView && (
-        <>
-          <SectionHeader title="Foundations of Strumming"
-            sub="Every pattern uses the same motion — ghost strokes keep the rhythm, they just miss the strings." />
+      {/* The teaching header is dead weight when building one step for a
+          routine — that modal has its own title. */}
+      {!sharedView && !onExport && (
+        <SectionHeader title="Foundations of Strumming"
+          sub="Every pattern uses the same motion — ghost strokes keep the rhythm, they just miss the strings." />
+      )}
 
-          <ModeTabs options={[["practice","🎸 Practice"],["build","🛠 Build"]]}
-            locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
-            value={mode} onChange={m=>{ setMode(m); stopMetronome(); setIsPlaying(false); }} />
-        </>
+      {/* Practice / Build. Shown when building a step too. It used to be
+          hidden there, and the mode was forced to "build" — so the three ready
+          made patterns were unreachable and every strum step had to be tapped
+          out beat by beat. */}
+      {!sharedView && (
+        <ModeTabs options={[["practice","🎸 Practice"],["build","🛠 Build"]]}
+          locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
+          value={mode} onChange={m=>{ setMode(m); stopMetronome(); setIsPlaying(false); }} />
       )}
 
       {/* Chord selector — draggable carousel (non-anchored voicings) */}
@@ -1896,7 +2376,10 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
             <span style={{ fontSize:17, fontWeight:700 }}>Universal Strumming </span>
             <span style={{ fontSize:17, fontWeight:700, color:"#FFBE0B" }}>"Motion"</span>
           </div>
-          <div style={{ display:"flex", gap:7, marginBottom:10 }}>
+          {/* justifyContent centres the eight arrows once they hit their 40px
+              cap on a wide screen; below that they simply fill the row. */}
+          <div style={{ display:"flex", gap:"min(7px, 1.9vw)", marginBottom:10,
+            width:"100%", justifyContent:"center" }}>
             {(pattern ? displayPattern : Array(8).fill(true)).map((a,i)=>(
               <Arrow key={i} dir={DIRS16[i]} active={a} dim={pattern ? !a : false} beat={currentBeat===i&&isPlaying} />
             ))}
@@ -1939,10 +2422,12 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
         canPlay={true} countdown={countdown}
         onScrubStart={()=>{ if(isPlaying){ scrubbingRef.current=true; stopMetronome(); } }}
         onScrubEnd={()=>{ if(scrubbingRef.current){ scrubbingRef.current=false; startMetronome(); } }} />
-      {/* Copyright */}
-      <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
-        © {new Date().getFullYear()} No Theory Club · All rights reserved.
-      </div>
+      {/* Copyright — page furniture, not wanted inside a build-a-step modal. */}
+      {!onExport && (
+        <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
+          © {new Date().getFullYear()} No Theory Club · All rights reserved.
+        </div>
+      )}
     </div>
   );
 }
@@ -2237,8 +2722,21 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
     };
   }, [stopMetronome]); // eslint-disable-line
 
-  // Export current build-mode drill as a drill payload (for the Package builder).
-  const exportPayload = () => encodeChordDrill(customChords, bpm, beatsPerChord, loadedDrillName||"Chords", {...chordVariants}, randomOrder);
+  // What a "use this" export actually contains. This used to read customChords
+  // unconditionally, which only holds the Build-Your-Own list — so exporting
+  // while a preset pack was selected would have sent an empty drill. It now
+  // takes whichever list is on screen.
+  //
+  // Pack #1 is the anchored pack, so its chords go out as "_anchor" slot keys
+  // rather than relying on a chordVariants map travelling with them. The slot
+  // key is self-describing: wherever that step is later rendered it is still
+  // the anchored shape.
+  const exportChords = viewMode === "build"
+    ? customChords
+    : (pack ? (pack.useAnchors ? pack.chords.map(c => ANCHOR_SWAP[c] || c) : pack.chords) : []);
+  const exportName = loadedDrillName
+    || (viewMode === "presets" && pack ? pack.name : "Chords");
+  const exportPayload = () => encodeChordDrill(exportChords, bpm, beatsPerChord, exportName, {...chordVariants}, randomOrder);
 
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center",
@@ -2246,28 +2744,35 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
 
       {onExport && (
         <div style={{ width:"100%", marginBottom:12 }}>
-          <button onClick={()=>onExport("drill", exportPayload(), loadedDrillName||(customChords.length?customChords.map(slotLabel).join(" "):"Chords"))}
-            disabled={customChords.length<2}
+          <button onClick={()=>onExport("drill", exportPayload(),
+              loadedDrillName || (exportChords.length ? exportChords.map(slotLabel).join(" ") : "Chords"))}
+            disabled={exportChords.length<2}
             style={{ width:"100%", padding:"12px", borderRadius:12,
               border:"1px solid rgba(255,190,11,0.5)",
-              background: customChords.length<2 ? "#100d09" : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
-              color: customChords.length<2 ? "#3a3528" : "#FFD60A", fontSize:14, fontWeight:900,
-              cursor: customChords.length<2 ? "not-allowed" : "pointer", fontFamily:"inherit" }}>
+              background: exportChords.length<2 ? "#100d09" : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+              color: exportChords.length<2 ? "#3a3528" : "#FFD60A", fontSize:14, fontWeight:900,
+              cursor: exportChords.length<2 ? "not-allowed" : "pointer", fontFamily:"inherit" }}>
             ✓ Use this in package
           </button>
         </div>
       )}
 
-      {!sharedView && (
-        <>
-          <SectionHeader title="Chord Switching"
-            sub={<>The goal is a clean chord <em style={{color:"#666"}}>before</em> the beat hits.</>} />
+      {/* See the note in StrummingTab — same reasoning. */}
+      {!sharedView && !onExport && (
+        <SectionHeader title="Chord Switching"
+          sub={<>The goal is a clean chord <em style={{color:"#666"}}>before</em> the beat hits.</>} />
+      )}
 
-          <ModeTabs options={[["presets","🎵 Presets"],["build","🛠 Build Your Own"]]}
-            locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
-            value={viewMode} onChange={m=>{ setViewMode(m); stopMetronome(); setIsPlaying(false);
-              setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }} />
-        </>
+      {/* Presets / Build Your Own. This is shown when building a step for a
+          routine or package too. It used to be hidden there, which left the
+          builder permanently stuck in Build Your Own with no way back to the
+          packs — you had to hand-pick four chords to recreate a pack that was
+          already sitting one tap away. */}
+      {!sharedView && (
+        <ModeTabs options={[["presets","🎵 Presets"],["build","🛠 Build Your Own"]]}
+          locked={!onExport && auth.enabled && !auth.authorized ? ["build"] : []}
+          value={viewMode} onChange={m=>{ setViewMode(m); stopMetronome(); setIsPlaying(false);
+            setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }} />
       )}
 
       {!sharedView && viewMode==="presets" && (
@@ -2278,18 +2783,19 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
               const p=CHORD_PACKS[num], isActive=selectedPack===num;
               return (
                 <button key={num} onClick={()=>{ if(isPlaying){stopMetronome();setIsPlaying(false);}
-                  setSelectedPack(num); setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }} style={{
+                  setSelectedPack(num); setChordIndex(0); setBeatCount(0); beatRef.current=0; chordRef.current=0; }}
+                  style={{
                   padding:"12px 18px", borderRadius:14,
                   border: isActive ? `2px solid ${p.color}` : "2px solid #2a2210",
                   background: isActive ? `rgba(${hexToRgb(p.color)}, 0.1)` : "#111",
                   cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between",
                   transition:"all 0.18s",
                 }}>
-                  <div style={{ textAlign:"left" }}>
+                  <div style={{ textAlign:"left", flex:"0 1 auto" }}>
                     <div style={{ fontSize:13, fontWeight:700, color:isActive?p.color:"#888" }}>{p.name}</div>
                     <div style={{ fontSize:11, color:"#555", marginTop:1 }}>{p.label}</div>
                   </div>
-                  <div style={{ display:"flex", gap:6 }}>
+                  <div style={{ display:"flex", gap:6, flex:"0 0 auto" }}>
                     {p.chords.map(c=>(
                       <div key={c} style={{ width:30, height:30, borderRadius:8,
                         background:isActive?`rgba(${hexToRgb(p.color)},0.15)`:"#111009",
@@ -2436,7 +2942,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
                       savedAt:new Date().toLocaleDateString() };
                     const updated=[...savedDrills, drill];
                     setSavedDrills(updated);
-                    localStorage.setItem(STORAGE_KEYS.drills, JSON.stringify(updated));
+                    safeSetItem(STORAGE_KEYS.drills, JSON.stringify(updated));
                     setDrillSavePrompt(false); setDrillSaveName(""); setShowSavedDrills(true);
                   }}}
                   placeholder="e.g. G C G D practice..."
@@ -2451,7 +2957,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
                     savedAt:new Date().toLocaleDateString() };
                   const updated=[...savedDrills, drill];
                   setSavedDrills(updated);
-                  localStorage.setItem(STORAGE_KEYS.drills, JSON.stringify(updated));
+                  safeSetItem(STORAGE_KEYS.drills, JSON.stringify(updated));
                   setDrillSavePrompt(false); setDrillSaveName(""); setShowSavedDrills(true);
                 }} style={{ padding:"9px 16px", borderRadius:10, border:"none",
                   background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
@@ -2525,7 +3031,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
                     <button onClick={()=>{
                       const updated = savedDrills.filter(x=>x.id!==d.id);
                       setSavedDrills(updated);
-                      localStorage.setItem(STORAGE_KEYS.drills, JSON.stringify(updated));
+                      safeSetItem(STORAGE_KEYS.drills, JSON.stringify(updated));
                     }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                       background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
                   </div>
@@ -2953,7 +3459,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     } else if(encoded) {
       // Legacy ?song= URL
       try {
-        const d = JSON.parse(atob(encoded));
+        const d = JSON.parse(b64Decode(encoded));
         if(d.secs) setSections(decodeSections(d.secs));
         if(d.b) setBpm(d.b);
         if(d.c) setCapo(d.c);
@@ -3023,7 +3529,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       {/* Sticky section title */}
       <div style={{
         position:"sticky", top:0, zIndex:50,
-        background:"rgba(6,6,5,0.97)", backdropFilter:"blur(12px)",
+        background:"rgba(6,6,5,0.97)", backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)",
         borderBottom:"1px solid #1a1a1a",
         padding:"10px 16px", textAlign:"center", marginBottom:8,
       }}>
@@ -3150,7 +3656,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       {/* Fixed bottom bar */}
       <div style={{
         position:"fixed", bottom:0, left:0, right:0, zIndex:200,
-        background:"rgba(6,6,5,0.97)", backdropFilter:"blur(16px)",
+        background:"rgba(6,6,5,0.97)", backdropFilter:"blur(16px)", WebkitBackdropFilter:"blur(16px)",
         borderTop:"1px solid rgba(255,190,11,0.18)",
         padding:"10px 16px 14px",
         boxShadow:"0 -8px 32px rgba(0,0,0,0.6)",
@@ -3608,7 +4114,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       {assignSectionId && (
         <div style={{
           position:"fixed", bottom:0, left:0, right:0, zIndex:300,
-          background:"rgba(6,6,5,0.98)", backdropFilter:"blur(16px)",
+          background:"rgba(6,6,5,0.98)", backdropFilter:"blur(16px)", WebkitBackdropFilter:"blur(16px)",
           borderTop:"2px solid rgba(255,190,11,0.35)",
           padding:"10px 16px 16px",
           boxShadow:"0 -8px 32px rgba(0,0,0,0.7)",
@@ -3661,7 +4167,7 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
       {showReorderModal && (
         <div onClick={()=>setShowReorderModal(false)} style={{
           position:"fixed", inset:0, zIndex:400,
-          background:"rgba(0,0,0,0.85)", backdropFilter:"blur(6px)",
+          background:"rgba(0,0,0,0.85)", backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)",
           display:"flex", alignItems:"center", justifyContent:"center",
           padding:"24px 16px",
         }}>
@@ -3954,7 +4460,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       savedAt:new Date().toLocaleDateString() };
     const updated = [...savedPatterns, pattern];
     setSavedPatterns(updated);
-    localStorage.setItem(STORAGE_KEYS.strum, JSON.stringify(updated));
+    safeSetItem(STORAGE_KEYS.strum, JSON.stringify(updated));
     setSavePrompt(false); setSaveName(""); setShowSaved(true);
   };
 
@@ -4209,7 +4715,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                     <button onClick={()=>{
                       const updated=savedPatterns.filter(x=>x.id!==p.id);
                       setSavedPatterns(updated);
-                      localStorage.setItem(STORAGE_KEYS.strum, JSON.stringify(updated));
+                      safeSetItem(STORAGE_KEYS.strum, JSON.stringify(updated));
                     }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                       background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
                   </div>
@@ -4498,7 +5004,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                       <button onClick={()=>{
                         const updated=savedPatterns.filter(x=>x.id!==p.id);
                         setSavedPatterns(updated);
-                        localStorage.setItem(STORAGE_KEYS.strum, JSON.stringify(updated));
+                        safeSetItem(STORAGE_KEYS.strum, JSON.stringify(updated));
                       }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                         background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
                     </div>
@@ -4656,8 +5162,28 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
 
   const startMetronome = useCallback(()=>{
     if(intervalRef.current) clearInterval(intervalRef.current);
-    strumBeatRef.current=-1; currentChordRef.current=null;
-    // Don't reset currentChordLabel here to avoid layout jump
+    strumBeatRef.current=-1;
+    // Seed the chord that is ALREADY in effect at block 0.
+    //
+    // Chord assignments only mark where a chord CHANGES, so a pattern whose
+    // first block carries no assignment is still "in" the last chord of the
+    // loop. This used to reset to null, so on the very first pass tick() found
+    // no chord at block 0 and skipped the strum entirely — the opening down
+    // strum was silent. From the second lap on it worked, because the ref still
+    // held the previous lap's chord, which is what made it look intermittent.
+    //
+    // Scan is bounded to the blocks actually in use (blockChords is a fixed
+    // 80-slot array; rowSizes defines the live flat range). If block 0 does
+    // carry its own assignment, tick() overwrites this immediately.
+    const bc = blockChordsRef.current;
+    const usedBlocks = rowSizesRef.current.reduce((a,b)=>a+b,0);
+    let seedChord = null;
+    for(let i=Math.min(usedBlocks, bc.length)-1; i>=0; i--){
+      if(bc[i]){ seedChord = bc[i]; break; }
+    }
+    currentChordRef.current = seedChord;
+    if(seedChord) setCurrentChordLabel(seedChord);
+    // Don't otherwise reset currentChordLabel here to avoid layout jump
     const ms=(60/bpmRef.current/2)*1000;
     intervalRef.current=setInterval(tick,ms);
     tick();
@@ -4726,7 +5252,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     };
     const updated = [...savedPatterns, pattern];
     setSavedPatterns(updated);
-    localStorage.setItem(STORAGE_KEYS.patterns, JSON.stringify(updated));
+    safeSetItem(STORAGE_KEYS.patterns, JSON.stringify(updated));
     setSavePrompt(false);
     setSaveName("");
     setShowSaved(true);
@@ -4755,7 +5281,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       b: bpm,
       c: capo||0,
     };
-    return btoa(JSON.stringify(sparse));
+    return b64Encode(JSON.stringify(sparse));
   };
 
   const handleShare = (p) => {
@@ -4769,7 +5295,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
         b: p.bpm,
         c: p.capo||0,
       };
-      const encoded = btoa(JSON.stringify(sparse));
+      const encoded = b64Encode(JSON.stringify(sparse));
       const url = `${window.location.origin}${window.location.pathname}?pattern=${encoded}`;
       navigator.clipboard.writeText(url).then(()=>{
         alert(`✅ Link copied!\n\nShare it with anyone — they can open it and load "${p.name}" directly.`);
@@ -4783,7 +5309,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       const params = new URLSearchParams(initialParam!=null ? "" : window.location.search);
       const encoded = initialParam!=null ? initialParam : params.get("pattern");
       if(!encoded) return;
-      const d = JSON.parse(atob(encoded));
+      const d = JSON.parse(b64Decode(encoded));
       setRowSizes(d.rs||[8]);
       setRowRepeats(d.rr||d.rs?.map(()=>1)||[1]);
       // Support both sparse (array of indices) and legacy (full array)
@@ -4815,7 +5341,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
   const handleDelete = (id) => {
     const updated = savedPatterns.filter(p=>p.id!==id);
     setSavedPatterns(updated);
-    localStorage.setItem(STORAGE_KEYS.patterns, JSON.stringify(updated));
+    safeSetItem(STORAGE_KEYS.patterns, JSON.stringify(updated));
   };
 
   const handleTogglePlay = async()=>{
@@ -4903,6 +5429,50 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
   const carouselNext    = (isPlaying || countIn > 0) ? nextChordLabel    : _preNext;
   const carouselPrev    = (isPlaying || countIn > 0) ? prevChordLabel    : null;
   const nextIsIncoming  = blocksUntilNext <= 3;
+
+  // ── Shared control styling ──────────────────────────────────────────────
+  // Advanced used to carry its own dev-tools styling (a green Play button, a
+  // bare accentColor slider), which read as a different app once it moved into
+  // the Song tab. These match the Song tab's control panel exactly. Defined
+  // once because the BPM + Play block renders twice — view mode and builder
+  // mode — and the two had already drifted apart.
+  const playing = isPlaying || countIn > 0;
+  const playBtnStyle = {
+    padding:"14px", borderRadius:14,
+    border: playing ? "1px solid rgba(231,76,60,0.5)" : "1px solid rgba(255,190,11,0.5)",
+    background: playing
+      ? "radial-gradient(120% 160% at 50% 0%, rgba(231,76,60,0.18) 0%, rgba(231,76,60,0) 70%), #1a0f0c"
+      : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+    color: playing ? "#ff8a7a" : "#FFD60A",
+    fontSize:16, fontWeight:900, letterSpacing:0.5, cursor:"pointer",
+    boxShadow: playing ? "0 0 22px rgba(231,76,60,0.2)" : "0 0 22px rgba(255,160,20,0.22)",
+    fontFamily:"inherit", transition:"all 0.2s",
+  };
+  const playBtnLabel = countIn > 0
+    ? <><span style={{ fontSize:22, fontWeight:900 }}>{countIn}</span>
+        <span style={{ fontSize:11, fontWeight:700, opacity:0.7, marginLeft:8 }}>tap to skip</span></>
+    : isPlaying ? "⏹ Stop" : "▶ Start";
+
+  const bpmControls = (
+    <>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+        <span style={{ fontSize:12, fontWeight:800, color:"#d8cba0" }}>BPM</span>
+        <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
+      </div>
+      <input type="range" min={20} max={160} value={bpm} className="ntc-bpm-slider"
+        onChange={e=>setBpm(Number(e.target.value))} style={{ marginBottom:6, width:"100%" }} />
+      <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:14 }}>
+        {[40,60,80,100].map(b=>(
+          <button key={b} onClick={()=>setBpm(b)} style={{
+            flex:1, maxWidth:90, padding:"10px 0", borderRadius:12,
+            border:`1px solid ${bpm===b ? "rgba(255,190,11,0.5)" : "#241d10"}`,
+            background:bpm===b?"rgba(255,190,11,0.1)":"#100d09",
+            color:bpm===b?"#FFD60A":"#8a7f5e", fontSize:14, fontWeight:800, cursor:"pointer",
+            fontFamily:"inherit", transition:"all 0.2s" }}>{b}</button>
+        ))}
+      </div>
+    </>
+  );
 
   return (
     <>
@@ -5179,36 +5749,17 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
           {/* ── BPM + Play ── */}
           <div style={{ width:"100%", background:"#111", border:"1px solid #2a2a2a",
             borderRadius:14, padding:"14px", marginBottom:14 }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-              <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
-              <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
-            </div>
-            <input type="range" min={20} max={160} value={bpm} onChange={e=>setBpm(Number(e.target.value))}
-              style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
-            <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-              {[40,60,80,100].map(b=>(
-                <button key={b} onClick={()=>setBpm(b)} style={{
-                  flex:1, padding:"5px 0", borderRadius:8,
-                  border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
-                  background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
-                  color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
-              ))}
-            </div>
+            {bpmControls}
             <div style={{ display:"flex", gap:8, marginBottom:10 }}>
-              <button onClick={handleTogglePlay} style={{
-                flex:1, padding:"11px", borderRadius:12, border:"none",
-                background:countIn>0?"linear-gradient(135deg,#a06000,#c87800)":isPlaying?"linear-gradient(135deg,#c0392b,#e74c3c)":"linear-gradient(135deg,#1a6b3c,#27ae60)",
-                color:"#fff", fontSize:countIn>0?22:15, fontWeight:800, cursor:"pointer", transition:"all 0.15s",
-                boxShadow:countIn>0?"0 4px 16px rgba(255,190,11,0.3)":isPlaying?"0 4px 16px rgba(231,76,60,0.4)":"0 4px 16px rgba(39,174,96,0.4)",
-              }}>
-                {countIn>0?<><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>:isPlaying?"⏹ Stop":"▶ Start"}
+              <button onClick={handleTogglePlay} style={{ ...playBtnStyle, flex:1 }}>
+                {playBtnLabel}
               </button>
               <button onClick={()=>setMuteMetronome(m=>!m)} style={{
-                padding:"11px 14px", borderRadius:12,
-                border: muteMetronome?"2px solid #e74c3c":"1px solid #2a2a2a",
-                background: muteMetronome?"rgba(231,76,60,0.1)":"#111",
-                color: muteMetronome?"#e74c3c":"#666",
-                fontSize:18, cursor:"pointer",
+                padding:"14px 16px", borderRadius:14,
+                border: muteMetronome ? "1px solid rgba(231,76,60,0.5)" : "1px solid #241d10",
+                background: muteMetronome ? "rgba(231,76,60,0.1)" : "#100d09",
+                color: muteMetronome ? "#ff8a7a" : "#8a7f5e",
+                fontSize:18, cursor:"pointer", fontFamily:"inherit", transition:"all 0.2s",
               }}>{muteMetronome?"🔇":"🔔"}</button>
             </div>
           </div>
@@ -5251,41 +5802,6 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
           </div>
         )}
         {!loadedPatternName && <div style={{ marginBottom:12 }} />}
-        <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
-          padding:"12px 14px", marginBottom:14 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-            <span style={{ fontSize:12, fontWeight:700, color:"#888" }}>BPM</span>
-            <span style={{ fontSize:14, fontWeight:900, color:"#FFBE0B" }}>{bpm}</span>
-          </div>
-          <input type="range" min={20} max={160} value={bpm}
-            onChange={e=>setBpm(Number(e.target.value))}
-            style={{ width:"100%", accentColor:"#FFBE0B", cursor:"pointer", marginBottom:8 }} />
-          <div style={{ display:"flex", gap:6, justifyContent:"center", marginBottom:10 }}>
-            {[40,60,80,100].map(b=>(
-              <button key={b} onClick={()=>setBpm(b)} style={{
-                flex:1, padding:"5px 0", borderRadius:8,
-                border:bpm===b?"1px solid #FFBE0B":"1px solid #2a2210",
-                background:bpm===b?"rgba(255,190,11,0.15)":"#0a0a0a",
-                color:bpm===b?"#FFBE0B":"#555", fontSize:11, fontWeight:700, cursor:"pointer" }}>{b}</button>
-            ))}
-          </div>
-          <button onClick={handleTogglePlay} style={{
-            width:"100%", padding:"11px", borderRadius:12, border:"none",
-            background: countIn>0 ? "linear-gradient(135deg,#a06000,#c87800)"
-              : isPlaying ? "linear-gradient(135deg,#c0392b,#e74c3c)"
-              : "linear-gradient(135deg,#1a6b3c,#27ae60)",
-            color:"#fff", fontSize: countIn>0 ? 22 : 15, fontWeight:800,
-            cursor:"pointer", transition:"all 0.15s",
-            boxShadow: countIn>0 ? "0 4px 16px rgba(255,190,11,0.3)"
-              : isPlaying ? "0 4px 16px rgba(231,76,60,0.4)"
-              : "0 4px 16px rgba(39,174,96,0.4)",
-          }}>
-            {countIn>0
-              ? <><div style={{fontSize:22,fontWeight:900,lineHeight:1}}>{countIn}</div><div style={{fontSize:10,fontWeight:700,opacity:0.75,marginTop:3}}>tap to skip</div></>
-              : isPlaying ? "⏹ Stop" : "▶ Start"
-            }
-          </button>
-        </div>
 
         <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:14, flexWrap:"wrap" }}>
           <button onClick={()=>setAssignMode(m=>!m)} style={{
@@ -5322,11 +5838,19 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
           </div>
         </div>
 
-        {/* Chord picker — fixed bottom panel when in assign mode */}
-        {assignMode && (
+        {/* Chord picker — fixed bottom panel when in assign mode.
+            PORTALED TO <body>. The tab shell wraps its content in a div running
+            `animation: ntcFadeIn ... both`, and `both` keeps the keyframe's
+            transform applied forever. A transformed ancestor makes
+            position:fixed resolve against THAT element instead of the viewport,
+            so this bar pinned to the bottom of the tab content and you had to
+            scroll to the end of the page to reach it. Same trap the Song tab
+            already hit with its voicing modal — same fix. */}
+        {assignMode && createPortal(
           <div style={{
             position:"fixed", bottom:0, left:0, right:0, zIndex:300,
-            background:"rgba(6,6,5,0.98)", backdropFilter:"blur(16px)",
+            fontFamily:"'Trebuchet MS', sans-serif",
+            background:"rgba(6,6,5,0.98)", backdropFilter:"blur(16px)", WebkitBackdropFilter:"blur(16px)",
             borderTop:"2px solid rgba(255,190,11,0.35)",
             padding:"10px 16px 16px",
             boxShadow:"0 -8px 32px rgba(0,0,0,0.7)",
@@ -5363,7 +5887,8 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
                 ))}
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {(() => {
@@ -5460,6 +5985,18 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
             );
           });
         })()}
+
+        {/* Tempo + Start sit BELOW the grid on purpose. You build the pattern
+            first and press play second, so the control you reach for last is
+            the one nearest your thumb. It also keeps the strumming row and the
+            Stop button in view together while a pattern is playing. */}
+        <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:14,
+          padding:"12px 14px", marginTop:14 }}>
+          {bpmControls}
+          <button onClick={handleTogglePlay} style={{ ...playBtnStyle, width:"100%" }}>
+            {playBtnLabel}
+          </button>
+        </div>
 
         <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:12, flexWrap:"wrap" }}>
           {rowSizes.length<30 && <button onClick={()=>{ setRowSizes(p=>[...p,8]); setRowRepeats(p=>[...p,1]); if(isPlaying){stopMetronome();setIsPlaying(false);} }} style={{
@@ -5642,14 +6179,20 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   chordVariants, updateVariant, allowDuplicates=false, onReset }) {
   const [variantPickerChord, setVariantPickerChord] = useState(null);
   const [outsideKeyChord, setOutsideKeyChord] = useState(null);
+  const [barreOpen, setBarreOpen] = useState(false);
 
   // In duplicate mode slots may be variant keys (e.g. "C/B"); reduce to base
   // chords for key detection and allowed-chord logic.
   const baseChords = allowDuplicates ? customChords.map(slotBase) : customChords;
   const uniqueChords = allowDuplicates ? [...new Set(baseChords)] : customChords;
-  const possibleKeys = getPossibleKeys(uniqueChords);
-  const allowedChords = getAllowedChords(uniqueChords);
-  const noKeyFits = customChords.length > 0 && possibleKeys.length === 0;
+  // Key detection only knows the open-chord vocabulary. Barre chords are
+  // deliberately outside it, so they are excluded rather than counted as
+  // chords that fit no key — otherwise picking one barre chord would report
+  // "no key fits" and grey out the whole grid behind it.
+  const keyChords = uniqueChords.filter(c => !BARRE_BY_KEY[c]);
+  const possibleKeys = getPossibleKeys(keyChords);
+  const allowedChords = getAllowedChords(keyChords);
+  const noKeyFits = keyChords.length > 0 && possibleKeys.length === 0;
   return (
     <div style={{ width:"100%", background:"#0a0a0a",
       border:"1px solid #2a2a2a", borderRadius:20, padding:"16px 14px", marginBottom:20,
@@ -5732,7 +6275,7 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
                   </div>
                 : <div style={{ width:"100%", aspectRatio:"3/4", display:"flex", alignItems:"center",
                     justifyContent:"center", fontSize:16, fontWeight:900,
-                    color:isSel?accentColor:"#333" }}>{chord}</div>
+                    color:isSel?accentColor:"#333" }}>{slotLabel(chord)}</div>
               }
               <div style={{ fontSize:10, fontWeight:800, color:isSel?accentColor:"#555", marginTop:3 }}>
                 {chord}
@@ -5746,6 +6289,112 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
           );
         })}
       </div>
+
+      {/* ── BARRE CHORDS ──────────────────────────────────────────────────
+          Kept behind a toggle rather than dropped into the grid above. Barre
+          chords are a different technique and there are 24 of them; folded
+          into a 10-chord grid of open shapes they would swamp it.
+
+          Two rows because the shape is what you are practising: every chord
+          in a row is the SAME grip moved up the neck, so sliding along one row
+          is the actual physical exercise. Sliding between rows would just be a
+          list of chord names. Each chip carries its fret so you know where the
+          barre goes without opening the diagram. */}
+      <div style={{ marginTop:4, marginBottom:12 }}>
+        <button onClick={()=>setBarreOpen(o=>!o)}
+          aria-expanded={barreOpen}
+          style={{ width:"100%", display:"flex", alignItems:"center", gap:9,
+            padding:"11px 13px", borderRadius:13, cursor:"pointer", fontFamily:"inherit",
+            border:`1px solid ${barreOpen ? "rgba(255,190,11,0.5)" : "#241d10"}`,
+            background: barreOpen
+              ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.14) 0%, rgba(255,170,30,0) 70%), #16110a"
+              : "#100d09",
+            color: barreOpen ? "#FFD60A" : "#8a7f5e", transition:"all 0.2s" }}>
+          <span style={{ fontSize:15 }}>🤘</span>
+          <span style={{ flex:1, textAlign:"left", fontSize:13, fontWeight:900, letterSpacing:0.2 }}>
+            Barre chords
+          </span>
+          <span style={{ fontSize:10.5, color:"#6f6749", fontWeight:700 }}>
+            {barreOpen ? "" : "24 shapes"}
+          </span>
+          <span style={{ fontSize:12, transform: barreOpen ? "rotate(180deg)" : "none",
+            transition:"transform 0.2s" }}>▾</span>
+        </button>
+
+        {barreOpen && (
+          <div style={{ marginTop:8, border:"1px solid #1c1710", borderRadius:14,
+            background:"#0c0a06", padding:"11px 0 12px" }}>
+            <div style={{ fontSize:10.5, color:"#6f6749", padding:"0 13px 9px", lineHeight:1.6 }}>
+              Slide along to move the grip up the neck. Each row changes grip
+              halfway — that switch is what keeps every chord at fret 7 or below.
+            </div>
+            {[["MAJOR", BARRE_MAJORS], ["MINOR", BARRE_MINORS]].map(([rowLabel, row]) => (
+              <div key={rowLabel} style={{ marginBottom: rowLabel==="MAJOR" ? 12 : 0 }}>
+                <div style={{ fontSize:9.5, color:"#5a5238", letterSpacing:2, fontWeight:800,
+                  padding:"0 13px 6px" }}>{rowLabel}</div>
+                {/* Horizontal scroller. overflowX + touch scrolling makes this a
+                    slider on a phone and a drag/wheel strip on a laptop. */}
+                <div style={{ display:"flex", gap:7, overflowX:"auto", padding:"2px 13px 6px",
+                  WebkitOverflowScrolling:"touch", scrollbarWidth:"none" }}>
+                  {row.map((b, bi) => {
+                    // The grip changes once per row. A divider marks it, so the
+                    // fret numbers restarting at 1 reads as a new shape rather
+                    // than a mistake.
+                    const newShape = bi > 0 && row[bi-1].shape !== b.shape;
+                    const sel = customChords.includes(b.key);
+                    const count = allowDuplicates
+                      ? customChords.reduce((a,c)=>c===b.key?a+1:a,0) : 0;
+                    const full = allowDuplicates
+                      ? customChords.length>=maxChords
+                      : !sel && customChords.length>=maxChords;
+                    // Array, not a fragment: this file imports only named
+                    // exports from react, so `React.Fragment` is undefined at
+                    // runtime even though it compiles.
+                    return [
+                      newShape && (
+                        <span key={b.key+"-div"} aria-hidden="true" style={{ flexShrink:0, width:1,
+                          alignSelf:"stretch", margin:"2px 4px",
+                          background:"linear-gradient(180deg, transparent, #2a2417 30%, #2a2417 70%, transparent)" }} />
+                      ),
+                      <button key={b.key} disabled={full}
+                        onClick={()=>{
+                          if(isPlaying){stopMetronome();setIsPlaying(false);}
+                          if(!allowDuplicates && sel){
+                            setCustomChords(p=>p.filter(c=>c!==b.key));
+                          } else {
+                            setCustomChords(p=>[...p, b.key]);
+                          }
+                          setChordIndex(0); setBeatCount(0);
+                          if(beatRef) beatRef.current=0;
+                          if(chordRef) chordRef.current=0;
+                        }}
+                        style={{ flexShrink:0, minWidth:58, padding:"9px 10px 8px",
+                          borderRadius:12, cursor: full ? "not-allowed" : "pointer",
+                          fontFamily:"inherit", opacity: full ? 0.3 : 1,
+                          border:`1.5px solid ${sel ? accentColor : "#241d10"}`,
+                          background: sel
+                            ? `rgba(${hexToRgb(accentColor)},0.14)` : "#100d09",
+                          boxShadow: sel ? `0 0 10px rgba(${hexToRgb(accentColor)},0.28)` : "none",
+                          display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+                          transition:"all 0.15s", position:"relative" }}>
+                        <span style={{ fontSize:15, fontWeight:900,
+                          color: sel ? accentColor : "#d8cba0" }}>{b.label}</span>
+                        <span style={{ fontSize:9, fontWeight:700, letterSpacing:0.4,
+                          color: sel ? accentColor : "#5a5238" }}>{b.fret}fr</span>
+                        {count > 1 && (
+                          <span style={{ position:"absolute", top:3, right:4, fontSize:9,
+                            fontWeight:900, color:accentColor }}>×{count}</span>
+                        )}
+                      </button>
+                      ];
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Sequence chips — tap ⚙ to change voicing, × to remove */}
       {allowDuplicates && customChords.length > 0 && (
         <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:10, marginTop:2 }}>
@@ -6087,7 +6736,7 @@ function ChordCard({ chord, isActive, accentColor }) {
           </div>
         : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
             justifyContent:"center", fontSize:24, fontWeight:900,
-            color:isActive?accentColor:"#333" }}>{chord}</div>
+            color:isActive?accentColor:"#333" }}>{slotLabel(chord)}</div>
       }
     </div>
   );
@@ -6123,7 +6772,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
       savedAt:new Date().toLocaleDateString() };
     const updated = [...savedStrums, pattern];
     setSavedStrums(updated);
-    localStorage.setItem(STORAGE_KEYS.strumTab, JSON.stringify(updated));
+    safeSetItem(STORAGE_KEYS.strumTab, JSON.stringify(updated));
     setStrumSavePrompt(false); setStrumSaveName(""); setShowSavedStrums(true);
   };
 
@@ -6314,7 +6963,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
                 <button onClick={()=>{
                   const updated=savedStrums.filter(x=>x.id!==p.id);
                   setSavedStrums(updated);
-                  localStorage.setItem(STORAGE_KEYS.strumTab, JSON.stringify(updated));
+                  safeSetItem(STORAGE_KEYS.strumTab, JSON.stringify(updated));
                 }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #333",
                   background:"transparent", color:"#555", fontSize:13, cursor:"pointer" }}>🗑</button>
               </div>
@@ -6391,10 +7040,17 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
   );
 }
 
+// Eight of these sit in one row, so they can't be a fixed 40px — that needs
+// 369px of width and a 320px phone only has ~288, which pushed the row off
+// both edges. They now share the row out between them: grow to fill, never
+// past the original 40px, and stay square. The glyph and the corner radius
+// follow the width down so a shrunken arrow still looks like the full-size
+// one rather than a small box with an oversized character rattling in it.
 function Arrow({ dir, active, dim, beat }) {
   return (
-    <div style={{ width:40, height:40, borderRadius:10, display:"flex", alignItems:"center",
-      justifyContent:"center", fontSize:20,
+    <div style={{ flex:"1 1 0", minWidth:0, maxWidth:40, aspectRatio:"1/1",
+      borderRadius:"min(10px, 2.6vw)", display:"flex", alignItems:"center",
+      justifyContent:"center", fontSize:"min(20px, 4.6vw)",
       background: beat ? "linear-gradient(135deg,#FFBE0B,#F77F00)"
         : dim ? "#111"
         : "#1c1c1c",
@@ -6446,7 +7102,7 @@ function OutsideKeyModal({ chord, possibleKeys, onAdd, onCancel }) {
   return (
     <div onClick={onCancel} style={{
       position:"fixed", inset:0, zIndex:1000,
-      background:"rgba(0,0,0,0.85)", backdropFilter:"blur(4px)",
+      background:"rgba(0,0,0,0.85)", backdropFilter:"blur(4px)", WebkitBackdropFilter:"blur(4px)",
       display:"flex", alignItems:"center", justifyContent:"center",
       padding:"20px",
     }}>
@@ -6501,7 +7157,7 @@ function VariantPickerModal({ chord, currentVariant, onSelect, onClose }) {
   return (
     <div onClick={onClose} style={{
       position:"fixed", inset:0, zIndex:1000,
-      background:"rgba(0,0,0,0.85)", backdropFilter:"blur(4px)",
+      background:"rgba(0,0,0,0.85)", backdropFilter:"blur(4px)", WebkitBackdropFilter:"blur(4px)",
       display:"flex", alignItems:"center", justifyContent:"center",
       padding:"20px",
     }}>
@@ -6512,7 +7168,7 @@ function VariantPickerModal({ chord, currentVariant, onSelect, onClose }) {
       }}>
         <div style={{ textAlign:"center", marginBottom:14 }}>
           <div style={{ fontSize:10, color:"#555", letterSpacing:2, marginBottom:4 }}>CHOOSE VOICING</div>
-          <div style={{ fontSize:20, fontWeight:900, color:"#fff" }}>{chord}</div>
+          <div style={{ fontSize:20, fontWeight:900, color:"#fff" }}>{slotLabel(chord)}</div>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:`repeat(${cols},1fr)`, gap:8 }}>
           {options.map(opt => {
@@ -6593,13 +7249,21 @@ function SavePrompt({ header, placeholder, value, onChange, onSave, onCancel, wr
 }
 
 // ─── 30-DAY TRACKER ──────────────────────────────────────────────────────────
-const TRACKER_DAYS = 30;
+const TRACKER_DAYS = 30;   // the 30-Day tracker
+const TRACKER_DAYS_7 = 7;  // the 7-Day tracker
 const TRACKER_TASKS = [
   { id: "chords",    label: "Chord Switching", icon: "🎸" },
   { id: "strumming", label: "Strumming",       icon: "🥁" },
   { id: "song",      label: "Song Practice",   icon: "🎵" },
 ];
-const TRACKER_STORAGE_KEY = "ntc-30day-tracker-v1";
+const TRACKER_STORAGE_KEY   = "ntc-30day-tracker-v1";
+const TRACKER_STORAGE_KEY_7 = TRACKER_KEY_7; // "ntc-7day-tracker-v1" (declared with the sync keys)
+
+// Per-tracker config, so one set of helpers drives both grids.
+const TRACKER_VARIANTS = {
+  "7day":  { days: TRACKER_DAYS_7, storageKey: TRACKER_STORAGE_KEY_7, label: "7 Day",  title: "7-DAY CHALLENGE" },
+  "30day": { days: TRACKER_DAYS,   storageKey: TRACKER_STORAGE_KEY,   label: "30 Day", title: "30-DAY CHALLENGE" },
+};
 
 // Day 1 → 30 package links for the prebuilt challenge. Relative hrefs so beta
 // days open beta packages and production days open production packages.
@@ -6612,6 +7276,13 @@ const TRACKER_DAY_LINKS = [
 ];
 
 // ── Persistent one-way flags (cloud-synced, never un-set) ──
+// Storage writes that must never throw. Safari private browsing and Chrome's
+// "block all cookies" make localStorage.setItem raise, which previously killed
+// whichever click handler was mid-save.
+function safeSetItem(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch (_) { return false; }
+}
+
 function readFlag(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -6652,15 +7323,31 @@ function readCustomTrackerName() {
 
 // ── HomeButton ── warm house icon pinned top-right of any non-home view ──
 function HomeButton({ onClick }) {
+  // Anchors to the app's centred content column, NOT the window edge.
+  //
+  // Every header that hosts this button is a full-width position:relative div,
+  // so a bare right:14 pinned the button to the far corner of the viewport. On
+  // a phone that reads fine (the column IS the screen); on a laptop it stranded
+  // the button hundreds of pixels away from the app. The zero-height centred
+  // layer below gives it the same 560px column everything else uses.
   return (
-    <button onClick={onClick} aria-label="Back to home" title="Home" style={{
-      position:"absolute", top:12, right:14, width:38, height:38, borderRadius:12,
-      border:"1px solid rgba(255,190,11,0.3)", background:"#100d09", color:"#c9a03a",
-      fontSize:17, cursor:"pointer", fontFamily:"inherit", zIndex:20,
-      boxShadow:"0 2px 10px rgba(0,0,0,0.4)", display:"flex", alignItems:"center",
-      justifyContent:"center" }}>🏠</button>
+    <div style={{ position:"absolute", top:0, left:0, right:0, zIndex:20, pointerEvents:"none" }}>
+      <div style={{ position:"relative", maxWidth:560, margin:"0 auto", height:0 }}>
+        <button onClick={onClick} aria-label="Back to home" title="Home" style={{
+          position:"absolute", top:12, right:14, width:38, height:38, borderRadius:12,
+          border:"1px solid rgba(255,190,11,0.3)", background:"#100d09", color:"#c9a03a",
+          fontSize:17, cursor:"pointer", fontFamily:"inherit", pointerEvents:"auto",
+          boxShadow:"0 2px 10px rgba(0,0,0,0.4)", display:"flex", alignItems:"center",
+          justifyContent:"center" }}>🏠</button>
+      </div>
+    </div>
   );
 }
+
+// Pass-through wrapper — lets a component choose between being portaled into
+// an overlay and rendering in place, without a bare `React.Fragment` (this file
+// imports named exports only, so there is no `React` binding).
+function PassThrough({ children }) { return <>{children}</>; }
 
 // ── FixedLayer ── renders overlays (modals, confetti canvas) into
 // document.body via a portal. Required because the app's tab-fade wrapper
@@ -6689,7 +7376,7 @@ function trackerEncode(data) {
   }
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-function trackerDecode(str) {
+function trackerDecode(str, days = TRACKER_DAYS) {
   try {
     const binary = atob(str.replace(/-/g, "+").replace(/_/g, "/"));
     const bits = [];
@@ -6697,7 +7384,7 @@ function trackerDecode(str) {
       const byte = binary.charCodeAt(i);
       for (let j = 7; j >= 0; j--) bits.push((byte >> j) & 1);
     }
-    const data = Array.from({ length: TRACKER_DAYS }, () =>
+    const data = Array.from({ length: days }, () =>
       Object.fromEntries(TRACKER_TASKS.map(t => [t.id, false]))
     );
     let idx = 0;
@@ -6705,20 +7392,23 @@ function trackerDecode(str) {
     return data;
   } catch (_) { return null; }
 }
-function trackerInit() {
-  return Array.from({ length: TRACKER_DAYS }, () =>
+function trackerInit(days = TRACKER_DAYS) {
+  return Array.from({ length: days }, () =>
     Object.fromEntries(TRACKER_TASKS.map(t => [t.id, false]))
   );
 }
 function trackerStreak(data) {
+  if (!Array.isArray(data) || !data.length) return 0;
   let lastActive = -1;
-  for (let i = TRACKER_DAYS - 1; i >= 0; i--) {
-    if (TRACKER_TASKS.some(t => data[i][t.id])) { lastActive = i; break; }
+  // Bounded by the array itself rather than TRACKER_DAYS, so the same function
+  // serves the 7-day and 30-day grids and can never read past the end.
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (data[i] && TRACKER_TASKS.some(t => data[i][t.id])) { lastActive = i; break; }
   }
   if (lastActive === -1) return 0;
   let streak = 0;
   for (let i = lastActive; i >= 0; i--) {
-    if (TRACKER_TASKS.some(t => data[i][t.id])) streak++;
+    if (data[i] && TRACKER_TASKS.some(t => data[i][t.id])) streak++;
     else break;
   }
   return streak;
@@ -6773,7 +7463,23 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
   // `embedded`: rendered inside the Exercise Generator overlay — challenge
   // view only (no mode switcher, no footer, no outer page padding). Same
   // storage, streaks and celebrations as the main Tracker tab.
-  const [data, setData] = useState(trackerInit);
+  // Opens on whichever grid you last used, not always 30-Day.
+  const initialVariant = (() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(TRACKER_LAST_KEY) || "null");
+      if (raw && TRACKER_VARIANTS[raw.variant]) return raw.variant;
+    } catch (_) {}
+    return "30day";
+  })();
+  const [data, setData] = useState(() => {
+    const cfg = TRACKER_VARIANTS[initialVariant];
+    try {
+      const raw = localStorage.getItem(cfg.storageKey);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (_) {}
+    return trackerInit(cfg.days);
+  });
   const [loaded, setLoaded] = useState(false);
   const [celebrating, setCelebrating] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -6781,10 +7487,18 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
   const celebrateTimerRef = useRef(null); // pending delayed-celebration timer
   const { canvasRef, launch } = useTrackerConfetti();
 
-  // ── Build (custom tracker) unlock ──
-  // "challenge" | "build". Build is usable only in the main app (sandbox);
+  // ── Tracker modes ──
+  // "7day" | "30day" | "custom". 7-Day and 30-Day are both free and neither
+  // needs unlocking. Custom stays locked until the 30-Day grid is complete
+  // (and is premium on top of that); it is usable only in the main app —
   // package links show the teaser and route members to the full app.
-  const [mode, setMode] = useState("challenge");
+  const [mode, setMode] = useState(initialVariant);
+  // Which grid `data` currently holds. Stays put while mode is "custom", so
+  // returning from Custom puts you back on the grid you left. Tracked
+  // separately from `mode` so the auto-save below can never write one grid's
+  // boxes into the other grid's storage key during a switch.
+  const [gridVariant, setGridVariant] = useState(initialVariant);
+  const gridCfg = TRACKER_VARIANTS[gridVariant];
   const [buildUnlocked, setBuildUnlocked] = useState(readBuildUnlocked);
   const [justUnlocked, setJustUnlocked] = useState(false);   // drives the unlock animation
   const [showLockedInfo, setShowLockedInfo] = useState(false);  // low-opacity teaser bubble
@@ -6794,8 +7508,8 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
   // free for everyone. Build renders as the peek; the overlay engages on top.
   // Back → the challenge. (The earned day-30 unlock still applies underneath.)
   const auth = useContext(AuthCtx);
-  useFeatureGate(active && context === "app" && mode === "build",
-    () => setMode("challenge"));
+  useFeatureGate(active && context === "app" && mode === "custom",
+    () => setMode(gridVariant));
 
   // After a cloud progress pull that changed localStorage (once per sign-in),
   // refresh in place instead of remounting — a member who just signed in from
@@ -6807,7 +7521,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get("d")) return; // viewing a shared tracker — leave it alone
-      const saved = localStorage.getItem(TRACKER_STORAGE_KEY);
+      const saved = localStorage.getItem(gridCfg.storageKey);
       if (saved) setData(JSON.parse(saved));
     } catch (_) {}
     setBuildUnlocked(readBuildUnlocked());
@@ -6825,8 +7539,8 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
     return () => window.removeEventListener("ntc-custom-tracker-changed", refresh);
   }, []);
   const buildPillText = !buildUnlocked || !customName
-    ? "Build"
-    : (customName.length <= 14 ? customName : "My Tracker");
+    ? "Custom"
+    : (customName.length <= 12 ? customName : "Custom");
 
   const handleBuildClick = () => {
     if (context === "package") {
@@ -6837,7 +7551,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
     }
     // In the app, Build is always viewable: unlocked members get their tracker,
     // locked members get the greyed preview with the unlock message.
-    setMode("build");
+    setMode("custom");
   };
 
   // Load — reads ?d= (tracker share) then localStorage. Does NOT clear other
@@ -6847,20 +7561,43 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
       const params = new URLSearchParams(window.location.search);
       const d = params.get("d");
       if (d) {
-        const decoded = trackerDecode(d);
+        const decoded = trackerDecode(d, gridCfg.days);
         if (decoded) { setData(decoded); setLoaded(true); return; }
       }
-      const saved = localStorage.getItem(TRACKER_STORAGE_KEY);
+      const saved = localStorage.getItem(gridCfg.storageKey);
       if (saved) setData(JSON.parse(saved));
     } catch (_) {}
     setLoaded(true);
   }, []);
 
-  // Auto-save
+  // Auto-save. Keyed on gridVariant, which is set in the SAME state batch as
+  // `data` when switching grids — so the pair always match and a switch can
+  // never write the 7-day boxes into the 30-day key.
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(TRACKER_STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
-  }, [data, loaded]);
+    try { localStorage.setItem(gridCfg.storageKey, JSON.stringify(data)); } catch (_) {}
+  }, [data, loaded, gridCfg.storageKey]);
+
+  // Switch between the 7-Day and 30-Day grids: load that grid's own saved
+  // boxes, or a fresh one of the right length.
+  const switchGrid = (v) => {
+    // Back to the top on every switch — going 30 Day → 7 Day otherwise leaves
+    // you scrolled past the end of the shorter grid, staring at blank page.
+    try { window.scrollTo(0, 0); } catch (_) {}
+    if (v === gridVariant) {
+      setMode(v);
+      try { localStorage.setItem(TRACKER_LAST_KEY, JSON.stringify({ variant: v, at: new Date().toISOString() })); } catch (_) {}
+      return;
+    }
+    const cfg = TRACKER_VARIANTS[v];
+    let next = trackerInit(cfg.days);
+    try {
+      const raw = localStorage.getItem(cfg.storageKey);
+      if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) next = parsed; }
+    } catch (_) {}
+    setGridVariant(v); setData(next); setMode(v);
+    try { localStorage.setItem(TRACKER_LAST_KEY, JSON.stringify({ variant: v, at: new Date().toISOString() })); } catch (_) {}
+  };
 
   // 30-day completion. Build unlocks whenever the grid is complete; the trophy
   // modal fires ONCE EVER (persisted + cloud-synced flag), 2.5s after the
@@ -6868,6 +7605,9 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
   // get annoying fast.
   useEffect(() => {
     if (!loaded || celebratedRef.current) return;
+    // Only the 30-Day grid unlocks Custom. Completing 7 days is its own win but
+    // must not hand over the custom builder.
+    if (gridVariant !== "30day") return;
     const allDaysActive = data.every(day => TRACKER_TASKS.some(t => day[t.id]));
     if (allDaysActive) {
       // Unlock Build immediately (pill flips even if the modal never re-shows).
@@ -6920,7 +7660,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
   const streak = trackerStreak(data);
   const totalDaysActive = data.filter(d => TRACKER_TASKS.some(t => d[t.id])).length;
   const totalChecks = data.reduce((acc, d) => acc + TRACKER_TASKS.filter(t => d[t.id]).length, 0);
-  const maxChecks = TRACKER_DAYS * TRACKER_TASKS.length;
+  const maxChecks = gridCfg.days * TRACKER_TASKS.length;
   const overallPct = Math.round((totalChecks / maxChecks) * 100);
 
   const statBox = {
@@ -6943,37 +7683,38 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
       {!embedded && (
       <div style={{ display:"flex", gap:8, marginBottom:20 }}>
         {[
-          { id:"challenge", label:<>🔥 30-Day Challenge</>, onClick:()=>setMode("challenge"), on: mode==="challenge" },
-          { id:"build",
+          { id:"7day",  label:<>🔥 7 Day</>,  onClick:()=>switchGrid("7day"),  on: mode==="7day" },
+          { id:"30day", label:<>🔥 30 Day</>, onClick:()=>switchGrid("30day"), on: mode==="30day" },
+          { id:"custom",
             label: (
               <>
                 {buildUnlocked ? <>🛠️ {buildPillText}</> : (
                   <>
                     <span style={{ opacity:0.4, marginRight:6 }}>🛠️</span>
-                    <span style={{ opacity:0.75 }}>Build</span>
+                    <span style={{ opacity:0.75 }}>Custom</span>
                   </>
                 )}
                 {/* Premium lock — standardized corner badge, non-premium only.
-                    (Members see no lock; the earned day-30 state still shows
+                    (Members see no lock; the earned 30-day state still shows
                     the greyed preview inside.) */}
                 {auth.enabled && !auth.authorized && <GateLockBadge />}
               </>
             ),
-            onClick: handleBuildClick, on: mode==="build" },
+            onClick: handleBuildClick, on: mode==="custom" },
         ].map(p => {
           // Once a tracker exists, its theme colors the Build pill.
-          const acc = p.id === "build" && buildUnlocked && customThemeKey
+          const acc = p.id === "custom" && buildUnlocked && customThemeKey
             ? (BUILD_THEMES[customThemeKey] || null) : null;
           return (
           <button key={p.id} onClick={p.onClick} style={{
-            position:"relative", flex:1, padding:"11px 8px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
+            position:"relative", flex:1, minWidth:0, padding:"11px 6px", borderRadius:13, fontFamily:"inherit", cursor:"pointer",
             border:`1px solid ${p.on ? (acc ? hexToRgba(acc.a, 0.55) : "rgba(255,190,11,0.55)") : "#241d10"}`,
             background: p.on
               ? `radial-gradient(120% 160% at 50% 0%, ${acc ? hexToRgba(acc.b, 0.16) : "rgba(255,170,30,0.16)"} 0%, transparent 65%), #16110a`
               : `radial-gradient(120% 160% at 50% 0%, ${acc ? hexToRgba(acc.b, 0.05) : "rgba(255,170,30,0.05)"} 0%, transparent 60%), #100d09`,
             color: p.on ? (acc ? acc.a : "#FFD60A")
               : acc ? hexToRgba(acc.a, 0.6)
-              : (p.id==="build" && !buildUnlocked ? "#6f6749" : "#8a7f5e"),
+              : (p.id==="custom" && !buildUnlocked ? "#6f6749" : "#8a7f5e"),
             fontSize:13, fontWeight:800, letterSpacing:0.3, whiteSpace:"nowrap",
             boxShadow: p.on ? `0 0 18px ${acc ? hexToRgba(acc.b, 0.18) : "rgba(255,160,20,0.16)"}` : "none",
             transition:"all 0.22s ease" }}>
@@ -7113,7 +7854,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
                     and custom exercises you design yourself.
                   </div>
                   <button onClick={()=>{ setShowModal(false);
-                      if (context === "app") setMode("build"); else setShowOpenAppInfo(true); }}
+                      if (context === "app") setMode("custom"); else setShowOpenAppInfo(true); }}
                     style={{ ...GLOW_BTN, marginTop:12, borderRadius:11, padding:"10px 22px", fontSize:13 }}>
                     Try Build →
                   </button>
@@ -7137,14 +7878,14 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
 
       {/* ── Challenge content (kept mounted via display toggle so its state,
           timers and autosave keep working while Build is open) ── */}
-      <div style={{ display: mode === "challenge" ? "block" : "none" }}>
+      <div style={{ display: (mode === "7day" || mode === "30day") ? "block" : "none" }}>
 
-      {/* Compact intro */}
+      {/* Compact intro.
+          The "30-Day Challenge" eyebrow used to sit here. It was hardcoded, so
+          it still said 30-Day while you were looking at the 7-Day grid — and
+          the selected pill directly above already says which one you're on. */}
       <div style={{ textAlign:"center", marginBottom:22 }}>
-        <div style={{ fontSize:11, letterSpacing:3, color:"#7a6a3a", fontWeight:700, textTransform:"uppercase" }}>
-          30-Day Challenge
-        </div>
-        <div style={{ fontSize:22, fontWeight:900, marginTop:8, color:"#f3ead2", letterSpacing:0.2 }}>
+        <div style={{ fontSize:22, fontWeight:900, color:"#f3ead2", letterSpacing:0.2 }}>
           Build the habit. <span style={{ background:"linear-gradient(135deg,#FFD60A,#F77F00)",
             WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>Keep the streak 🔥</span>
         </div>
@@ -7259,7 +8000,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
       {/* ── Build: custom tracker (sandbox / main app only). Locked members can
           look around — everything greyed out behind the unlock message — and see
           the Exercise Generator button waiting for them. ── */}
-      {mode === "build" && context === "app" && (
+      {mode === "custom" && context === "app" && (
         buildUnlocked
           ? <CustomTrackerSection key={"sync"+auth.syncEpoch} hideGenerate={hideGenerate} />
           : <LockedBuildPreview key={"sync"+auth.syncEpoch} totalDaysActive={totalDaysActive} />
@@ -7821,9 +8562,21 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   const { init, playClick, playChordStrum, playChordClick } = audio;
 
   // Song chords: per-slot keys (base chord or variant key), max 10 slots.
-  const [songChords, setSongChords] = useState(["G", "C", "D"]);
+  // Starts EMPTY. This used to seed ["G","C","D"], which read as leftover state
+  // from a previous session rather than a starting suggestion — the selector
+  // should be clean on every visit. (Nothing here was ever persisted;
+  // SONGBUILDER_KEY only holds the saved-songs list.)
+  const [songChords, setSongChords] = useState([]);
   const [addOpen, setAddOpen] = useState(false);      // add-chord visual popup
   const [voicingFor, setVoicingFor] = useState(null); // slot index for voicing popup
+
+  // Simple | Advanced. Advanced is the full multi-row builder (per-row repeats,
+  // per-block chord assignment, auto-scrolling playback) that used to be
+  // reachable only from dev tools. It lives here because the whole Song tab is
+  // already premium-gated, so it inherits the gate for free — no separate
+  // useFeatureGate call, and no second place for the gate to drift out of sync.
+  // Resets to "simple" on reload, like every other selector on this tab.
+  const [songMode, setSongMode] = useState("simple");
 
   // Strum pattern: up to 2 rows of 8 slots (row 2 = indices 8-15).
   const [strumActive, setStrumActive] = useState(() => defaultBuild(8).concat(Array(8).fill(false)));
@@ -8057,8 +8810,31 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
   const nextChordIndex = songChords.length > 0 ? (songRandom ? songNextDisplay : (chordIndex + 1) % songChords.length) : 0;
   const isLastBeat = isPlaying && beatCount === beatsPerChord - 1;
 
+  // The Simple | Advanced switch. Rendered from both branches so the tabs sit
+  // in the same place either way.
+  const modeTabs = (
+    <ModeTabs options={[["simple","🎸 Simple"],["advanced","⚡ Advanced"]]}
+      value={songMode}
+      onChange={(m)=>{ stopIfPlaying(); setSongMode(m); }} />
+  );
+
+  // ── ADVANCED ──
+  // Early return, placed AFTER every hook above so hook order stays stable
+  // (same discipline as App()). AdvancedBuildSong owns its own state, so
+  // toggling away and back gives a clean builder rather than stale state.
+  if (songMode === "advanced") {
+    return (
+      <div style={{ maxWidth:560, margin:"0 auto", padding:"24px 16px 30px" }}>
+        {modeTabs}
+        <AdvancedBuildSong audio={audio} chordVariants={chordVariants}
+          updateVariant={updateVariant} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth:560, margin:"0 auto", padding:"24px 16px 30px" }}>
+      {modeTabs}
       {/* ── Your song — compact chips; chord picking happens in a portaled
           popup so it centers on the SCREEN (the tab's transform-animated
           wrapper hijacks position:fixed, which is why the old voicing modal
@@ -8181,8 +8957,8 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                     {getChordImg(chord, {})
                       ? <img src={getChordImg(chord, {})} alt={chord} style={{ width:"100%", display:"block", borderRadius:8 }} />
                       : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
-                          justifyContent:"center", fontSize:20, fontWeight:900, color:"#d8cba0" }}>{chord}</div>}
-                    <div style={{ fontSize:12, fontWeight:900, color: isSel ? "#FFD60A" : "#d8cba0", marginTop:4 }}>{chord}</div>
+                          justifyContent:"center", fontSize:20, fontWeight:900, color:"#d8cba0" }}>{slotLabel(chord)}</div>}
+                    <div style={{ fontSize:12, fontWeight:900, color: isSel ? "#FFD60A" : "#d8cba0", marginTop:4 }}>{slotLabel(chord)}</div>
                   </button>
                 );
               })}
@@ -8456,7 +9232,8 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
 
 // ─── EXERCISE GENERATOR ──────────────────────────────────────────────────────
 // "Generate Exercise" — visible on every tracker. Members pick Chord Switching /
-// Strumming / Song, cycle a difficulty per exercise (Easy → Med → Hard), choose
+// Strumming / Song, cycle a difficulty per exercise (Beginner → Easy → Med →
+// Hard), choose
 // chord/row counts, and get a randomly generated package rendered with the same
 // components as shared packages (drill / strum / song params), plus their
 // tracker. Regenerate updates the active exercise (and the song, since the song
@@ -8464,68 +9241,106 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
 // syncs them through the progress table.
 
 const GEN_SAVED_KEY = "ntc-generated-v1";
-const GEN_DIFFS = ["easy", "medium", "hard"];
+const GEN_DIFFS = ["beginner", "easy", "medium", "hard"];
 const GEN_DIFF_META = {
-  easy:   { label: "Easy", color: "#7ED957" },
-  medium: { label: "Med",  color: "#FFBE0B" },
-  hard:   { label: "Hard", color: "#FF5A5F" },
+  beginner: { label: "Beginner", color: "#5AC8FA" },
+  easy:     { label: "Easy",     color: "#7ED957" },
+  medium:   { label: "Med",      color: "#FFBE0B" },
+  hard:     { label: "Hard",     color: "#FF5A5F" },
 };
 
 // Chord pools. Values are per-slot chord keys the drill/song components render
-// directly. Easy = the Anchored 4 (G anchored, Cadd9, Em7, Dsus4). Medium =
-// open chords, no anchors. Hard = barre-leaning chords plus variations
-// (7ths, slash chords), no anchors.
+// directly, so a "_anchor" suffix here is what actually puts the anchored shape
+// on screen (see genHasAnchors).
+//
+//   Beginner — the Anchored 4 and nothing else: G anchored, Cadd9, Em7, Dsus4.
+//              Fingers 3 and 4 stay planted on the bottom two strings all the
+//              way through, so no change ever needs a full re-grip.
+//   Easy     — the same four shapes let go of: C, G, Am, F, played open.
+//   Medium   — Easy plus Em and D.
+//   Hard     — barre-leaning chords plus variations (7ths, slash chords).
 const GEN_CHORD_POOLS = {
-  easy:   ["G_anchor", "C_anchor", "Em_anchor", "D_anchor"],
-  medium: ["G", "C", "Em", "E", "D", "Am", "Fmaj7", "Dm"],
-  hard:   ["G", "C", "Em", "D", "Am", "Fmaj7", "Dm", "Bm", "A", "E",
-           "A7", "B7", "E7", "Am7", "C/G", "G/B", "C/B", "Am/G"],
+  beginner: ["G_anchor", "C_anchor", "Em_anchor", "D_anchor"],
+  easy:     ["C", "G", "Am", "F"],
+  medium:   ["C", "G", "Am", "F", "Em", "D"],
+  hard:     ["G", "C", "Em", "D", "Am", "Fmaj7", "Dm", "Bm", "A", "E",
+             "A7", "B7", "E7", "Am7", "C/G", "G/B", "C/B", "Am/G"],
 };
 
 // Count defaults follow difficulty (cycling a difficulty resets its count to
 // the default; members can still adjust after). Caps: up to 6 of each, except
-// Easy chords, whose pool is the Anchored 4.
-const GEN_DEFAULT_CHORDS = { easy: 2, medium: 4, hard: 6 };
-const GEN_DEFAULT_ROWS   = { easy: 1, medium: 2, hard: 3 };
+// Beginner/Easy chords, whose pool is the Anchored 4.
+const GEN_DEFAULT_CHORDS = { beginner: 2, easy: 2, medium: 4, hard: 6 };
+const GEN_DEFAULT_ROWS   = { beginner: 1, easy: 1, medium: 2, hard: 3 };
 const GEN_MAX_ROWS = 6;
 function genMaxChords(diff) { return Math.min(6, GEN_CHORD_POOLS[diff].length); }
 
-// Strum pattern pools. 8 slots on a fixed D-U-D-U grid ("-" = skip). Easy keeps
-// the downbeats anchored with a few gaps; Medium adds syncopation; Hard leans
-// on off-beat ups and sparse hits.
+// Is this set of chords made of anchored shapes? ChordsTab, StrummingTab and
+// the song builder all UNDO "_anchor" slot keys — C_anchor becomes plain C —
+// unless their `anchored` prop is true, so the generated view has to tell them.
+//
+// Ask the CHORDS, never the difficulty's name. Two separate bugs came from
+// naming a difficulty instead:
+//   • the test was hardcoded to "easy", so adding Beginner made the Anchored 4
+//     render as ordinary open chords, silently;
+//   • sessions saved back when Easy meant the Anchored 4 still hold "_anchor"
+//     keys, so once Easy moved to open chords, reopening an old favourite
+//     stripped the anchors out of chords the member had already saved.
+// The chord list itself is true in both cases and needs no migration.
+function genHasAnchors(chords) {
+  return (chords || []).some(c => typeof c === "string" && c.endsWith("_anchor"));
+}
+
+// Strum pattern pools. 8 slots on a fixed D-U-D-U grid ("-" = skip), so the
+// even slots are the down-strums and the odd slots are the ups.
+//
+// Beginner is therefore DOWNS ONLY: every odd slot is "-", which leaves the
+// four on-the-beat downs. The eight entries are simply every combination of
+// those four that still starts on beat 1 — from one strum a bar up to all four
+// — so a beginner never has to hit an up-strum or come in off the beat.
+// Easy keeps the downbeats anchored but adds a few ups; Medium adds
+// syncopation; Hard leans on off-beat ups and sparse hits.
 const GEN_STRUM_POOLS = {
-  easy:   ["D-D-D-D-", "DUD-DUD-", "D-DU--DU", "D-DUD-D-", "DUDUD-D-", "D-D-DUDU", "D-DUDU--", "DUD-D-D-"],
-  medium: ["-UDU--DU", "D-DU-UDU", "DU-UDU-U", "D--UDUDU", "-UDUD-DU", "D-DUDU-U", "DUDU-U-U", "D--U-UDU"],
-  hard:   ["-U-UD--U", "-U--DU-U", "--DU-U-U", "-UD--U-U", "D--U--DU", "-U-U-UDU", "--D--UDU", "-UDU-U--"],
+  beginner: ["D-D-D-D-", "D-D-D---", "D---D-D-", "D-D---D-", "D---D---", "D-D-----", "D-----D-", "D-------"],
+  easy:     ["D-D-D-D-", "DUD-DUD-", "D-DU--DU", "D-DUD-D-", "DUDUD-D-", "D-D-DUDU", "D-DUDU--", "DUD-D-D-"],
+  medium:   ["-UDU--DU", "D-DU-UDU", "DU-UDU-U", "D--UDUDU", "-UDUD-DU", "D-DUDU-U", "DUDU-U-U", "D--U-UDU"],
+  hard:     ["-U-UD--U", "-U--DU-U", "--DU-U-U", "-UD--U-U", "D--U--DU", "-U-U-UDU", "--D--UDU", "-UDU-U--"],
 };
 
-const GEN_BPM = { easy: 60, medium: 65, hard: 70 };
+const GEN_BPM = { beginner: 50, easy: 60, medium: 65, hard: 70 };
 
 // What each difficulty means, shown live on the setup screen.
 const GEN_DIFF_DESC = {
   chords: {
-    easy:   "The Anchored 4 — G (anchored), Cadd9, Em7 & Dsus4",
-    medium: "Open chords — G, C, Em, E, D, Am, Fmaj7, Dm",
-    hard:   "Open chords + variations — 7ths, slash chords, Bm & barre shapes",
+    beginner: "The Anchored 4 — G (anchored), Cadd9, Em7 & Dsus4",
+    easy:     "Open chords — C, G, Am & F",
+    medium:   "Open chords — C, G, Am, F, Em & D",
+    hard:     "Open chords + variations — 7ths, slash chords, Bm & barre shapes",
   },
   strum: {
-    easy:   "Steady down-strums with a couple of gaps · 60 bpm",
-    medium: "Syncopated patterns with off-beat ups · 65 bpm",
-    hard:   "Sparse, off-beat-heavy patterns · 70 bpm",
+    beginner: "Down-strums only, straight on the beat · 50 bpm",
+    easy:     "Steady down-strums with a couple of gaps · 60 bpm",
+    medium:   "Syncopated patterns with off-beat ups · 65 bpm",
+    hard:     "Sparse, off-beat-heavy patterns · 70 bpm",
   },
   song: {
-    easy:   "Your chords + strumming · 60 bpm · chord change every 2 bars",
-    medium: "Your chords + strumming · 65 bpm · chord change every 2 bars",
-    hard:   "Your chords + strumming · 70 bpm · chord change every bar",
+    beginner: "Your chords + strumming · 50 bpm · chord change every 4 bars",
+    easy:     "Your chords + strumming · 60 bpm · chord change every 2 bars",
+    medium:   "Your chords + strumming · 65 bpm · chord change every 2 bars",
+    hard:     "Your chords + strumming · 70 bpm · chord change every bar",
   },
 };
-const GEN_BEATS_PER_CHORD = { easy: 2, medium: 2, hard: 1 };
+// Bars each chord is held for in the generated song. Beginner gets 4 — the
+// thing a beginner is actually fighting is the chord change, so give them a
+// long runway to see it coming and get their fingers there.
+const GEN_BEATS_PER_CHORD = { beginner: 4, easy: 2, medium: 2, hard: 1 };
 
 // Generated session names, flavored by the toughest selected difficulty.
 const GEN_NAME_ADJ = {
-  easy:   ["Campfire", "Sunrise", "Porch", "Backyard", "Sunday", "Mellow"],
-  medium: ["Highway", "Neon", "Boardwalk", "Canyon", "Electric", "Midnight"],
-  hard:   ["Thunder", "Wildfire", "Overdrive", "Renegade", "Avalanche", "Voltage"],
+  beginner: ["Daybreak", "Gentle", "Meadow", "First Light", "Slow Roll", "Driftwood"],
+  easy:     ["Campfire", "Sunrise", "Porch", "Backyard", "Sunday", "Mellow"],
+  medium:   ["Highway", "Neon", "Boardwalk", "Canyon", "Electric", "Midnight"],
+  hard:     ["Thunder", "Wildfire", "Overdrive", "Renegade", "Avalanche", "Voltage"],
 };
 const GEN_NAME_NOUN = ["Session", "Sprint", "Circuit", "Workout", "Jam", "Run", "Set"];
 
@@ -8539,8 +9354,8 @@ function genSample(pool, n) {
   return arr.slice(0, Math.max(1, Math.min(n, arr.length)));
 }
 function genName(diffs) {
-  const rank = { easy: 0, medium: 1, hard: 2 };
-  const top = diffs.reduce((a, b) => (rank[b] > rank[a] ? b : a), "easy");
+  const rank = { beginner: 0, easy: 1, medium: 2, hard: 3 };
+  const top = diffs.reduce((a, b) => (rank[b] > rank[a] ? b : a), "beginner");
   return `${genPick(GEN_NAME_ADJ[top])} ${genPick(GEN_NAME_NOUN)}`;
 }
 
@@ -8626,12 +9441,19 @@ function GeneratorTrackerSection() {
 
 // ── The generator itself. Mounted once per host view (main app shell and
 // package view — wherever a tracker lives), opened via the launcher's event. ──
-function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = "app" }) {
+// onPick: "step picker" mode, used by the routine editor. The setup screen
+// renders compactly in place and Generate hands the encoded exercises straight
+// back to the caller instead of opening the full generated-package view.
+function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = "app", onGateCancel = null, inline = false, active = false, onPick = null }) {
   const [stage, setStage] = useState(null); // null | "setup" | "view"
   const [sel, setSel] = useState({ chords: true, strum: true, song: true });
-  const [diff, setDiff] = useState({ chords: "easy", strum: "easy", song: "easy" });
-  const [chordCount, setChordCount] = useState(GEN_DEFAULT_CHORDS.easy);
-  const [rowCount, setRowCount] = useState(GEN_DEFAULT_ROWS.easy);
+  // Opens on Beginner. It is the first rung of the ladder and the safest place
+  // to put someone who has just arrived — anchored chords, down-strums only,
+  // 50 bpm. Anyone past it is one tap from Easy, whereas a beginner landing on
+  // Easy has no way of knowing there was a gentler setting behind it.
+  const [diff, setDiff] = useState({ chords: "beginner", strum: "beginner", song: "beginner" });
+  const [chordCount, setChordCount] = useState(GEN_DEFAULT_CHORDS.beginner);
+  const [rowCount, setRowCount] = useState(GEN_DEFAULT_ROWS.beginner);
   const [gen, setGen] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [activeKey, setActiveKey] = useState("drill");
@@ -8641,6 +9463,13 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   const [showLoad, setShowLoad] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
+  // As a tab, arriving on it opens the setup screen — there's no launcher event
+  // and no ✕, the pills navigate away instead.
+  useEffect(() => {
+    if (((inline && active) || onPick) && !stage) setStage("setup");
+    if (inline && !active && stage) { setStage(null); }
+  }, [inline, active, stage, onPick]);
+
   // Open on the launcher's event.
   useEffect(() => {
     const open = () => { setStage("setup"); setShowLoad(false); };
@@ -8648,16 +9477,45 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
     return () => window.removeEventListener("ntc-open-generator", open);
   }, []);
 
-  // Lock the page scroll behind the overlay.
-  useEffect(() => {
-    if (!stage) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [stage]);
 
   const stopPlayback = () => { try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch (_) {} };
   const close = () => { stopPlayback(); setStage(null); };
+
+  // ── Premium gate ──
+  // The generator is premium wherever it's reachable inside the app: the
+  // landing launcher, the Tracker tab, and the ?generate=1 community link all
+  // open this same overlay, so gating here covers all three at once. Backing
+  // out of the gate closes the overlay and returns the member to what they
+  // were doing — navigation is never blocked, same as every other gate.
+  //
+  // context === "package" is deliberately EXEMPT: that host lives inside a
+  // ?pkg= share view, and share links are free by design (the growth loop).
+  //
+  // onGateCancel lets the opener decide where ← Back goes. Launching from the
+  // landing (or the ?generate=1 link) used to drop members into the Sandbox on
+  // Chords, because closing the overlay just revealed whatever tab the launcher
+  // had navigated to underneath. They should land back where they started.
+  const gated = useFeatureGate(
+    context === "app" && !onPick && stage !== null && (!inline || active), () => {
+    close();
+    if (onGateCancel) { try { onGateCancel(); } catch (_) {} }
+  });
+
+  // Lock the page scroll behind the overlay — but NOT while the premium gate is
+  // engaged, because the gate locks the body too (position:fixed, for iOS).
+  //
+  // Both locks used to run at once, each capturing "the previous value" and
+  // restoring it on cleanup. The gate captured overflow:hidden (already set by
+  // this effect) and restored THAT on release, so whichever cleanup ran second
+  // won and the body could be left permanently frozen. It depended on unmount
+  // order, which is why it only broke sometimes. The gate owns the lock while
+  // it's up; this effect stands down.
+  useEffect(() => {
+    if (!stage || gated || inline || onPick) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [stage, gated, inline, onPick]);
 
   // Effective difficulty for counts/pools when a component rides along only
   // inside the song (its own row unselected).
@@ -8700,6 +9558,19 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
     // A short shimmer beat before the reveal — generation is instant, delight isn't.
     setTimeout(() => {
       const g = buildGen({ sel, diff, chordCount, rowCount });
+      if (onPick) {
+        // Picker mode: turn the generated exercises into routine steps. Same
+        // encoded payloads a share link carries, so a generated step is
+        // indistinguishable from a hand-built one.
+        const prm = genParams(g);
+        const steps = [];
+        if (prm.drill) steps.push({ t:"drill",     d:prm.drill });
+        if (prm.strum) steps.push({ t:"strum",     d:prm.strum });
+        if (prm.song)  steps.push({ t:"strumprog", d:prm.song });
+        setGenerating(false);
+        onPick(steps, g.name);
+        return;
+      }
       setGen(g);
       setActiveKey(g.sel.chords ? "drill" : g.sel.strum ? "strum" : "song");
       setGenerating(false);
@@ -8749,25 +9620,64 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
 
   if (!stage) return null;
 
-  // ── Shared overlay chrome ──
-  const overlayStyle = { position:"fixed", inset:0, zIndex:500, overflowY:"auto",
-    background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%) #0d0d0a",
-    fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" };
+  // ── Shared chrome ──
+  // inline = rendered as a normal tab panel, so the app's own header, home
+  // button and pill bar stay on screen and the generator behaves like every
+  // other destination. The full-screen overlay treatment is kept only for the
+  // package-view host, which has no app chrome of its own to sit inside.
+  const overlayStyle = (inline || onPick)
+    ? { color:"#fff" }
+    : { position:"fixed", inset:0, zIndex:500, overflowY:"auto",
+        background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%) #0d0d0a",
+        fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" };
+  const Shell = (inline || onPick) ? PassThrough : FixedLayer;
   const fieldLabel = { fontSize:10, textTransform:"uppercase", letterSpacing:1.5, color:"#7a6a3a",
     fontWeight:700, marginBottom:8 };
 
   // ── Setup screen ──
   if (stage === "setup") {
+    // Short labels on purpose. Once a row is selected its stepper appears and
+    // the label column is only ~50px wide on a phone — "Chord Switching" needs
+    // 103px and "Strumming" 68px, so both were being cut to "Chor…" / "Stru…".
+    // These match the app's own nav pills (🤚 Chords / 🎸 Strum) and fit at
+    // full size, and the description panel underneath spells out what each one
+    // actually gives you.
     const rowsUI = [
-      { id:"chords", icon:"🤚", label:"Chord Switching" },
-      { id:"strum",  icon:"🎸", label:"Strumming" },
-      { id:"song",   icon:"🎵", label:"Song", sub:"chords + strumming" },
+      { id:"chords", icon:"🤚", label:"Chords", sub:"switching" },
+      { id:"strum",  icon:"🎸", label:"Strum",  sub:"patterns" },
+      { id:"song",   icon:"🎵", label:"Song",   sub:"chords + strumming" },
     ];
+
+    // ── One scaler for the whole exercise row ──────────────────────────────
+    // Every part of a row except the label has a fixed width, so on a narrow
+    // phone they added up to more than the card and the label was squeezed to
+    // nothing. Shrinking the pieces one at a time doesn't fix that: whichever
+    // bit you leave alone becomes the new bully, and text ends up either cut
+    // off or bumped onto a second line.
+    //
+    // So the row has ONE unit, --ntc-u, and every measurement in it — padding,
+    // gaps, icon, label, stepper, tick, difficulty pill — is a multiple of that
+    // unit. Change the unit and the entire row scales as a piece, keeping its
+    // exact proportions. If the text fits at one width it fits at all of them.
+    //
+    // 1u = 10px at 375px wide and up, which is where every multiple below was
+    // measured, so that layout is untouched. Narrower screens shrink the unit.
+    // The `- 0.9px` makes the row shrink very slightly faster than the screen
+    // does, because the page's own 16px side padding and the 8px row gap stay
+    // fixed and so eat a bigger share of a small screen.
+    //
+    // Custom property, not `em`, on purpose: an em width resolves against the
+    // element's OWN font-size, so a child that sets both would compound and
+    // quietly come out the wrong size.
+    const U = "clamp(7px, calc(2.986vw - 1.2px), 10px)";
+    const u = (n) => `calc(var(--ntc-u) * ${n})`;
     return (
-      <FixedLayer>
+      <Shell>
       <div style={overlayStyle}>
-        <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 60px" }}>
-          {/* Header */}
+        <div style={{ maxWidth:560, margin:"0 auto", padding: onPick ? "0" : "18px 16px 60px" }}>
+          {/* Header — hidden inline; the app shell already shows the brand,
+              the home button and the pill bar. */}
+          {!inline && !onPick && (
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
             <div style={{ width:34 }} />
             <div style={{ textAlign:"center" }}>
@@ -8782,6 +9692,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e", fontSize:16,
               cursor:"pointer", fontFamily:"inherit" }}>✕</button>
           </div>
+          )}
 
           <div style={{ textAlign:"center", margin:"18px 0 22px" }}>
             <div style={{ fontSize:24, fontWeight:900, color:"#f3ead2", letterSpacing:0.3 }}>
@@ -8804,15 +9715,20 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               : r.id === "strum"
               ? { value: rowCount, set: setRowCount, min: 1, max: GEN_MAX_ROWS, unit: "rows" }
               : null;
-            const stepBtn = { width:30, height:36, borderRadius:10, border:"1px solid #241d10",
-              background:"#100d09", color:"#FFBE0B", fontSize:15, fontWeight:900,
-              cursor:"pointer", fontFamily:"inherit", flexShrink:0 };
+            // Stepper trimmed by ~1u total (buttons 3.0u→2.8u, readout
+            // 4.4u→4.0u, gaps 0.5u→0.4u) to pay for the wider difficulty pill
+            // that "Beginner" needs, so the exercise label keeps its width.
+            const stepBtn = { width:u(2.8), height:u(3.6), borderRadius:u(1), border:"1px solid #241d10",
+              background:"#100d09", color:"#FFBE0B", fontSize:u(1.5), fontWeight:900,
+              cursor:"pointer", fontFamily:"inherit", flexShrink:0,
+              display:"flex", alignItems:"center", justifyContent:"center" };
             return (
-              <div key={r.id} style={{ display:"flex", gap:8, marginBottom:10, alignItems:"stretch" }}>
+              <div key={r.id} style={{ "--ntc-u":U, display:"flex", gap:u(0.8),
+                marginBottom:u(1), alignItems:"stretch" }}>
                 <div role="button" tabIndex={0} aria-pressed={on} onClick={()=>toggleSel(r.id)}
                   onKeyDown={e=>(e.key==="Enter"||e.key===" ")&&toggleSel(r.id)}
-                  style={{ flex:1, minWidth:0, padding:"10px 12px", borderRadius:14, cursor:"pointer",
-                    userSelect:"none", display:"flex", alignItems:"center", gap:10, minHeight:60,
+                  style={{ flex:1, minWidth:0, padding:`${u(1)} ${u(1.2)}`, borderRadius:u(1.4), cursor:"pointer",
+                    userSelect:"none", display:"flex", alignItems:"center", gap:u(1), minHeight:u(6),
                     boxSizing:"border-box",
                     border:`1px solid ${on ? "rgba(255,190,11,0.55)" : "#241d10"}`,
                     background: on
@@ -8820,25 +9736,32 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
                       : "#0e0b07",
                     boxShadow: on ? "0 0 18px rgba(255,160,20,0.14)" : "none",
                     transition:"all 0.2s ease" }}>
-                  <span style={{ fontSize:19, opacity: on ? 1 : 0.5, flexShrink:0 }}>{r.icon}</span>
-                  <span style={{ flex:1, minWidth:0 }}>
-                    <span style={{ fontSize:13.5, fontWeight:900, display:"block",
+                  <span style={{ fontSize:u(1.9), opacity: on ? 1 : 0.5, flexShrink:0 }}>{r.icon}</span>
+                  <span style={{ flex:"1 1 auto", minWidth:0 }}>
+                    <span style={{ fontSize:u(1.35), fontWeight:900, display:"block",
                       color: on ? "#FFD60A" : "#6f6749", whiteSpace:"nowrap", overflow:"hidden",
                       textOverflow:"ellipsis" }}>{r.label}</span>
-                    {r.sub && <span style={{ fontSize:10, color: on ? "#9a8f6e" : "#4a4433",
-                      fontWeight:600, whiteSpace:"nowrap" }}>{r.sub}</span>}
+                    {/* Ellipsis here too — the sub had nowrap but nothing to
+                        clip it, so a long one would have spilled across the
+                        stepper instead of being cut. */}
+                    {r.sub && <span style={{ fontSize:u(1), color: on ? "#9a8f6e" : "#4a4433",
+                      fontWeight:600, whiteSpace:"nowrap", display:"block",
+                      overflow:"hidden", textOverflow:"ellipsis" }}>{r.sub}</span>}
                   </span>
+                  {/* Stepper and tick travel together, pinned to the right. */}
+                  <span style={{ display:"flex", alignItems:"center", gap:u(1),
+                    flexShrink:0, marginLeft:"auto" }}>
                   {on && stepper && (
                     <span onClick={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}
-                      style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
+                      style={{ display:"flex", alignItems:"center", gap:u(0.4), flexShrink:0 }}>
                       <button aria-label={`fewer ${stepper.unit}`}
                         onClick={()=>stepper.set(v=>Math.max(stepper.min, Math.min(stepper.max, v)-1))}
                         style={stepBtn}>−</button>
-                      <span style={{ width:44, textAlign:"center", background:"#0c0a06",
-                        border:"1px solid #1c1710", borderRadius:10, padding:"3px 0 4px",
+                      <span style={{ width:u(4), textAlign:"center", background:"#0c0a06",
+                        border:"1px solid #1c1710", borderRadius:u(1), padding:`${u(0.3)} 0 ${u(0.4)}`,
                         display:"inline-flex", flexDirection:"column", alignItems:"center", lineHeight:1.15 }}>
-                        <span style={{ fontSize:15, fontWeight:900, color:"#FFBE0B" }}>{stepper.value}</span>
-                        <span style={{ fontSize:7.5, color:"#7a6a3a", fontWeight:700, letterSpacing:0.5,
+                        <span style={{ fontSize:u(1.5), fontWeight:900, color:"#FFBE0B" }}>{stepper.value}</span>
+                        <span style={{ fontSize:u(0.75), color:"#7a6a3a", fontWeight:700, letterSpacing:0.5,
                           textTransform:"uppercase" }}>{stepper.value === 1 ? stepper.unit.slice(0, -1) : stepper.unit}</span>
                       </span>
                       <button aria-label={`more ${stepper.unit}`}
@@ -8847,15 +9770,20 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
                     </span>
                   )}
                   {/* Selected indicator — the subtle "this is a toggle" cue */}
-                  <span aria-hidden="true" style={{ width:20, height:20, borderRadius:"50%", flexShrink:0,
-                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:900,
+                  <span aria-hidden="true" style={{ width:u(2), height:u(2), borderRadius:"50%", flexShrink:0,
+                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:u(1.1), fontWeight:900,
                     border:`1.5px solid ${on ? "rgba(255,190,11,0.7)" : "#2a2417"}`,
                     background: on ? "rgba(255,190,11,0.12)" : "transparent",
                     color: on ? "#FFD60A" : "transparent", transition:"all 0.2s" }}>✓</span>
+                  </span>
                 </div>
+                {/* 8.6u wide fits the longest label, "Beginner", which also
+                    drops a size so it stays on one line. Both scale with the
+                    row, so the pill never outgrows its text. */}
                 <button onClick={()=>cycleDiff(r.id)} disabled={!on} aria-label={`${r.label} difficulty`} style={{
-                  width:76, borderRadius:14, cursor: on ? "pointer" : "default", fontFamily:"inherit",
-                  fontSize:12.5, fontWeight:900, letterSpacing:0.5, flexShrink:0,
+                  width:u(8.6), borderRadius:u(1.4), cursor: on ? "pointer" : "default", fontFamily:"inherit",
+                  fontSize: u(d.label.length > 5 ? 1.1 : 1.25),
+                  fontWeight:900, letterSpacing:0.5, flexShrink:0, whiteSpace:"nowrap",
                   border:`1px solid ${on ? hexToRgba(d.color, 0.55) : "#1c1710"}`,
                   background: on
                     ? `radial-gradient(120% 160% at 50% 0%, ${hexToRgba(d.color, 0.16)} 0%, transparent 65%), #14100a`
@@ -8878,14 +9806,14 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
                   fontSize:11, lineHeight:1.75, color:"#8a7f5e" }}>
                   <span style={{ flexShrink:0 }}>{r.icon}</span>
                   <span style={{ color: GEN_DIFF_META[diff[r.id]].color, fontWeight:900,
-                    flexShrink:0, minWidth:34 }}>{GEN_DIFF_META[diff[r.id]].label}</span>
+                    flexShrink:0, minWidth:52 }}>{GEN_DIFF_META[diff[r.id]].label}</span>
                   <span style={{ minWidth:0 }}>{GEN_DIFF_DESC[r.id][diff[r.id]]}</span>
                 </div>
               ))}
             </div>
           )}
           <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", margin:"0 0 20px", lineHeight:1.7 }}>
-            Tap an exercise to include or skip it · tap its difficulty to cycle Easy → Med → Hard
+            Tap an exercise to include or skip it · tap its difficulty to cycle Beginner → Easy → Med → Hard
           </div>
 
           {/* Generate — the shine button */}
@@ -8930,7 +9858,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           ))}
         </div>
       </div>
-      </FixedLayer>
+      </Shell>
     );
   }
 
@@ -8938,11 +9866,11 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   const params = genParams(gen);
   const trackerName = readCustomTrackerName();
   const trackerTabLabel = !trackerName ? "Tracker" : (trackerName.length <= 10 ? trackerName : "My Tracker");
-  // ChordsTab and the song builder strip "_anchor" slot keys back to open
-  // shapes whenever their anchored prop is false — so Easy pools must render
-  // with anchored={true} or the Anchored 4 silently become open chords.
-  const anchoredChords = (gen.sel.chords ? gen.diff.chords : gen.diff.song) === "easy";
-  const anchoredStrum = (gen.sel.strum ? gen.diff.strum : gen.diff.song) === "easy";
+  // One flag for the whole session, taken from the chords it actually holds —
+  // a session has a single chord vocabulary, so the Chords tab and the chord
+  // being strummed on the Strum tab should present it the same way.
+  const anchoredChords = genHasAnchors(gen.chords);
+  const anchoredStrum = anchoredChords;
   const tabs = [];
   if (gen.sel.chords) tabs.push({ key:"drill", icon:"🤚", label:"Chords" });
   if (gen.sel.strum)  tabs.push({ key:"strum", icon:"🎸", label:"Strum" });
@@ -8957,7 +9885,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   const go = (key) => { stopPlayback(); setActiveKey(key); };
 
   return (
-    <FixedLayer>
+    <Shell>
     <div style={overlayStyle}>
       <div style={{ maxWidth:560, margin:"0 auto", padding:"14px 16px 60px" }}>
         {/* Header: back / brand / close */}
@@ -9055,7 +9983,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
         </div>
       </div>
     </div>
-    </FixedLayer>
+    </Shell>
   );
 }
 
@@ -9089,7 +10017,7 @@ function itemLabel(it) {
     if(it.t==="drill"){ const d=decodeChordDrill(it.d); return d?.name || (d?.chords||[]).map(slotLabel).join(" ") || "Chords"; }
     if(it.t==="strum"){ const d=decodeStrumDrill(it.d); return d?.name || "Strum pattern"; }
     if(it.t==="strumprog"){ const d=decodeStrumDrill(it.d); return d?.name || "Song (Simple)"; }
-    if(it.t==="pattern"){ const d=JSON.parse(atob(it.d)); return d?.n || "Song (Advanced)"; }
+    if(it.t==="pattern"){ const d=JSON.parse(b64Decode(it.d)); return d?.n || "Song (Advanced)"; }
   } catch(e){}
   return "Exercise";
 }
@@ -9137,28 +10065,6 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
     if(!parsed){ alert("That doesn't look like a Chords / Strum / Song share link. Paste a link that has ?drill= , ?strum= , ?strumprog= or ?pattern= in it."); return; }
     addItem(parsed);
     setPasteVal(""); setPasteOpen(false);
-  };
-
-  // Called by the in-modal builder's "Use this in package" button.
-  const handleBuilderExport = (t, d, label) => {
-    const newItem = { t, d, label: itemLabel({ t, d }) };
-    if(editIdx != null){
-      setItems(p => p.map((it,i)=> i===editIdx ? newItem : it));
-    } else {
-      setItems(p => [...p, newItem]);
-    }
-    setBuildType(null); setEditIdx(null); setEditParam(null);
-  };
-
-  // Open an existing item back up in its builder, preloaded with its data.
-  const editItem = (i) => {
-    const it = items[i];
-    if(!it) return;
-    const TYPE_TO_BUILD = { drill:"drill", strum:"strum", strumprog:"simple", pattern:"advanced" };
-    setEditIdx(i);
-    setEditParam(it.d);
-    setOpenSeq(s=>s+1);
-    setBuildType(TYPE_TO_BUILD[it.t] || null);
   };
 
   const closeModal = () => { setBuildType(null); setEditIdx(null); setEditParam(null); };
@@ -9363,7 +10269,7 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
 
       {/* Build-new modal */}
       {buildType && (
-        <div style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.9)", backdropFilter:"blur(6px)",
+        <div style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.9)", backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)",
           overflowY:"auto", padding:"12px" }}>
           <div style={{ maxWidth:560, margin:"0 auto", background:"#0d0d0a", border:"1px solid #241d10", borderRadius:18, padding:"14px 12px" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
@@ -9382,6 +10288,715 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
 
       <div style={{ textAlign:"center", paddingTop:8, paddingBottom:8, color:"#332e22", fontSize:11 }}>
         © {new Date().getFullYear()} No Theory Club · All rights reserved.
+      </div>
+    </div>
+  );
+}
+
+// ─── MY PRACTICE ROUTINES ────────────────────────────────────────────────────
+// A member-facing routine builder. Same bones as the Package Builder — an
+// ordered list of {t,d} items where `d` is the SAME encoded payload a share
+// link uses — but private, synced, and without the authoring chrome (no day
+// numbers, no anchor flags, no Supabase link). Routines are personal practice
+// plans, not published content, so nothing here writes to the packages table.
+//
+// Deliberately NO generator: routines are curated, not random.
+
+function routinesRead() {
+  try { return JSON.parse(localStorage.getItem(ROUTINES_KEY) || "[]"); } catch (_) { return []; }
+}
+function routinesWrite(list) {
+  try { localStorage.setItem(ROUTINES_KEY, JSON.stringify(list)); } catch (_) {}
+}
+function routineLastRead() {
+  try { return JSON.parse(localStorage.getItem(ROUTINES_LAST_KEY) || "null"); } catch (_) { return null; }
+}
+function routineLastWrite(id) {
+  try { localStorage.setItem(ROUTINES_LAST_KEY, JSON.stringify({ id, at: new Date().toISOString() })); } catch (_) {}
+}
+const newRoutineId = () =>
+  Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// Total timed minutes in a routine. Steps without a timer contribute nothing,
+// so a routine with no timers at all returns 0 and the badge stays hidden.
+function routineMinutes(r) {
+  return ((r && r.items) || []).reduce((sum, it) => sum + (Number(it.mins) || 0), 0);
+}
+
+// Steps a member can add. Mirrors PKG_TYPE_META but in the order a beginner
+// meets them, and with plain-English names.
+const ROUTINE_STEP_TYPES = [
+  { build:"drill",    t:"drill",     icon:"🤚", label:"Chords" },
+  { build:"strum",    t:"strum",     icon:"🎸", label:"Strumming" },
+  { build:"simple",   t:"strumprog", icon:"🎵", label:"Song" },
+  { build:"advanced", t:"pattern",   icon:"⚡", label:"Song · Advanced" },
+];
+
+function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
+  const auth = useContext(AuthCtx);
+  const [routines, setRoutines] = useState(routinesRead);
+  const [openId, setOpenId] = useState(null);       // routine being edited, null = list
+  const [playingId, setPlayingId] = useState(null); // routine open in the player
+  const [name, setName] = useState("");
+  const [items, setItems] = useState([]);
+  const [dirty, setDirty] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  // Builder modal
+  const [buildType, setBuildType] = useState(null);
+  const [editIdx, setEditIdx] = useState(null);
+  const [editParam, setEditParam] = useState(null);
+  const [openSeq, setOpenSeq] = useState(0);
+  const [genPicking, setGenPicking] = useState(false); // generator embedded in "add a step"
+
+  const live = routines.filter(r => !r.deleted);
+
+  // Opening a routine RUNS it. Editing is a deliberate second step behind the
+  // Edit button — before this, tapping a routine dropped you straight back into
+  // the builder, so a routine could be made but never actually used.
+  const playRoutine = useCallback((r) => {
+    setPlayingId(r.id); routineLastWrite(r.id);
+  }, []);
+  const openRoutine = useCallback((r) => {
+    setOpenId(r.id); setName(r.name || ""); setItems(r.items || []);
+    setDirty(false); routineLastWrite(r.id);
+  }, []);
+
+  // NOTE: routines deliberately do NOT auto-open. Landing straight inside the
+  // most recent one hid the rest and made the list feel like it wasn't there.
+  // ROUTINES_LAST_KEY is still written on use (and still syncs) so "most
+  // recently used" stays available if we want it later.
+
+  // A cloud pull that changed localStorage lands here — refresh in place so a
+  // member who just signed in sees their synced routines without a reload.
+  const epochRef = useRef(auth.syncEpoch);
+  useEffect(() => {
+    if (auth.syncEpoch === epochRef.current) return;
+    epochRef.current = auth.syncEpoch;
+    setRoutines(routinesRead());
+  }, [auth.syncEpoch]);
+
+  // Renumber on every write so the array's order and each row's `order` field
+  // never disagree — that mismatch is what a sync merge would resolve wrongly.
+  const persist = (list) => {
+    let n = 0;
+    const renumbered = list.map(r => r.deleted ? r : { ...r, order: n++ });
+    setRoutines(renumbered); routinesWrite(renumbered);
+  };
+
+  // ── Drag-to-reorder ──
+  // Pointer events (not HTML5 drag-and-drop) because DnD doesn't fire on touch,
+  // and this is a phone-first app. The dragged row follows the finger; when it
+  // crosses half of a neighbouring row's height the array swaps underneath, so
+  // the reorder is committed continuously rather than on drop.
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragDY, setDragDY] = useState(0);
+  const rowRefs = useRef([]);
+  const dragState = useRef(null);
+
+  const startDrag = (e, i) => {
+    e.preventDefault();
+    const rowH = rowRefs.current[i]?.getBoundingClientRect().height || 64;
+    dragState.current = { startY: e.clientY, idx: i, rowH: rowH + 10 /* + gap */ };
+    setDragIdx(i); setDragDY(0);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+  };
+
+  const onDragMove = (e) => {
+    const st = dragState.current;
+    if (!st) return;
+    const dy = e.clientY - st.startY;
+    setDragDY(dy);
+    const shift = Math.round(dy / st.rowH);
+    const target = st.idx + shift;
+    if (shift !== 0 && target >= 0 && target < live.length) {
+      // Reorder the LIVE rows, then splice them back into the full list so
+      // tombstoned routines keep their place and aren't resurrected.
+      const reordered = [...live];
+      const [moved] = reordered.splice(st.idx, 1);
+      reordered.splice(target, 0, moved);
+      persist([...reordered, ...routines.filter(r => r.deleted)]);
+      st.idx = target;
+      st.startY = e.clientY;
+      setDragDY(0);
+    }
+  };
+
+  const endDrag = () => { dragState.current = null; setDragIdx(null); setDragDY(0); };
+
+  useEffect(() => {
+    if (dragIdx === null) return;
+    window.addEventListener("pointermove", onDragMove);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    return () => {
+      window.removeEventListener("pointermove", onDragMove);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+    };
+    // Intentionally no dep array: the listeners must close over the CURRENT
+    // `live` / `routines` each render, or a drag would reorder a stale list.
+  }); // eslint-disable-line
+
+  const startNew = () => {
+    setOpenId("new"); setName(""); setItems([]); setDirty(false);
+  };
+
+  const save = () => {
+    const now = new Date().toISOString();
+    const id = openId === "new" ? newRoutineId() : openId;
+    const clean = (name || "").trim() || "Untitled routine";
+    const existing = routines.find(r => r.id === id);
+    const row = {
+      id, name: clean, items,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    persist([row, ...routines.filter(r => r.id !== id)]);
+    routineLastWrite(id);
+    setOpenId(id); setDirty(false);
+    setJustSaved(true);
+    // Drop back into the player so the thing you just built is immediately
+    // usable rather than leaving you staring at the builder again.
+    setTimeout(() => { setJustSaved(false); setOpenId(null); setPlayingId(id); }, 900);
+  };
+
+  const removeRoutine = (id) => {
+    // Tombstone rather than a splice — see mergeRoutines. A hard delete would
+    // simply come back on the next pull from another device.
+    const now = new Date().toISOString();
+    persist(routines.map(r => r.id === id ? { ...r, deleted: true, updatedAt: now } : r));
+    if (openId === id) setOpenId(null);
+  };
+
+  const addItem = (it) => { setItems(p => [...p, { ...it, label: itemLabel(it) }]); setDirty(true); };
+
+  // Per-step timer, in whole minutes. Passing null strips the field entirely
+  // rather than storing a 0 — a step with no `mins` key is the "no timer" case
+  // everywhere else, including every routine saved before timers existed.
+  const ROUTINE_TIMER_MAX = 60;
+  const setStepMins = (i, mins) => {
+    setItems(p => p.map((x, k) => {
+      if (k !== i) return x;
+      if (mins == null) { const { mins: _drop, ...rest } = x; return rest; }
+      return { ...x, mins: Math.max(1, Math.min(ROUTINE_TIMER_MAX, mins)) };
+    }));
+    setDirty(true);
+  };
+  const removeItem = (i) => { setItems(p => p.filter((_, k) => k !== i)); setDirty(true); };
+  const moveItem = (i, dir) => {
+    setItems(p => { const j = i + dir; if (j < 0 || j >= p.length) return p;
+      const n = [...p]; [n[i], n[j]] = [n[j], n[i]]; return n; });
+    setDirty(true);
+  };
+
+  const handleBuilderExport = (t, d) => {
+    const it = { t, d, label: itemLabel({ t, d }) };
+    if (editIdx != null) setItems(p => p.map((x, i) => i === editIdx ? it : x));
+    else setItems(p => [...p, it]);
+    setDirty(true); setBuildType(null); setEditIdx(null); setEditParam(null);
+  };
+
+  const closeModal = () => { setBuildType(null); setEditIdx(null); setEditParam(null); };
+
+  const PANEL = { background:"#0a0a0a", border:"1px solid #241d10", borderRadius:20,
+    padding:"16px 14px", marginBottom:14 };
+
+  // ── PLAYER ──
+  // Runs a saved routine using the SAME PackageView that ?pkg= links use, so a
+  // routine plays exactly like a shared package and none of the per-exercise
+  // playback is reimplemented here.
+  //
+  // Portaled to <body> because PackageView owns a full-page layout (minHeight
+  // 100vh, its own background, a position:fixed bottom nav). Rendered inside the
+  // tab, that fixed nav would resolve against the tab shell's retained
+  // ntcFadeIn transform instead of the viewport — the same trap the chord
+  // assign bar hit — and land mid-page.
+  const playing = playingId ? routines.find(r => r.id === playingId && !r.deleted) : null;
+  const playerOverlay = playing && createPortal(
+    <div style={{ position:"fixed", inset:0, zIndex:99970, overflowY:"auto",
+      fontFamily:"'Trebuchet MS', sans-serif",
+      background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)" }}>
+      <div style={{ position:"sticky", top:0, zIndex:5,
+        display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
+        background:"rgba(13,11,8,0.94)", backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)",
+        WebkitBackdropFilter:"blur(8px)", borderBottom:"1px solid #1c1710" }}>
+        <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
+            setPlayingId(null); }}
+          style={{ padding:"8px 13px", borderRadius:10, border:"1px solid #241d10",
+            background:"#100d09", color:"#8a7f5e", fontSize:12, fontWeight:800,
+            cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>← Routines</button>
+        <div style={{ flex:1, minWidth:0, textAlign:"center", fontSize:14, fontWeight:900,
+          color:"#FFD60A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+          {playing.name}
+        </div>
+        <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
+            setPlayingId(null); openRoutine(playing); }}
+          style={{ padding:"8px 13px", borderRadius:10,
+            border:"1px solid rgba(255,190,11,0.45)", background:"rgba(255,190,11,0.08)",
+            color:"#FFD60A", fontSize:12, fontWeight:800, cursor:"pointer",
+            fontFamily:"inherit", flexShrink:0 }}>✏️ Edit</button>
+      </div>
+      {(playing.items || []).length === 0 ? (
+        <div style={{ textAlign:"center", padding:"60px 24px", color:"#8a7f5e" }}>
+          <div style={{ fontSize:34, marginBottom:12 }}>📋</div>
+          <div style={{ fontSize:15, fontWeight:800, color:"#d8cba0", marginBottom:8 }}>
+            This routine is empty
+          </div>
+          <div style={{ fontSize:13, lineHeight:1.7, maxWidth:300, margin:"0 auto" }}>
+            Add a few steps and they'll play through here, one after another.
+          </div>
+        </div>
+      ) : (
+        // anchor:false hides the "Anchor chords" toggle — the same flag a
+        // package author uses. A routine has no need for it: you already chose
+        // the exact voicings when you built each step, so the button only
+        // crowded the space the step timer now sits in. Shared ?pkg= links,
+        // where the reader didn't choose the chords, still get it.
+        <PackageView pkg={{ items: playing.items, anchor: false }} audio={audio}
+          chordVariants={chordVariants} updateVariant={updateVariant} allowTimers={true}
+          onFinish={()=>setPlayingId(null)} />
+      )}
+    </div>,
+    document.body
+  );
+
+  // ── LIST VIEW ──
+  if (openId === null) {
+    return (
+      <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 40px" }}>
+        {playerOverlay}
+        <SectionHeader title="📋 My Practice Routines"
+          sub="Line up your own drills, patterns and songs into a routine you can run every day." />
+
+        <button onClick={startNew} style={{ width:"100%", padding:"15px", borderRadius:14,
+          border:"1px solid rgba(255,190,11,0.5)",
+          background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+          color:"#FFD60A", fontSize:16, fontWeight:900, cursor:"pointer",
+          boxShadow:"0 0 22px rgba(255,160,20,0.22)", fontFamily:"inherit", marginBottom:18 }}>
+          + New routine
+        </button>
+
+        {live.length === 0 ? (
+          <div style={{ ...PANEL, textAlign:"center", padding:"30px 18px" }}>
+            <div style={{ fontSize:34, marginBottom:10 }}>📋</div>
+            <div style={{ fontSize:15, fontWeight:800, color:"#d8cba0", marginBottom:6 }}>No routines yet</div>
+            <div style={{ fontSize:13, color:"#8a7f5e", lineHeight:1.7 }}>
+              A routine is your own practice plan — a few chord drills, a strum
+              pattern, a song — saved in the order you want to play them.
+            </div>
+          </div>
+        ) : live.map((r, i) => {
+          const isDragging = dragIdx === i;
+          return (
+          <div key={r.id}
+            ref={el => { rowRefs.current[i] = el; }}
+            style={{ ...PANEL, display:"flex", alignItems:"center", gap:10,
+              marginBottom:10, padding:"12px 12px",
+              // The dragged row lifts and follows the finger; the others slide
+              // under it as the array reorders beneath.
+              transform: isDragging ? `translateY(${dragDY}px) scale(1.02)` : "translateY(0)",
+              transition: isDragging ? "none" : "transform 0.18s ease, border-color 0.2s",
+              borderColor: isDragging ? "rgba(255,190,11,0.5)" : "#241d10",
+              boxShadow: isDragging ? "0 12px 30px rgba(0,0,0,0.6)" : "none",
+              position:"relative", zIndex: isDragging ? 5 : 1,
+              touchAction: isDragging ? "none" : "auto" }}>
+
+            {/* Grip — drag to reorder. touchAction:none on the handle stops the
+                page scrolling out from under the drag on a phone. */}
+            <span onPointerDown={(e)=>startDrag(e, i)}
+              aria-label="Drag to reorder"
+              style={{ flexShrink:0, cursor:"grab", touchAction:"none", padding:"6px 4px",
+                display:"flex", flexDirection:"column", gap:3 }}>
+              {[0,1,2].map(k => (
+                <span key={k} style={{ display:"block", width:16, height:2, borderRadius:2,
+                  background: isDragging ? "#FFD60A" : "#4a4433" }} />
+              ))}
+            </span>
+
+            {/* Tap the body to RUN it. */}
+            <button onClick={()=>playRoutine(r)} style={{ flex:1, minWidth:0, textAlign:"left",
+              background:"none", border:"none", cursor:"pointer", fontFamily:"inherit", padding:0 }}>
+              <div style={{ fontSize:16, fontWeight:900, color:"#FFD60A", marginBottom:3,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+              <div style={{ fontSize:12, color:"#8a7f5e" }}>
+                {(r.items || []).length} step{(r.items || []).length === 1 ? "" : "s"}
+                {/* Total only appears once at least one step is timed, so an
+                    untimed routine reads exactly as it did before. */}
+                {routineMinutes(r) > 0 && (
+                  <span style={{ color:"#FFBE0B", fontWeight:700 }}>
+                    {` \u00b7 \u23f1 ${routineMinutes(r)} min`}
+                  </span>
+                )}
+                {r.updatedAt ? ` \u00b7 ${new Date(r.updatedAt).toLocaleDateString()}` : ""}
+              </div>
+            </button>
+
+            <button onClick={()=>openRoutine(r)} aria-label={`Edit ${r.name}`}
+              style={{ flexShrink:0, background:"rgba(255,190,11,0.07)",
+                border:"1px solid rgba(255,190,11,0.3)", color:"#FFD60A",
+                fontSize:14, cursor:"pointer", padding:"8px 10px", borderRadius:10,
+                fontFamily:"inherit" }}>✏️</button>
+            <button onClick={()=>removeRoutine(r.id)} aria-label={`Delete ${r.name}`}
+              style={{ flexShrink:0, background:"rgba(231,76,60,0.07)",
+                border:"1px solid rgba(231,76,60,0.35)", color:"#ff6b5e",
+                fontSize:14, cursor:"pointer", padding:"8px 10px", borderRadius:10,
+                fontFamily:"inherit" }}>🗑️</button>
+          </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ── EDITOR VIEW ──
+  return (
+    <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 40px" }}>
+      <button onClick={()=>setOpenId(null)} style={{ marginBottom:12, padding:"8px 14px",
+        borderRadius:10, border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
+        fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>← All routines</button>
+
+      <div style={PANEL}>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, marginBottom:8 }}>ROUTINE NAME</div>
+        <input value={name} onChange={(e)=>{ setName(e.target.value); setDirty(true); }}
+          placeholder="Morning warm-up"
+          style={{ width:"100%", padding:"13px 15px", borderRadius:13,
+            border:"1px solid rgba(255,190,11,0.35)", background:"rgba(255,209,102,0.04)",
+            color:"#fff", fontSize:16, outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
+      </div>
+
+      <div style={PANEL}>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, marginBottom:12 }}>
+          STEPS · {items.length}
+        </div>
+        {items.length === 0 && (
+          <div style={{ fontSize:13, color:"#8a7f5e", lineHeight:1.7, marginBottom:12 }}>
+            Add your first step below — build a new one, or paste a link to
+            something you've already made.
+          </div>
+        )}
+        {items.map((it, i) => {
+          const meta = PKG_TYPE_META[it.t] || {};
+          const mins = Number(it.mins) || 0;
+          const timerBtn = {
+            width:30, height:30, borderRadius:9, cursor:"pointer", fontFamily:"inherit",
+            border:"1px solid rgba(255,190,11,0.28)", background:"#0c0a06",
+            color:"#FFBE0B", fontSize:15, fontWeight:900, flexShrink:0,
+            display:"flex", alignItems:"center", justifyContent:"center",
+          };
+          return (
+            <div key={i} style={{
+              background:"#100d09", border:"1px solid #241d10", borderRadius:13,
+              padding:"10px 12px", marginBottom:8 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:16 }}>{meta.icon || "🎵"}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:800, color:"#e8e2d2",
+                    overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it.label}</div>
+                  <div style={{ fontSize:11, color:"#776b4d" }}>{meta.label || it.t}</div>
+                </div>
+                <button onClick={()=>moveItem(i,-1)} disabled={i===0} aria-label="Move up"
+                  style={{ background:"none", border:"none", color:i===0?"#3a3528":"#8a7f5e",
+                    fontSize:15, cursor:i===0?"default":"pointer", padding:"4px 6px" }}>▲</button>
+                <button onClick={()=>moveItem(i,1)} disabled={i===items.length-1} aria-label="Move down"
+                  style={{ background:"none", border:"none", color:i===items.length-1?"#3a3528":"#8a7f5e",
+                    fontSize:15, cursor:i===items.length-1?"default":"pointer", padding:"4px 6px" }}>▼</button>
+                <button onClick={()=>removeItem(i)} aria-label="Remove step"
+                  style={{ background:"none", border:"none", color:"#ff6b5e",
+                    fontSize:16, cursor:"pointer", padding:"4px 6px" }}>✕</button>
+              </div>
+
+              {/* Optional timer, on its own line so the step title above keeps
+                  its full width. Off by default: until you add one there is
+                  just a quiet ghost button, not a control set to zero. */}
+              <div style={{ marginTop:9, paddingTop:9, borderTop:"1px solid #1a150d" }}>
+                {mins > 0 ? (
+                  <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                    <span style={{ fontSize:14, flexShrink:0 }}>⏱</span>
+                    <button onClick={()=>setStepMins(i, mins - 1)} disabled={mins <= 1}
+                      aria-label={`Less time on ${it.label}`}
+                      style={{ ...timerBtn, opacity: mins <= 1 ? 0.35 : 1,
+                        cursor: mins <= 1 ? "default" : "pointer" }}>−</button>
+                    <span style={{ minWidth:62, textAlign:"center", fontSize:13, fontWeight:900,
+                      color:"#FFD60A" }}>
+                      {mins} min
+                    </span>
+                    <button onClick={()=>setStepMins(i, mins + 1)} disabled={mins >= ROUTINE_TIMER_MAX}
+                      aria-label={`More time on ${it.label}`}
+                      style={{ ...timerBtn, opacity: mins >= ROUTINE_TIMER_MAX ? 0.35 : 1,
+                        cursor: mins >= ROUTINE_TIMER_MAX ? "default" : "pointer" }}>+</button>
+                    <button onClick={()=>setStepMins(i, null)} aria-label={`Remove timer from ${it.label}`}
+                      style={{ marginLeft:"auto", background:"none", border:"none",
+                        color:"#6f6749", fontSize:11, fontWeight:700, cursor:"pointer",
+                        fontFamily:"inherit", padding:"6px 2px" }}>Remove timer</button>
+                  </div>
+                ) : (
+                  <button onClick={()=>setStepMins(i, 5)}
+                    style={{ background:"none", border:"none", color:"#6f6749",
+                      fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+                      padding:"2px 0", letterSpacing:0.2 }}>
+                    ⏱ Add a timer
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, margin:"16px 0 8px" }}>ADD A STEP</div>
+
+        {/* The generator takes over this spot when picked, rather than opening
+            a separate screen — you stay in the routine you're building. */}
+        {genPicking ? (
+          <div style={{ border:"1px solid rgba(255,190,11,0.3)", borderRadius:14,
+            background:"#0d0b07", padding:"12px 12px 14px" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontSize:12, fontWeight:900, color:"#FFD60A" }}>⚡ Generate a step</div>
+              <button onClick={()=>setGenPicking(false)}
+                style={{ background:"none", border:"none", color:"#8a7f5e", fontSize:16,
+                  cursor:"pointer", fontFamily:"inherit", padding:"0 4px" }}>✕</button>
+            </div>
+            <ExerciseGeneratorHost audio={audio} chordVariants={chordVariants}
+              updateVariant={updateVariant} context="app"
+              onPick={(steps) => {
+                steps.forEach(addItem);
+                setGenPicking(false);
+              }} />
+          </div>
+        ) : (
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {ROUTINE_STEP_TYPES.map(st => (
+              <button key={st.build} onClick={()=>{ setEditIdx(null); setEditParam(null);
+                  setOpenSeq(n=>n+1); setBuildType(st.build); }}
+                style={{ flex:"1 1 44%", padding:"12px 8px", borderRadius:12,
+                  border:"1px solid #241d10", background:"#100d09", color:"#d8cba0",
+                  fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+                {st.icon} {st.label}
+              </button>
+            ))}
+            <button onClick={()=>setGenPicking(true)}
+              style={{ flex:"1 1 100%", padding:"12px 8px", borderRadius:12,
+                border:"1px solid rgba(255,190,11,0.4)",
+                background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.14) 0%, rgba(255,170,30,0) 70%), #16110a",
+                color:"#FFD60A", fontSize:13, fontWeight:800, cursor:"pointer",
+                fontFamily:"inherit" }}>
+              ⚡ Generate one for me
+            </button>
+          </div>
+        )}
+      </div>
+
+      <button onClick={save} disabled={!dirty && openId !== "new"}
+        style={{ width:"100%", padding:"15px", borderRadius:14,
+          border: (dirty || openId === "new") ? "1px solid rgba(255,190,11,0.5)" : "1px solid #1c1710",
+          background: (dirty || openId === "new")
+            ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a"
+            : "#100d09",
+          color: (dirty || openId === "new") ? "#FFD60A" : "#3a3528",
+          fontSize:16, fontWeight:900, fontFamily:"inherit",
+          cursor: (dirty || openId === "new") ? "pointer" : "default" }}>
+        {justSaved ? "✓ Saved" : "💾 Save routine"}
+      </button>
+
+      {/* Builder modal — same pattern the Package Builder uses, so an exercise
+          built here is byte-identical to one built anywhere else. */}
+      {buildType && (
+        <div style={{ position:"fixed", inset:0, zIndex:1000, background:"rgba(0,0,0,0.9)",
+          backdropFilter:"blur(6px)", WebkitBackdropFilter:"blur(6px)", overflowY:"auto", padding:"12px" }}>
+          <div style={{ maxWidth:560, margin:"0 auto", background:"#0d0d0a",
+            border:"1px solid #241d10", borderRadius:18, padding:"14px 12px" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:900, color:"#FFD60A" }}>
+                {editIdx != null ? "Edit" : "Build"} step
+              </div>
+              <button onClick={closeModal} style={{ background:"none", border:"none",
+                color:"#888", fontSize:20, cursor:"pointer" }}>✕</button>
+            </div>
+            {buildType==="drill" && <ChordsTab key={`drill-${openSeq}`} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="strum" && <StrummingTab key={`strum-${openSeq}`} audio={audio} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="simple" && <SimpleBuildSong key={`simple-${openSeq}`} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+            {buildType==="advanced" && <AdvancedBuildSong key={`advanced-${openSeq}`} audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} onExport={handleBuilderExport} initialParam={editParam} />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ROUTINE STEP TIMER ──────────────────────────────────────────────────────
+// Optional per-step countdown, used ONLY by My Practice Routines. A step with
+// no `mins` renders nothing at all, and shared ?pkg= links never pass
+// allowTimers, so nothing about packages changes.
+//
+// Deliberately a SIGNAL, not an autopilot: when the time is up it chimes,
+// buzzes and turns gold, but it never moves you on by itself. Being yanked out
+// of an exercise mid-strum would be worse than practising 20 seconds too long.
+
+// Three rising notes, synthesised so there's no audio file to ship. The
+// AudioContext is created on the Start tap — iOS only unlocks audio inside a
+// gesture, and a context made when the timer hits zero would be silent.
+function timerChime(ctx) {
+  if (!ctx) return;
+  try {
+    if (ctx.state === "suspended") ctx.resume();
+    const t0 = ctx.currentTime;
+    [880, 1108.73, 1318.51].forEach((freq, i) => {
+      const at = t0 + i * 0.17;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.22, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.55);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(at); osc.stop(at + 0.6);
+    });
+  } catch (_) {}
+}
+
+function RoutineStepTimer({ minutes, label, onNext = null }) {
+  const total = Math.max(1, Number(minutes) || 0) * 60;
+  const [left, setLeft] = useState(total);
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState(false);
+  const endAtRef = useRef(0);
+  const ctxRef = useRef(null);
+
+  // Count down against a wall-clock deadline rather than by decrementing a
+  // counter. Background tabs throttle timers hard on mobile, so a step counter
+  // would quietly drift minutes off over a long exercise; a deadline is right
+  // the moment the tab comes back.
+  useEffect(() => {
+    if (!running) return;
+    const tick = () => {
+      const rem = Math.max(0, Math.round((endAtRef.current - Date.now()) / 1000));
+      setLeft(rem);
+      if (rem <= 0) {
+        setRunning(false);
+        setDone(true);
+        timerChime(ctxRef.current);
+        try { if (navigator.vibrate) navigator.vibrate([220, 120, 220]); } catch (_) {}
+      }
+    };
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [running]);
+
+  // Close the audio context on unmount so leaving the routine doesn't leave
+  // one open per step visited.
+  useEffect(() => () => { try { ctxRef.current && ctxRef.current.close(); } catch (_) {} }, []);
+
+  const start = () => {
+    if (!ctxRef.current) {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) ctxRef.current = new Ctx();
+      } catch (_) {}
+    }
+    try { if (ctxRef.current && ctxRef.current.state === "suspended") ctxRef.current.resume(); } catch (_) {}
+    endAtRef.current = Date.now() + (done ? total : left) * 1000;
+    if (done) { setLeft(total); setDone(false); }
+    setRunning(true);
+  };
+  const pause = () => setRunning(false);
+  const reset = () => { setRunning(false); setDone(false); setLeft(total); };
+
+  const mm = Math.floor(left / 60);
+  const ss = left % 60;
+  const clock = `${mm}:${String(ss).padStart(2, "0")}`;
+
+  // Ring geometry. The stroke is drawn as one full-circumference dash whose
+  // offset grows as time is spent, so the gold arc empties like sand.
+  const R = 21, C = 2 * Math.PI * R;
+  const spent = total > 0 ? (total - left) / total : 0;
+  const gold = done ? "#FFD60A" : running ? "#FFBE0B" : "#8a7f5e";
+
+  return (
+    <div style={{ margin:"0 0 10px" }}>
+      <style>{`
+        @keyframes ntcTimerPulse { 0%,100% { box-shadow:0 0 0 rgba(255,214,10,0); }
+          50% { box-shadow:0 0 22px rgba(255,214,10,0.45); } }
+        @keyframes ntcTimerTick { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+      `}</style>
+      <div style={{ display:"flex", alignItems:"center", gap:12,
+        border:`1px solid ${done ? "rgba(255,214,10,0.65)" : running ? "rgba(255,190,11,0.4)" : "#241d10"}`,
+        borderRadius:16, padding:"10px 12px",
+        background: done
+          ? "radial-gradient(130% 150% at 0% 50%, rgba(255,190,11,0.18) 0%, rgba(255,170,30,0) 65%), #17120a"
+          : "radial-gradient(130% 150% at 0% 50%, rgba(255,170,30,0.07) 0%, rgba(255,170,30,0) 60%), #100d09",
+        animation: done ? "ntcTimerPulse 1.5s ease-in-out infinite" : "none",
+        transition:"border-color 0.3s, background 0.3s" }}>
+
+        {/* Clock face */}
+        <div style={{ position:"relative", width:52, height:52, flexShrink:0 }}>
+          <svg width="52" height="52" viewBox="0 0 52 52"
+            style={{ transform:"rotate(-90deg)", display:"block" }}>
+            <circle cx="26" cy="26" r={R} fill="none" stroke="#241d10" strokeWidth="4" />
+            <circle cx="26" cy="26" r={R} fill="none" stroke={gold} strokeWidth="4"
+              strokeLinecap="round" strokeDasharray={C}
+              strokeDashoffset={C * spent}
+              style={{ transition:"stroke-dashoffset 0.3s linear, stroke 0.3s" }} />
+          </svg>
+          <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center",
+            justifyContent:"center", fontSize: clock.length > 4 ? 12 : 13.5, fontWeight:900,
+            color: done ? "#FFD60A" : "#f3ead2", letterSpacing:0.2,
+            animation: running ? "ntcTimerTick 1s steps(2, end) infinite" : "none" }}>
+            {clock}
+          </div>
+        </div>
+
+        {/* Status. Once the time is up this becomes a real button — it used to
+            say "next step 👉" and do nothing when tapped, which reads as
+            broken. When there is no next step it stays plain text and says so
+            rather than pointing at a step that doesn't exist. */}
+        {done && onNext ? (
+          <button onClick={onNext}
+            style={{ flex:1, minWidth:0, textAlign:"left", background:"none",
+              border:"none", padding:0, cursor:"pointer", fontFamily:"inherit" }}>
+            <div style={{ fontSize:13.5, fontWeight:900, color:"#FFD60A",
+              whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+              Time's up — next step →
+            </div>
+            <div style={{ fontSize:11, color:"#8a7f5e", fontWeight:600, marginTop:2 }}>
+              {minutes} min done · tap to move on
+            </div>
+          </button>
+        ) : (
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:13.5, fontWeight:900,
+              color: done ? "#FFD60A" : "#e8e2d2", whiteSpace:"nowrap",
+              overflow:"hidden", textOverflow:"ellipsis" }}>
+              {done ? "Time's up — routine complete 🎉" : label}
+            </div>
+            <div style={{ fontSize:11, color:"#776b4d", fontWeight:600, marginTop:2 }}>
+              {done ? `${minutes} min done` : running ? "Counting down…" : `${minutes} min timer`}
+            </div>
+          </div>
+        )}
+
+        {/* Controls */}
+        <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+          {/* No separate reset once it's finished — the main button already
+              restarts, and two identical ↻ side by side just looked broken. */}
+          {left < total && !done && (
+            <button onClick={reset} aria-label="Reset timer"
+              style={{ width:34, height:34, borderRadius:10, cursor:"pointer",
+                border:"1px solid #241d10", background:"#0c0a06", color:"#8a7f5e",
+                fontSize:14, fontFamily:"inherit" }}>↻</button>
+          )}
+          <button onClick={running ? pause : start}
+            aria-label={running ? "Pause timer" : "Start timer"}
+            style={{ minWidth:44, height:34, padding:"0 12px", borderRadius:10, cursor:"pointer",
+              border:`1px solid ${running ? "#241d10" : "rgba(255,190,11,0.5)"}`,
+              background: running ? "#0c0a06"
+                : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+              color: running ? "#8a7f5e" : "#FFD60A",
+              fontSize:14, fontWeight:900, fontFamily:"inherit" }}>
+            {running ? "❚❚" : done ? "↻" : "▶"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -9466,7 +11081,10 @@ function PackageShareView({ audio, chordVariants, updateVariant }) {
 // the tracker), a panel per exercise rendered via the EXISTING share components
 // (fed package data through initialParam), and a bottom nav. Built to match the
 // approved mockup (Option B).
-function PackageView({ pkg, audio, chordVariants, updateVariant }) {
+// allowTimers is opt-in and only My Practice Routines passes it. Shared ?pkg=
+// links carry no `mins` on their items anyway, but gating it here means a
+// package can never sprout a countdown by accident.
+function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = false, onFinish = null }) {
   const items = Array.isArray(pkg?.items) ? pkg.items : [];
   const hasTracker = !!pkg?.tracker;
 
@@ -9508,9 +11126,26 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
     } catch(_){}
   }, [hasTracker]);
 
+  // Whether THIS item renders anchored shapes.
+  //
+  // When the toggle is on screen it rules, as before. When it isn't — a
+  // routine, or a package whose author turned it off — there is nothing left
+  // to switch the chords back with, so honour exactly what the step stored.
+  // Without this, a step built from the anchored pack (or generated at
+  // Beginner) came out as ordinary open chords, because the tabs actively
+  // convert "_anchor" keys back whenever their anchored prop is false.
+  const itemAnchored = (it) => {
+    if (allowAnchor) return anchored;
+    try {
+      if (it.t === "drill") return genHasAnchors(decodeChordDrill(it.d)?.chords);
+      return genHasAnchors(decodeStrumDrill(it.d)?.songChords);
+    } catch (_) { return false; }
+  };
+
   // Render a single exercise item via its existing share component.
   const renderItem = (it) => {
     if(!it) return null;
+    const anch = itemAnchored(it);
     const name = (pkg?.n || "").trim();
     const title = name ? (
       <div style={{ width:"100%", textAlign:"center", marginBottom:12 }}>
@@ -9520,13 +11155,13 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
     ) : null;
     let panel = null;
     if(it.t === "drill")
-      panel = <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
+      panel = <ChordsTab audio={audio} chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anch} />;
     else if(it.t === "strum")
-      panel = <StrummingTab audio={audio} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
+      panel = <StrummingTab audio={audio} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anch} />;
     else if(it.t === "strumprog")
-      panel = <BuildSongTab audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
+      panel = <BuildSongTab audio={audio} initialBuildMode="simple" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anch} />;
     else if(it.t === "pattern")
-      panel = <BuildSongTab audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anchored} />;
+      panel = <BuildSongTab audio={audio} initialBuildMode="advanced" chordVariants={chordVariants} updateVariant={updateVariant} sharedView={true} initialParam={it.d} hideTitle={true} anchored={anch} />;
     return <>{title}{panel}</>;
   };
 
@@ -9535,6 +11170,15 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
     try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(e){}
     setActiveKey(key);
     window.scrollTo(0,0);
+  };
+
+  // Reached the end. A routine hands us a way back to its list; a shared
+  // package has nowhere of its own to return to, so it goes home — the same
+  // place its own home button leads.
+  const finish = () => {
+    try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(e){}
+    if (onFinish) { onFinish(); return; }
+    window.location.href = window.location.origin + window.location.pathname;
   };
 
   return (
@@ -9605,6 +11249,17 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
       {/* Active panel — kept mounted via display toggle so playback state survives
           tab switches; each panel fades in on activation. */}
       <div style={{ padding:"4px 16px 8px" }}>
+        {/* Step timer — above the exercise so it's always the first thing in
+            view, and keyed to the active step so moving on gives you a fresh
+            clock rather than the last one's leftovers. Only mounted for the
+            step you're actually on, so a paused timer on another step can't
+            keep ticking in the background. */}
+        {allowTimers && activeKey !== "tracker" && tabs[activeIdx]?.item?.mins > 0 && (
+          <RoutineStepTimer key={`timer-${activeKey}`}
+            minutes={tabs[activeIdx].item.mins}
+            label={tabs[activeIdx].item.label || tabs[activeIdx].label}
+            onNext={tabs[activeIdx+1] ? () => go(tabs[activeIdx+1].key) : null} />
+        )}
         {tabs.map(t => (
           <div key={t.key}
             style={{ display: t.key===activeKey ? "block" : "none",
@@ -9613,8 +11268,11 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
           </div>
         ))}
 
-        {/* Guided footer — Back / Next through the items (skips on tracker) */}
-        {activeKey !== "tracker" && tabs.length > 1 && (
+        {/* Guided footer — Back / Next through the items (skips on tracker).
+            `onFinish` also lets a ONE-step routine draw it, so every routine
+            ends the same way. Shared single-exercise packages pass no onFinish
+            and keep their footer-free layout. */}
+        {activeKey !== "tracker" && (tabs.length > 1 || onFinish) && (
           <div style={{ display:"flex", gap:8, marginTop:6 }}>
             {activeIdx > 0 && (
               <button onClick={()=>go(tabs[activeIdx-1].key)} style={{
@@ -9622,13 +11280,31 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
                 border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
                 fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>← Back</button>
             )}
-            <button onClick={()=>go(tabs[activeIdx+1].key)} style={{
-              flex:1, padding:"11px", borderRadius:12,
-              border:"1px solid rgba(255,190,11,0.35)",
-              background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.12) 0%, rgba(255,170,30,0) 70%), #14100a",
-              color:"#FFD60A", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
-              {tabs[activeIdx+1]?.key==="tracker" ? "Finish → Tracker" : "Next →"}
-            </button>
+            {/* On the LAST step there is no next tab, and this button used to
+                reach for tabs[activeIdx+1].key anyway — which threw "Cannot
+                read properties of undefined" and replaced the whole app with
+                a red error screen. Packages usually hid the fault because
+                their last tab is the tracker, where this footer isn't drawn;
+                a routine has no tracker, so its final Next always crashed.
+                The end of a routine is now a Finish button instead. */}
+            {tabs[activeIdx+1] ? (
+              <button onClick={()=>go(tabs[activeIdx+1].key)} style={{
+                flex:1, padding:"11px", borderRadius:12,
+                border:"1px solid rgba(255,190,11,0.35)",
+                background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.12) 0%, rgba(255,170,30,0) 70%), #14100a",
+                color:"#FFD60A", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+                {tabs[activeIdx+1].key==="tracker" ? "Finish → Tracker" : "Next →"}
+              </button>
+            ) : (
+              <button onClick={finish} style={{
+                flex:1, padding:"11px", borderRadius:12,
+                border:"1px solid rgba(255,190,11,0.5)",
+                background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+                color:"#FFD60A", fontSize:13, fontWeight:900, cursor:"pointer",
+                fontFamily:"inherit", boxShadow:"0 0 18px rgba(255,160,20,0.16)" }}>
+                ✓ Finish
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -9673,7 +11349,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant }) {
 // ─── LANDING SCREEN ──────────────────────────────────────────────────────────
 // Clean title screen shown on a fresh visit (no shared exercise URL). The four
 // cards navigate to each tab. Fade-in + warm-glow dark buttons.
-function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev = null }) {
+function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev = null, premiumLocked = false }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMounted(true), 20); return () => clearTimeout(t); }, []);
 
@@ -9683,149 +11359,206 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
     transition: `opacity 0.6s ease ${delay}s, transform 0.6s ease ${delay}s`,
   });
 
-  const items = [
-    { id:"strum",   icon:"🎸", title:"Strumming",      sub:"Patterns, rhythm & the universal motion" },
-    { id:"chords",  icon:"🤚", title:"Chords",          sub:"Switching drills & chord packs" },
-    { id:"song",    icon:"🎵", title:"Build a Song",    sub:"Your chords + strumming, played back" },
+  // Order is deliberate: chords come before strumming because forming a chord
+  // is the first thing a beginner can actually do.
+  // Home is three groups, not one flat list:
+  //   1. YOURS      — the member's own stuff (tracker + routines), up top
+  //   2. Generate   — the one-tap launcher, sitting between the two groups
+  //   3. THE TOOLS  — the three practice tools, boxed together (they're the
+  //                   Guitar Sandbox once you're inside)
+  // The tools stay named individually here rather than behind one Sandbox card,
+  // because home is where someone decides what to practise.
+  const toolItems = [
+    { id:"chords",   icon:"🤚", title:"Chords",       sub:"Drills & chord packs" },
+    { id:"strum",    icon:"🎸", title:"Strumming",    sub:"Patterns & rhythm" },
+    { id:"song",     icon:"🎵", title:"Song Builder", sub:"Your song, played back", locked:true },
   ];
+  const routinesItem = { id:"routines", icon:"📋", title:"My Practice Routines",
+    sub:"Your own practice plan", locked:true };
 
   const [hover, setHover] = useState(null);
 
+  // ── One unit for the whole landing screen ──────────────────────────────────
+  // 1u = 10px up to 480px wide, and every number on this screen was measured
+  // there, so phones are untouched. From 480 it grows to 13px by 768, where an
+  // iPad sat with a 480px column marooned in the middle of a 768px screen and
+  // empty space all around it.
+  //
+  // Because EVERY measurement here is a multiple of the unit — the column
+  // width, the hero, the cards, the icons, the text, the padlocks — the screen
+  // simply gets bigger and keeps its proportions exactly. Nothing is stretched
+  // or re-arranged, so there is no separate tablet layout to maintain.
+  const LU = "clamp(10px, calc(10px + (100vw - 480px) * 0.0104167), 13px)";
+  const lu = (n) => `calc(var(--ntc-l) * ${n})`;
+
+  // Right-rail geometry, shared by the cards and the Generate launcher so every
+  // padlock sits on the same vertical line.
+  const CARD_PAD_X  = lu(1.5);
+  const CHEV_W      = lu(1);
+  const LOCK_W      = lu(2);   // > glyph size; a filtered box crops its own overflow
+  const LOCK_GAP    = lu(0.9);
+  // Distance from a row's right edge to the LEFT edge of the lock slot.
+  const LOCK_RIGHT  = lu(3.4); // = CARD_PAD_X + CHEV_W + LOCK_GAP
+
+  // One card renderer shared by both groups, so a card looks identical wherever
+  // it sits. `delay` keeps the staggered rise-in running in document order.
+  const renderCard = (it, delay) => {
+    const isHover = hover === it.id;
+    // Locked rows read as locked — dimmed and desaturated — but stay fully
+    // clickable, because tapping one is how you reach the upgrade prompt.
+    const showLock = Boolean(it.locked && premiumLocked);
+    return (
+      <button key={it.id}
+        onClick={()=>onPick(it.id)}
+        onMouseEnter={()=>setHover(it.id)}
+        onMouseLeave={()=>setHover(null)}
+        style={{
+          position:"relative", width:"100%",
+          border:`1px solid ${isHover ? "rgba(255,190,11,0.45)" : "#241d10"}`,
+          borderRadius:lu(1.6), padding:`${lu(1.4)} ${CARD_PAD_X}`, cursor:"pointer", textAlign:"left",
+          display:"flex", alignItems:"center", gap:lu(1.2), color:"#fff", fontFamily:"inherit",
+          background: isHover
+            ? "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.14) 0%, rgba(255,170,30,0) 60%), #14100a"
+            : "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.06) 0%, rgba(255,170,30,0) 55%), #0e0b07",
+          boxShadow: isHover ? "0 8px 26px rgba(0,0,0,0.5), 0 0 22px rgba(255,160,20,0.18)" : "none",
+          transform: isHover ? "translateY(-2px)" : "translateY(0)",
+          transition:"transform 0.18s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease",
+          ...rise(delay),
+        }}>
+        <span style={{ fontSize:lu(2.2), width:lu(3.8), height:lu(3.8), borderRadius:lu(1.2),
+          display:"flex", alignItems:"center", justifyContent:"center",
+          background: isHover ? "rgba(255,190,11,0.12)" : "rgba(255,190,11,0.06)",
+          border:`1px solid ${isHover ? "rgba(255,190,11,0.3)" : "rgba(255,190,11,0.12)"}`,
+          flexShrink:0, transition:"background 0.25s, border-color 0.25s" }}>
+          {it.icon}
+        </span>
+        {/* Locked rows are signalled by DARKER TEXT only — the card keeps its
+            normal background, border and icon. Dimming the whole card washed
+            the panel out. */}
+        <span style={{ display:"flex", flexDirection:"column", gap:lu(0.3), minWidth:0 }}>
+          <span style={{ fontSize:lu(1.7), fontWeight:900, letterSpacing:0.2,
+            color: isHover ? "#FFD60A" : (showLock ? "#8a7f5e" : "#f3ead2"),
+            transition:"color 0.25s" }}>{it.title}</span>
+          <span style={{ fontSize:lu(1.2), fontWeight:600,
+            color: showLock ? "#554e39" : "#776b4d" }}>{it.sub}</span>
+        </span>
+        {/* Right rail. The lock slot is ALWAYS rendered (just invisible when
+            unlocked) so the padlocks and chevrons line up on the same vertical
+            axis across every card — and the launcher below matches it via
+            LOCK_RIGHT. */}
+        <span style={{ marginLeft:"auto", display:"flex", alignItems:"center",
+          gap:LOCK_GAP, flexShrink:0 }}>
+          {it.streak != null && (
+            <span style={{ display:"flex", flexDirection:"column", alignItems:"center",
+              background: isHover ? "rgba(255,190,11,0.1)" : "rgba(255,190,11,0.06)",
+              border:`1px solid ${isHover ? "rgba(255,190,11,0.4)" : "rgba(255,190,11,0.25)"}`,
+              borderRadius:lu(1.1), padding:`${lu(0.5)} ${lu(1.1)}`,
+              transition:"border-color 0.25s, background 0.25s" }}>
+              <span style={{ fontSize:lu(1.8), fontWeight:900, color:"#FFBE0B", lineHeight:1 }}>{it.streak||0}</span>
+              <span style={{ fontSize:lu(0.9), color:"#776b4d", letterSpacing:1, marginTop:lu(0.2) }}>DAYS</span>
+            </span>
+          )}
+          <span aria-hidden="true" style={{ width:LOCK_W, height:lu(2), display:"flex",
+            alignItems:"center", justifyContent:"center", fontSize:lu(1.5), lineHeight:lu(2),
+            opacity: showLock ? 0.95 : 0,
+            filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
+          <span style={{ width:CHEV_W, textAlign:"center", fontSize:lu(2.1), fontWeight:900,
+            color: isHover ? "#FFBE0B" : "#3a3325",
+            transform: isHover ? "translateX(3px)" : "translateX(0)",
+            transition:"color 0.25s, transform 0.25s" }}>›</span>
+        </span>
+      </button>
+    );
+  };
+
+  // Group shell — the "clean box" the two sets of cards sit in.
+  const groupBox = (glow) => ({
+    width:"100%", borderRadius:lu(2.2), padding:`${lu(1.1)} ${lu(1.2)} ${lu(1.2)}`,
+    border:`1px solid ${glow ? "rgba(255,190,11,0.28)" : "#1c1710"}`,
+    background: glow
+      ? "radial-gradient(130% 120% at 50% 0%, rgba(255,170,30,0.09) 0%, rgba(255,170,30,0) 65%), #0b0906"
+      : "#0a0806",
+    boxShadow: glow ? "0 0 34px rgba(255,160,20,0.10)" : "none",
+  });
+  const groupLabel = {
+    fontSize:lu(1), fontWeight:800, color:"#6f6749", letterSpacing:2.5,
+    textTransform:"uppercase", padding:`${lu(0.1)} ${lu(0.4)} ${lu(0.8)}`,
+  };
+
   return (
-    <div style={{ minHeight:"100dvh",
+    <div style={{ "--ntc-l":LU, minHeight:"100dvh",
       background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
       fontFamily:"'Trebuchet MS', sans-serif", color:"#fff",
       display:"flex", flexDirection:"column", alignItems:"center" }}>
-      <div style={{ width:"100%", maxWidth:480, padding:"0 22px 20px",
+      {/* On a tablet the content is far shorter than the screen, so top-aligning
+          it left a huge void underneath. Centring vertically only on wide
+          screens; on a phone the content is taller than the viewport and this
+          would do nothing anyway. min-height (not height) means a long page
+          still grows rather than clipping. */}
+      <div style={{ width:"100%", maxWidth:lu(48), padding:`0 ${lu(2.2)} ${lu(1.4)}`,
         display:"flex", flexDirection:"column", alignItems:"center", flex:1 }}>
 
         {/* Hero */}
-        <div style={{ textAlign:"center", padding:"34px 0 10px", ...rise(0) }}>
-          <span style={{ display:"inline-block", fontSize:11, letterSpacing:4,
-            color:"#7a6a3a", fontWeight:700, marginBottom:16, textTransform:"uppercase" }}>
-            🎸 Guitar Practice Tool
-          </span>
-          <div style={{ fontSize:44, lineHeight:0.95, fontWeight:900, letterSpacing:0.5,
+        {/* The "Guitar Practice Tool" eyebrow used to sit here. It said the same
+            thing as the tagline two lines below, so it was pure vertical cost. */}
+        <div style={{ textAlign:"center", padding:`${lu(2.2)} 0 ${lu(0.4)}`, ...rise(0) }}>
+          <div style={{ fontSize:lu(4.4), lineHeight:0.95, fontWeight:900, letterSpacing:0.5,
             background:"linear-gradient(135deg,#FFE27A 0%, #FFBE0B 45%, #F77F00 100%)",
             WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent",
-            filter:"drop-shadow(0 4px 18px rgba(255,140,0,0.22))", marginBottom:12 }}>
+            filter:"drop-shadow(0 4px 18px rgba(255,140,0,0.22))", marginBottom:lu(1.2) }}>
             NO THEORY<span style={{ display:"block" }}>CLUB</span>
           </div>
-          <div style={{ fontSize:13, color:"#9a8d6a", letterSpacing:1 }}>
-            Play by feel. Skip the theory.
+          <div style={{ fontSize:lu(1.3), color:"#9a8d6a", letterSpacing:1 }}>
+            Guitar Practice Tool
           </div>
-          <div style={{ width:50, height:3, borderRadius:3,
-            background:"linear-gradient(90deg,#FFD60A,#F77F00)", margin:"16px auto 0", opacity:0.85 }} />
+          <div style={{ width:lu(5), height:lu(0.3), borderRadius:lu(0.3),
+            background:"linear-gradient(90deg,#FFD60A,#F77F00)", margin:`${lu(1.2)} auto 0`, opacity:0.85 }} />
         </div>
 
-        <div style={{ margin:"16px 0 14px", fontSize:13, color:"#6f6749", fontWeight:700,
+        <div style={{ margin:`${lu(1.2)} 0 ${lu(1)}`, fontSize:lu(1.3), color:"#6f6749", fontWeight:700,
           letterSpacing:2, textTransform:"uppercase", textAlign:"center", ...rise(0.12) }}>
           What do you want to work on?
         </div>
 
-        {/* Cards */}
-        <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:13 }}>
-          {items.map((it, i) => {
-            const isHover = hover === it.id;
-            return (
-              <button key={it.id}
-                onClick={()=>onPick(it.id)}
-                onMouseEnter={()=>setHover(it.id)}
-                onMouseLeave={()=>setHover(null)}
-                style={{
-                  position:"relative", width:"100%",
-                  border:`1px solid ${isHover ? "rgba(255,190,11,0.45)" : "#241d10"}`,
-                  borderRadius:18, padding:"20px", cursor:"pointer", textAlign:"left",
-                  display:"flex", alignItems:"center", gap:16, color:"#fff", fontFamily:"inherit",
-                  background: isHover
-                    ? "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.14) 0%, rgba(255,170,30,0) 60%), #14100a"
-                    : "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.07) 0%, rgba(255,170,30,0) 55%), #100d09",
-                  boxShadow: isHover
-                    ? "0 10px 30px rgba(0,0,0,0.55), 0 0 26px rgba(255,160,20,0.22)"
-                    : "0 6px 22px rgba(0,0,0,0.45)",
-                  transform: isHover ? "translateY(-2px)" : "translateY(0)",
-                  transition:"transform 0.18s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease",
-                  ...rise(0.22 + i*0.1),
-                }}>
-                <span style={{ fontSize:26, width:48, height:48, borderRadius:14,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  background: isHover ? "rgba(255,190,11,0.12)" : "rgba(255,190,11,0.06)",
-                  border:`1px solid ${isHover ? "rgba(255,190,11,0.3)" : "rgba(255,190,11,0.12)"}`,
-                  flexShrink:0, transition:"background 0.25s, border-color 0.25s" }}>
-                  {it.icon}
-                </span>
-                <span style={{ display:"flex", flexDirection:"column", gap:3 }}>
-                  <span style={{ fontSize:18, fontWeight:900, letterSpacing:0.2,
-                    color: isHover ? "#FFD60A" : "#f3ead2", transition:"color 0.25s" }}>{it.title}</span>
-                  <span style={{ fontSize:12, fontWeight:600, color:"#776b4d" }}>{it.sub}</span>
-                </span>
-                {it.streak ? (
-                  <span style={{ marginLeft:"auto", display:"flex", flexDirection:"column", alignItems:"center",
-                    background: isHover ? "rgba(255,190,11,0.1)" : "rgba(255,190,11,0.06)",
-                    border:`1px solid ${isHover ? "rgba(255,190,11,0.4)" : "rgba(255,190,11,0.18)"}`,
-                    borderRadius:11, padding:"5px 11px", marginRight:6,
-                    transition:"border-color 0.25s, background 0.25s" }}>
-                    <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B", lineHeight:1 }}>{streak||0}</span>
-                    <span style={{ fontSize:8, color:"#776b4d", letterSpacing:1, marginTop:2 }}>DAYS</span>
-                  </span>
-                ) : (
-                  <span style={{ marginLeft:"auto", fontSize:22, fontWeight:900,
-                    color: isHover ? "#FFBE0B" : "#3a3325",
-                    transform: isHover ? "translateX(3px)" : "translateX(0)",
-                    transition:"color 0.25s, transform 0.25s" }}>›</span>
+        {/* ── 1. GUITAR SANDBOX — the three practice tools plus the
+               generator, boxed together. Generate keeps its own shine-launcher
+               design; it just lives inside the box now. ── */}
+        <div style={{ ...groupBox(false), ...rise(0.18) }}>
+          <div style={groupLabel}>Guitar Sandbox</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:lu(0.8) }}>
+            {toolItems.map((it, i) => renderCard(it, 0.22 + i*0.08))}
+            {onGenerate && (
+              <div style={{ width:"100%", position:"relative", marginTop:0, ...rise(0.46) }}>
+                {/* The launcher is shared with the trackers, so it carries its
+                    own fixed sizes — override them here so it scales with the
+                    cards it sits under rather than staying phone-sized. */}
+                <GenerateLauncherButton onClick={onGenerate}
+                  style={{ marginBottom:0, borderRadius:lu(1.4),
+                    padding:lu(1.4), fontSize:lu(1.45) }} />
+                {/* Same lock slot geometry as the cards above, so it lines up
+                    on the same vertical axis instead of hanging off the corner. */}
+                {premiumLocked && (
+                  <span aria-hidden="true" style={{ position:"absolute",
+                    right:LOCK_RIGHT, width:LOCK_W, height:lu(2), top:"50%",
+                    transform:"translateY(-50%)", display:"flex",
+                    alignItems:"center", justifyContent:"center",
+                    fontSize:lu(1.5), lineHeight:lu(2), opacity:0.95, pointerEvents:"none",
+                    filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
                 )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Progress Tracker — set apart, with a breathing outline glow. The glow
-            is an absolutely-positioned layer animated on OPACITY only, so it
-            stays compositor-friendly (no per-frame paint of the card itself). */}
-        <div style={{ width:"100%", marginTop:22, ...rise(0.52) }}>
-          <style>{`@keyframes ntcTrackerGlow { 0%, 100% { opacity:0.3; } 50% { opacity:1; } }`}</style>
-          <button
-            onClick={()=>onPick("tracker")}
-            onMouseEnter={()=>setHover("tracker")}
-            onMouseLeave={()=>setHover(null)}
-            style={{
-              position:"relative", width:"100%",
-              border:`1px solid ${hover==="tracker" ? "rgba(255,190,11,0.65)" : "rgba(255,190,11,0.4)"}`,
-              borderRadius:18, padding:"20px", cursor:"pointer", textAlign:"left",
-              display:"flex", alignItems:"center", gap:16, color:"#fff", fontFamily:"inherit",
-              background:"radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.12) 0%, rgba(255,170,30,0) 60%), #120e08",
-              boxShadow:"0 6px 22px rgba(0,0,0,0.45)",
-              transform: hover==="tracker" ? "translateY(-2px)" : "translateY(0)",
-              transition:"transform 0.18s ease, border-color 0.25s ease",
-            }}>
-            <span aria-hidden="true" style={{ position:"absolute", inset:-1, borderRadius:18,
-              pointerEvents:"none", boxShadow:"0 0 26px rgba(255,170,20,0.5), inset 0 0 14px rgba(255,170,20,0.12)",
-              animation:"ntcTrackerGlow 2.8s ease-in-out infinite" }} />
-            <span style={{ fontSize:26, width:48, height:48, borderRadius:14,
-              display:"flex", alignItems:"center", justifyContent:"center",
-              background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.25)",
-              flexShrink:0 }}>🔥</span>
-            <span style={{ display:"flex", flexDirection:"column", gap:3 }}>
-              <span style={{ fontSize:18, fontWeight:900, letterSpacing:0.2, color:"#FFD60A" }}>Progress Tracker</span>
-              <span style={{ fontSize:12, fontWeight:600, color:"#9a8d6a" }}>Build the habit, keep your streak</span>
-            </span>
-            <span style={{ marginLeft:"auto", display:"flex", flexDirection:"column", alignItems:"center",
-              background:"rgba(255,190,11,0.1)", border:"1px solid rgba(255,190,11,0.35)",
-              borderRadius:11, padding:"5px 11px", marginRight:6 }}>
-              <span style={{ fontSize:18, fontWeight:900, color:"#FFBE0B", lineHeight:1 }}>{streak||0}</span>
-              <span style={{ fontSize:8, color:"#776b4d", letterSpacing:1, marginTop:2 }}>DAYS</span>
-            </span>
-          </button>
-        </div>
-
-        {/* Generate Exercise — the same shine launcher that lives on the
-            trackers, promoted to the home screen. Routes into the app and
-            opens the generator overlay directly. */}
-        {onGenerate && (
-          <div style={{ width:"100%", marginTop:14, ...rise(0.6) }}>
-            <GenerateLauncherButton onClick={onGenerate} style={{ marginBottom:0 }} />
+              </div>
+            )}
           </div>
-        )}
+        </div>
+
+        {/* ── 3. YOURS — the member's own stuff, set apart with the glow ── */}
+        <div style={{ ...groupBox(true), marginTop:lu(1.1), ...rise(0.54) }}>
+          <div style={groupLabel}>Yours</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:lu(0.8) }}>
+            {renderCard({ id:"tracker", icon:"🔥", title:"My Tracker",
+              sub:"Keep your streak going", streak: streak||0 }, 0.58)}
+            {renderCard(routinesItem, 0.66)}
+          </div>
+        </div>
 
         {/* Founder-only: legacy authoring suite */}
         {isDev && onDev && (
@@ -9838,7 +11571,7 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
           </div>
         )}
 
-        <div style={{ marginTop:"auto", paddingTop:20, fontSize:11, color:"#332e22",
+        <div style={{ marginTop:"auto", paddingTop:lu(2), fontSize:lu(1.1), color:"#332e22",
           textAlign:"center", ...rise(0.7) }}>
           © {new Date().getFullYear()} No Theory Club · All rights reserved.
         </div>
