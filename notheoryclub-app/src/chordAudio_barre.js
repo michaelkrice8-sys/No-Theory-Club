@@ -1,0 +1,63 @@
+// Barre chord strums — URLs into public/chords/, loaded ON DEMAND.
+//
+// 52 samples inlined as base64 would add ~1.2 MB to the bundle AND be decoded
+// at startup: the app decodes every chord before it can play a note, and going
+// from ~41 samples to ~100 is a real delay on a phone. As URLs they are fetched
+// and decoded the first time the barre section is opened, and never at all for
+// a member who only plays open chords.
+//
+// Filenames use "s" for sharp — "#" in a URL starts the fragment.
+export const CHORD_AUDIO_BARRE = {
+  "A#_barre_down": "/chords/As_barre_down.m4a",
+  "A#_barre_up": "/chords/As_barre_up.m4a",
+  "A#m_barre_down": "/chords/Asm_barre_down.m4a",
+  "A#m_barre_up": "/chords/Asm_barre_up.m4a",
+  "A_barre_down": "/chords/A_barre_down.m4a",
+  "A_barre_up": "/chords/A_barre_up.m4a",
+  "Am_barre_down": "/chords/Am_barre_down.m4a",
+  "Am_barre_up": "/chords/Am_barre_up.m4a",
+  "B_barre_down": "/chords/B_barre_down.m4a",
+  "B_barre_up": "/chords/B_barre_up.m4a",
+  "Bb_barre_down": "/chords/Bb_barre_down.m4a",
+  "Bb_barre_up": "/chords/Bb_barre_up.m4a",
+  "Bbm_barre_down": "/chords/Bbm_barre_down.m4a",
+  "Bbm_barre_up": "/chords/Bbm_barre_up.m4a",
+  "Bm_barre_down": "/chords/Bm_barre_down.m4a",
+  "Bm_barre_up": "/chords/Bm_barre_up.m4a",
+  "C#_barre_down": "/chords/Cs_barre_down.m4a",
+  "C#_barre_up": "/chords/Cs_barre_up.m4a",
+  "C#m_barre_down": "/chords/Csm_barre_down.m4a",
+  "C#m_barre_up": "/chords/Csm_barre_up.m4a",
+  "C_barre_down": "/chords/C_barre_down.m4a",
+  "C_barre_up": "/chords/C_barre_up.m4a",
+  "Cm_barre_down": "/chords/Cm_barre_down.m4a",
+  "Cm_barre_up": "/chords/Cm_barre_up.m4a",
+  "D#_barre_down": "/chords/Ds_barre_down.m4a",
+  "D#_barre_up": "/chords/Ds_barre_up.m4a",
+  "D#m_barre_down": "/chords/Dsm_barre_down.m4a",
+  "D#m_barre_up": "/chords/Dsm_barre_up.m4a",
+  "D_barre_down": "/chords/D_barre_down.m4a",
+  "D_barre_up": "/chords/D_barre_up.m4a",
+  "Dm_barre_down": "/chords/Dm_barre_down.m4a",
+  "Dm_barre_up": "/chords/Dm_barre_up.m4a",
+  "E_barre_down": "/chords/E_barre_down.m4a",
+  "E_barre_up": "/chords/E_barre_up.m4a",
+  "Em_barre_down": "/chords/Em_barre_down.m4a",
+  "Em_barre_up": "/chords/Em_barre_up.m4a",
+  "F#_barre_down": "/chords/Fs_barre_down.m4a",
+  "F#_barre_up": "/chords/Fs_barre_up.m4a",
+  "F#m_barre_down": "/chords/Fsm_barre_down.m4a",
+  "F#m_barre_up": "/chords/Fsm_barre_up.m4a",
+  "F_barre_down": "/chords/F_barre_down.m4a",
+  "F_barre_up": "/chords/F_barre_up.m4a",
+  "Fm_barre_down": "/chords/Fm_barre_down.m4a",
+  "Fm_barre_up": "/chords/Fm_barre_up.m4a",
+  "G#_barre_down": "/chords/Gs_barre_down.m4a",
+  "G#_barre_up": "/chords/Gs_barre_up.m4a",
+  "G#m_barre_down": "/chords/Gsm_barre_down.m4a",
+  "G#m_barre_up": "/chords/Gsm_barre_up.m4a",
+  "G_barre_down": "/chords/G_barre_down.m4a",
+  "G_barre_up": "/chords/G_barre_up.m4a",
+  "Gm_barre_down": "/chords/Gm_barre_down.m4a",
+  "Gm_barre_up": "/chords/Gm_barre_up.m4a",
+};
