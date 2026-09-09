@@ -6873,6 +6873,67 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
 
   const isSharedView = !builderOpen;
 
+  // ── Practice-view controls (shuffle + row count) ───────────────────────────
+  // The collapsed view is what a member sees inside a routine or a shared link.
+  // It used to be strictly read-only, which meant one fixed pattern forever.
+  // These two give them a way to vary it WITHOUT turning the screen into the
+  // builder — no tappable blocks, no save/load, no row-size cycling. Two
+  // controls, nothing else.
+  const PRACTICE_MAX_ROWS = 6;
+
+  // Reroll every active row. Slot 0 of each row is always struck so the
+  // downbeat stays solid — the same rule generateRandomPattern uses for the
+  // single-row case, and the difference between a pattern and a mess.
+  // Deliberately NOT stopping playback: the tick loop reads buildActive
+  // through a ref, so a reroll mid-practice just changes the next bar. That
+  // is the whole point of "change the pattern at will".
+  const shufflePattern = () => {
+    setBuildActive(prev => {
+      const next = [...prev];
+      rowSizes.forEach((rs, rIdx) => {
+        for (let i = 0; i < 8; i++) {
+          const slot = rIdx * 8 + i;
+          next[slot] = i < rs ? (i === 0 ? true : Math.random() > 0.3) : false;
+        }
+      });
+      return next;
+    });
+  };
+
+  // Row count. Same semantics as the builder's Add/Remove Row so a pattern
+  // built in one place behaves identically in the other — new rows get the
+  // default alternating strum, removed rows are cleared rather than left as
+  // stale slots that would reappear on the next add.
+  //
+  // Playback DOES stop here, unlike shuffle: changing the row count changes
+  // the total beat count under a running metronome, and landing mid-bar in a
+  // bar that just changed length reads as a glitch.
+  const addRow = () => {
+    if (rowSizes.length >= PRACTICE_MAX_ROWS) return;
+    if (isPlaying) { stopMetronome(); setIsPlaying(false); }
+    const newIdx = rowSizes.length;
+    setRowSizes(p => [...p, 8]);
+    setBuildActive(p => { const n = [...p]; const d = defaultBuild(8);
+      for (let i = 0; i < 8; i++) n[newIdx * 8 + i] = d[i]; return n; });
+  };
+  const removeRow = () => {
+    if (rowSizes.length <= 1) return;
+    if (isPlaying) { stopMetronome(); setIsPlaying(false); }
+    const rmIdx = rowSizes.length - 1;
+    setRowSizes(p => p.slice(0, -1));
+    setBuildActive(p => { const n = [...p];
+      for (let i = 0; i < 8; i++) n[rmIdx * 8 + i] = false; return n; });
+  };
+
+  const stepBtnStyle = (enabled) => ({
+    width:30, height:30, flexShrink:0, borderRadius:9, cursor: enabled ? "pointer" : "default",
+    border:`1px solid ${enabled ? "#2d2415" : "#1a1710"}`,
+    background: enabled ? "#14100a" : "#0d0b07",
+    color: enabled ? "#d8cba0" : "#3d3728",
+    fontSize:16, fontWeight:700, lineHeight:1, fontFamily:"inherit",
+    display:"flex", alignItems:"center", justifyContent:"center", padding:0,
+  });
+
   if(isSharedView) return (
     <div style={{ width:"100%", marginBottom:20 }}>
       {sharedViewName && (
@@ -6907,6 +6968,33 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
             </div>
           );
         })}
+      </div>
+
+      {/* Two controls, deliberately no more. Row stepper left, shuffle right —
+          both sit OUTSIDE the pattern card so the card stays a clean display
+          and the controls read as controls. */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+        gap:10, padding:"0 2px" }}>
+
+        <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+          <button onClick={removeRow} disabled={rowSizes.length<=1}
+            aria-label="Remove a row" style={stepBtnStyle(rowSizes.length>1)}>−</button>
+          <div style={{ minWidth:52, textAlign:"center", fontSize:10.5, letterSpacing:1.4,
+            color:"#6f6749", fontWeight:800, textTransform:"uppercase" }}>
+            {rowSizes.length} row{rowSizes.length===1?"":"s"}
+          </div>
+          <button onClick={addRow} disabled={rowSizes.length>=PRACTICE_MAX_ROWS}
+            aria-label="Add a row" style={stepBtnStyle(rowSizes.length<PRACTICE_MAX_ROWS)}>+</button>
+        </div>
+
+        <button onClick={shufflePattern} aria-label="Shuffle the strumming pattern"
+          style={{ display:"flex", alignItems:"center", gap:7, padding:"8px 14px",
+            borderRadius:11, cursor:"pointer", fontFamily:"inherit",
+            border:"1px solid rgba(255,190,11,0.32)",
+            background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.10) 0%, rgba(255,170,30,0) 65%), #14100a",
+            color:"#FFD60A", fontSize:12, fontWeight:800 }}>
+          <span style={{ fontSize:15 }}>🎲</span> Shuffle
+        </button>
       </div>
     </div>
   );
