@@ -45,12 +45,14 @@ class ErrorBoundary extends Component {
             The app hit an unexpected error. Reloading usually fixes it. If you opened a shared link, it may be from an older version.
           </div>
           <button onClick={()=>{
-              // Recover from a render crash. For a shared package link (?pkg=) keep
-              // the query string so the user reloads INTO their package instead of
-              // being dropped onto the full-app landing page (free-access seal).
-              // For any other view, reset to the clean home URL as before.
-              const isPkg = typeof window !== "undefined" &&
-                new URLSearchParams(window.location.search).has("pkg");
+              // Recover from a render crash. For a shared package (?pkg=) or
+              // routine (?routine=) link keep the query string so the user
+              // reloads INTO their share instead of being dropped onto the
+              // full-app landing page (free-access seal). For any other view,
+              // reset to the clean home URL as before.
+              const sp = typeof window !== "undefined"
+                ? new URLSearchParams(window.location.search) : null;
+              const isPkg = !!sp && (sp.has("pkg") || sp.has("routine"));
               window.location.href = isPkg
                 ? window.location.href
                 : window.location.origin + window.location.pathname;
@@ -1042,7 +1044,7 @@ function AuthProvider({ children }) {
     let onShareLink = false;
     try {
       const p = new URLSearchParams(window.location.search);
-      onShareLink = ["pkg","song","id","drill","strum","strumprog","pattern"].some(k => p.has(k));
+      onShareLink = ["pkg","song","id","drill","strum","strumprog","pattern","routine"].some(k => p.has(k));
     } catch (_) {}
     if (onShareLink) return;
     setShowPrompt(true);
@@ -1608,6 +1610,8 @@ function App() {
   );
   const [hasSharedPackage] = useState(() => typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("pkg"));
+  const [hasSharedRoutine] = useState(() => typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("routine"));
 
   const [buildMode, setBuildMode] = useState(
     hasSharedPattern ? "advanced"
@@ -1636,14 +1640,22 @@ function App() {
 
   // Landing screen: shown on a clean load (no shared exercise URL). Shared links
   // hit the early returns below and never reach this, so they skip the landing.
-  const [view, setView] = useState(hasGenParam ? "app" : "landing"); // "landing" | "app"
+  // ?routines=1 — where the routine share view sends you after saving. Same
+  // shape as ?generate=1: skip the landing, open straight on the tab, then
+  // strip the param so a reload doesn't feel stuck there.
+  const [hasRoutinesParam] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).has("routines");
+  });
+
+  const [view, setView] = useState((hasGenParam || hasRoutinesParam) ? "app" : "landing"); // "landing" | "app"
   // Top-level destination. The three practice tools (Chords / Strumming / Song
   // Builder) are no longer separate tabs — they live together inside the Guitar
   // Sandbox, which keeps the bottom bar to four items on a phone.
   //   "sandbox" | "routines" | "tracker" | "devtools"
   // "generate" is deliberately NOT a destination: it's an action that opens the
   // generator overlay over whatever you were already doing.
-  const [dest, setDest] = useState(hasGenParam ? "generate" : null);
+  const [dest, setDest] = useState(hasGenParam ? "generate" : hasRoutinesParam ? "routines" : null);
 
   // Which tool is showing inside the Sandbox. All three stay mounted (display
   // toggle) so an in-progress Build or a half-written song survives switching.
@@ -1672,6 +1684,19 @@ function App() {
       }
     } catch (_) {}
   }, [pendingGenOpen, view]);
+
+  // Consume ?routines=1 so a reload doesn't pin the member to that tab forever.
+  // The tab has already been selected from initial state by this point.
+  useEffect(() => {
+    if (!hasRoutinesParam) return;
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("routines")) {
+        url.searchParams.delete("routines");
+        window.history.replaceState({}, "", url.pathname + (url.search || "") + url.hash);
+      }
+    } catch (_) {}
+  }, [hasRoutinesParam]);
 
   // Paint the page background (html/body) with the same warm radial glow as the
   // app, and tint the mobile browser chrome to match, so the top/bottom strips
@@ -1818,6 +1843,10 @@ function App() {
 
   // Share view — clean layout, no tabs
   const anyShared = hasSharedSong || hasSharedDrill || hasSharedStrum || hasSharedStrumProg || hasSharedPattern || hasSharedPackage;
+
+  // A routine link (?routine=) renders the save-a-copy view. Own full-page
+  // layout, so render it bare like the package view.
+  if(hasSharedRoutine) return <RoutineShareView />;
 
   // A package link (?pkg=) renders the combined multi-exercise share view. It
   // owns its full-page layout (pinned streak strip + bottom nav), so render it
@@ -6844,6 +6873,67 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
 
   const isSharedView = !builderOpen;
 
+  // ── Practice-view controls (shuffle + row count) ───────────────────────────
+  // The collapsed view is what a member sees inside a routine or a shared link.
+  // It used to be strictly read-only, which meant one fixed pattern forever.
+  // These two give them a way to vary it WITHOUT turning the screen into the
+  // builder — no tappable blocks, no save/load, no row-size cycling. Two
+  // controls, nothing else.
+  const PRACTICE_MAX_ROWS = 6;
+
+  // Reroll every active row. Slot 0 of each row is always struck so the
+  // downbeat stays solid — the same rule generateRandomPattern uses for the
+  // single-row case, and the difference between a pattern and a mess.
+  // Deliberately NOT stopping playback: the tick loop reads buildActive
+  // through a ref, so a reroll mid-practice just changes the next bar. That
+  // is the whole point of "change the pattern at will".
+  const shufflePattern = () => {
+    setBuildActive(prev => {
+      const next = [...prev];
+      rowSizes.forEach((rs, rIdx) => {
+        for (let i = 0; i < 8; i++) {
+          const slot = rIdx * 8 + i;
+          next[slot] = i < rs ? (i === 0 ? true : Math.random() > 0.3) : false;
+        }
+      });
+      return next;
+    });
+  };
+
+  // Row count. Same semantics as the builder's Add/Remove Row so a pattern
+  // built in one place behaves identically in the other — new rows get the
+  // default alternating strum, removed rows are cleared rather than left as
+  // stale slots that would reappear on the next add.
+  //
+  // Playback DOES stop here, unlike shuffle: changing the row count changes
+  // the total beat count under a running metronome, and landing mid-bar in a
+  // bar that just changed length reads as a glitch.
+  const addRow = () => {
+    if (rowSizes.length >= PRACTICE_MAX_ROWS) return;
+    if (isPlaying) { stopMetronome(); setIsPlaying(false); }
+    const newIdx = rowSizes.length;
+    setRowSizes(p => [...p, 8]);
+    setBuildActive(p => { const n = [...p]; const d = defaultBuild(8);
+      for (let i = 0; i < 8; i++) n[newIdx * 8 + i] = d[i]; return n; });
+  };
+  const removeRow = () => {
+    if (rowSizes.length <= 1) return;
+    if (isPlaying) { stopMetronome(); setIsPlaying(false); }
+    const rmIdx = rowSizes.length - 1;
+    setRowSizes(p => p.slice(0, -1));
+    setBuildActive(p => { const n = [...p];
+      for (let i = 0; i < 8; i++) n[rmIdx * 8 + i] = false; return n; });
+  };
+
+  const stepBtnStyle = (enabled) => ({
+    width:30, height:30, flexShrink:0, borderRadius:9, cursor: enabled ? "pointer" : "default",
+    border:`1px solid ${enabled ? "#2d2415" : "#1a1710"}`,
+    background: enabled ? "#14100a" : "#0d0b07",
+    color: enabled ? "#d8cba0" : "#3d3728",
+    fontSize:16, fontWeight:700, lineHeight:1, fontFamily:"inherit",
+    display:"flex", alignItems:"center", justifyContent:"center", padding:0,
+  });
+
   if(isSharedView) return (
     <div style={{ width:"100%", marginBottom:20 }}>
       {sharedViewName && (
@@ -6878,6 +6968,33 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
             </div>
           );
         })}
+      </div>
+
+      {/* Two controls, deliberately no more. Row stepper left, shuffle right —
+          both sit OUTSIDE the pattern card so the card stays a clean display
+          and the controls read as controls. */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+        gap:10, padding:"0 2px" }}>
+
+        <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+          <button onClick={removeRow} disabled={rowSizes.length<=1}
+            aria-label="Remove a row" style={stepBtnStyle(rowSizes.length>1)}>−</button>
+          <div style={{ minWidth:52, textAlign:"center", fontSize:10.5, letterSpacing:1.4,
+            color:"#6f6749", fontWeight:800, textTransform:"uppercase" }}>
+            {rowSizes.length} row{rowSizes.length===1?"":"s"}
+          </div>
+          <button onClick={addRow} disabled={rowSizes.length>=PRACTICE_MAX_ROWS}
+            aria-label="Add a row" style={stepBtnStyle(rowSizes.length<PRACTICE_MAX_ROWS)}>+</button>
+        </div>
+
+        <button onClick={shufflePattern} aria-label="Shuffle the strumming pattern"
+          style={{ display:"flex", alignItems:"center", gap:7, padding:"8px 14px",
+            borderRadius:11, cursor:"pointer", fontFamily:"inherit",
+            border:"1px solid rgba(255,190,11,0.32)",
+            background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.10) 0%, rgba(255,170,30,0) 65%), #14100a",
+            color:"#FFD60A", fontSize:12, fontWeight:800 }}>
+          <span style={{ fontSize:15 }}>🎲</span> Shuffle
+        </button>
       </div>
     </div>
   );
@@ -10390,6 +10507,74 @@ function routineMinutes(r) {
   return ((r && r.items) || []).reduce((sum, it) => sum + (Number(it.mins) || 0), 0);
 }
 
+// ── SHARING A ROUTINE ────────────────────────────────────────────────────────
+// Founder-only outbound, open inbound: Michael builds a routine for someone,
+// shares a ?routine= link, and ANYONE who opens it can save a copy to their own
+// list. Same growth-loop rule as every other share link — no login, no gate.
+//
+// Stored in the EXISTING `packages` table rather than a new `routines` table.
+// Two reasons: a new table needs explicit grants for both service_role and
+// authenticated (gotcha #1) which is a manual step that silently 403s if
+// missed, and the shape is identical anyway — id text PK, name text, data
+// jsonb. `kind:"routine"` in the payload is what tells the two apart, so a
+// ?routine= id pasted as ?pkg= (or vice versa) is detected rather than
+// half-rendered.
+const ROUTINE_SHARE_KIND = "routine";
+
+async function routineShareInsert(routine) {
+  const data = {
+    kind: ROUTINE_SHARE_KIND,
+    n: (routine.name || "").trim() || "Practice routine",
+    // Only the fields a recipient needs. Deliberately NOT the source id,
+    // createdAt, order or deleted flag — those are local bookkeeping and
+    // carrying them over would let one person's tombstone delete a copy that
+    // isn't theirs.
+    items: (routine.items || []).map(it => {
+      const out = { t: it.t, d: it.d };
+      if (it.label) out.label = it.label;
+      if (Number(it.mins) > 0) out.mins = Number(it.mins);
+      return out;
+    }),
+  };
+  return packageInsert(data.n, data);
+}
+
+// Append a shared routine to the local list as a NEW routine of the saver's own.
+//
+// A fresh local id matters: mergeRoutines merges by id, so reusing the share id
+// would mean two different people's edits (and tombstones) collide the moment
+// either of them syncs. The share id is kept as `srcId` purely so we can tell
+// "already saved" without comparing contents.
+//
+// Returns { id, already } — `already` true means it was a duplicate open and
+// nothing was written.
+function routineSaveShared(payload, srcId) {
+  const list = routinesRead();
+  const dupe = list.find(r => r && r.srcId === srcId && !r.deleted);
+  if (dupe) return { id: dupe.id, already: true };
+
+  const now = new Date().toISOString();
+  const live = list.filter(r => r && !r.deleted);
+  const id = newRoutineId();
+  const saved = {
+    id,
+    srcId,
+    name: (payload && payload.n) || "Practice routine",
+    items: ((payload && payload.items) || []).map(it => {
+      const out = { t: it.t, d: it.d };
+      if (it.label) out.label = it.label;
+      if (Number(it.mins) > 0) out.mins = Number(it.mins);
+      return out;
+    }),
+    createdAt: now,
+    updatedAt: now,
+    // Goes to the end of the member's list. Their existing order is untouched.
+    order: live.length,
+  };
+  routinesWrite([...list, saved]);
+  return { id, already: false };
+}
+
 // Steps a member can add. Mirrors PKG_TYPE_META but in the order a beginner
 // meets them, and with plain-English names.
 const ROUTINE_STEP_TYPES = [
@@ -10415,6 +10600,19 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
   const [editParam, setEditParam] = useState(null);
   const [openSeq, setOpenSeq] = useState(0);
   const [genPicking, setGenPicking] = useState(false); // generator embedded in "add a step"
+
+  // Sharing (founder-only). `shareFor` is the routine id a link was just made
+  // for, so the link panel appears against the right row and disappears when
+  // you move to another one.
+  const [shareFor, setShareFor] = useState(null);
+  const [shareLink, setShareLink] = useState(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareErr, setShareErr] = useState(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Founder-only, derived from the live session email — the same test dev tools
+  // use, so signing in mid-session lights it up without a reload.
+  const isDev = DEV_EMAILS.includes((auth.userEmail || "").toLowerCase());
 
   const live = routines.filter(r => !r.deleted);
 
@@ -10536,6 +10734,28 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
     if (openId === id) setOpenId(null);
   };
 
+  // Create a share link for a routine. Founder-only at the UI level; the write
+  // itself uses the anon key exactly like every other share link, so there is
+  // nothing here a member could not already do — the gate is discoverability,
+  // not security. Do not present it as a permission.
+  const doShare = async (r) => {
+    if (!r || !(r.items || []).length) { setShareErr("Add at least one step before sharing."); setShareFor(r ? r.id : null); return; }
+    setShareBusy(true); setShareErr(null); setShareLink(null); setShareCopied(false); setShareFor(r.id);
+    try {
+      const id = await routineShareInsert(r);
+      const url = `${window.location.origin}${window.location.pathname}?routine=${id}`;
+      setShareLink(url);
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(() => setShareCopied(true)).catch(() => {});
+      }
+    } catch (e) {
+      console.error("Routine share failed:", e);
+      setShareErr("Couldn't create the link. Check your connection and try again.");
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
   const addItem = (it) => { setItems(p => [...p, { ...it, label: itemLabel(it) }]); setDirty(true); };
 
   // Per-step timer, in whole minutes. Passing null strips the field entirely
@@ -10644,6 +10864,57 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
           + New routine
         </button>
 
+        {/* Share link panel. Sits ABOVE the list rather than inside a row on
+            purpose — the rows carry pointer-event drag handlers and a transform,
+            and growing one mid-drag fights the reorder maths. One panel, showing
+            whichever routine you last hit 🔗 on. Founder-only. */}
+        {isDev && shareFor && (shareLink || shareErr || shareBusy) && (
+          <div style={{ ...PANEL, marginBottom:14, padding:"14px 14px",
+            borderColor:"rgba(255,190,11,0.4)" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:9 }}>
+              <span style={{ fontSize:15 }}>🔗</span>
+              <span style={{ flex:1, fontSize:13, fontWeight:900, color:"#FFD60A" }}>
+                Share link{shareBusy ? "…" : ""}
+              </span>
+              <button onClick={()=>{ setShareFor(null); setShareLink(null); setShareErr(null); }}
+                aria-label="Close share panel"
+                style={{ background:"none", border:"none", color:"#6f6749", fontSize:16,
+                  cursor:"pointer", fontFamily:"inherit", padding:"0 2px" }}>✕</button>
+            </div>
+            {shareErr ? (
+              <div style={{ fontSize:12.5, color:"#ff6b5e", lineHeight:1.6 }}>{shareErr}</div>
+            ) : shareBusy ? (
+              <div style={{ fontSize:12.5, color:"#8a7f5e" }}>Creating the link…</div>
+            ) : (
+              <div>
+                <div style={{ fontSize:11.5, color:"#8a7f5e", lineHeight:1.6, marginBottom:9 }}>
+                  Anyone with this link can save a copy to their own routines. No
+                  login needed.
+                </div>
+                <div style={{ display:"flex", gap:8, alignItems:"stretch" }}>
+                  <input readOnly value={shareLink || ""}
+                    onFocus={(e)=>e.target.select()}
+                    style={{ flex:1, minWidth:0, padding:"10px 11px", borderRadius:10,
+                      border:"1px solid #241d10", background:"#0c0a06", color:"#d8cba0",
+                      fontSize:12, fontFamily:"inherit" }} />
+                  <button onClick={()=>{
+                      if (navigator.clipboard?.writeText && shareLink) {
+                        navigator.clipboard.writeText(shareLink)
+                          .then(()=>setShareCopied(true)).catch(()=>{});
+                      }
+                    }}
+                    style={{ flexShrink:0, padding:"10px 13px", borderRadius:10,
+                      border:"1px solid rgba(255,190,11,0.45)", background:"#16110a",
+                      color:"#FFD60A", fontSize:12, fontWeight:800, cursor:"pointer",
+                      fontFamily:"inherit" }}>
+                    {shareCopied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {live.length === 0 ? (
           <div style={{ ...PANEL, textAlign:"center", padding:"30px 18px" }}>
             <div style={{ fontSize:34, marginBottom:10 }}>📋</div>
@@ -10699,6 +10970,13 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
               </div>
             </button>
 
+            {isDev && (
+              <button onClick={()=>doShare(r)} aria-label={`Share ${r.name}`} title="Create a share link"
+                style={{ flexShrink:0, background:"rgba(90,200,250,0.07)",
+                  border:"1px solid rgba(90,200,250,0.32)", color:"#5AC8FA",
+                  fontSize:14, cursor:"pointer", padding:"8px 10px", borderRadius:10,
+                  fontFamily:"inherit" }}>🔗</button>
+            )}
             <button onClick={()=>openRoutine(r)} aria-label={`Edit ${r.name}`}
               style={{ flexShrink:0, background:"rgba(255,190,11,0.07)",
                 border:"1px solid rgba(255,190,11,0.3)", color:"#FFD60A",
@@ -11409,6 +11687,204 @@ function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = f
         </div>
       </div>
       )}
+    </div>
+  );
+}
+
+// ─── ROUTINE SHARE VIEW ──────────────────────────────────────────────────────
+// Renders a ?routine= link: the receiving half of the founder's share button.
+// Shows what is in the routine, then saves a copy to the opener's own list.
+//
+// Free and open, exactly like every other share link — no login, no gate, no
+// premium check. Saving writes to localStorage; if the opener is signed in the
+// normal sync watcher pushes it to their `progress` row on its next pass, so
+// nothing here talks to the sync engine directly. That matters: pushing from
+// here could run before a confirmed pull, which is gotcha #3.
+function RoutineShareView() {
+  // Same card style PracticeRoutinesTab uses. Its PANEL is a local const inside
+  // that component, not module scope, so it cannot be borrowed from here.
+  const PANEL = { background:"#0a0a0a", border:"1px solid #241d10", borderRadius:20,
+    padding:"16px 14px", marginBottom:14 };
+
+  const [status, setStatus] = useState("loading"); // loading | ready | error | notfound
+  const [payload, setPayload] = useState(null);
+  const [shareId, setShareId] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [already, setAlready] = useState(false);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("routine");
+    if (!id) { setStatus("notfound"); return; }
+    let cancelled = false;
+    setShareId(id);
+    packageFetch(id)
+      .then(row => {
+        if (cancelled) return;
+        const d = row && row.data;
+        // A ?pkg= id opened as ?routine= lands here. Say so plainly rather than
+        // rendering an empty routine.
+        if (!d || d.kind !== ROUTINE_SHARE_KIND || !Array.isArray(d.items)) {
+          setStatus("notfound"); return;
+        }
+        setPayload(d);
+        // Tell them up front if this link is already in their list, rather than
+        // letting them press Save and get a no-op.
+        const dupe = routinesRead().find(r => r && r.srcId === id && !r.deleted);
+        if (dupe) setAlready(true);
+        setStatus("ready");
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error("Routine load failed:", err);
+        setStatus("error");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const goToRoutines = () => {
+    try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch (_) {}
+    window.location.href = window.location.origin + window.location.pathname + "?routines=1";
+  };
+
+  const doSave = () => {
+    if (!payload || !shareId) return;
+    const res = routineSaveShared(payload, shareId);
+    setAlready(res.already);
+    setSaved(true);
+  };
+
+  const shell = (children) => (
+    <div style={{ minHeight:"100dvh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff",
+      display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+      padding:"24px 18px", textAlign:"center" }}>
+      <style>{NTC_SLIDER_CSS}</style>
+      {children}
+    </div>
+  );
+
+  if (status === "loading") return shell(
+    <>
+      <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5, marginBottom:6 }}>NO THEORY CLUB</div>
+      <div style={{ fontSize:32, marginBottom:14 }}>📋</div>
+      <div style={{ fontSize:15, fontWeight:800, color:"#FFD60A" }}>Loading routine…</div>
+    </>
+  );
+
+  if (status === "error" || status === "notfound") return shell(
+    <>
+      <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5, marginBottom:6 }}>NO THEORY CLUB</div>
+      <div style={{ fontSize:32, marginBottom:14 }}>🎸</div>
+      <div style={{ fontSize:15, fontWeight:800, color:"#FFD60A", marginBottom:8 }}>
+        {status === "error" ? "Couldn't load that routine" : "Routine not found"}
+      </div>
+      <div style={{ fontSize:12.5, color:"#8a7f5e", maxWidth:320, lineHeight:1.7, marginBottom:18 }}>
+        {status === "error"
+          ? "Something went wrong fetching it. Check your connection and try the link again."
+          : "This link may have been mistyped, or it points at something that isn't a routine."}
+      </div>
+      <button onClick={()=>{ window.location.href = window.location.origin + window.location.pathname; }}
+        style={{ padding:"12px 20px", borderRadius:12, border:"1px solid rgba(255,190,11,0.45)",
+          background:"#16110a", color:"#FFD60A", fontSize:13, fontWeight:800,
+          cursor:"pointer", fontFamily:"inherit" }}>Go to the practice tool</button>
+    </>
+  );
+
+  const items = payload.items || [];
+  const mins = items.reduce((a, it) => a + (Number(it.mins) || 0), 0);
+
+  return (
+    <div style={{ minHeight:"100dvh", background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)",
+      fontFamily:"'Trebuchet MS', sans-serif", color:"#fff" }}>
+      <style>{NTC_SLIDER_CSS}</style>
+
+      <div style={{ textAlign:"center", padding:"18px 16px 10px" }}>
+        <div style={{ fontSize:12, fontWeight:700, color:"#fff", letterSpacing:1.5 }}>NO THEORY CLUB</div>
+        <div style={{ fontSize:10, color:"#555" }}>Guitar Practice Tool</div>
+      </div>
+
+      <div style={{ maxWidth:560, margin:"0 auto", padding:"0 16px 40px" }}>
+        <div style={{ textAlign:"center", marginBottom:16 }}>
+          <div style={{ fontSize:30, marginBottom:8 }}>📋</div>
+          <div style={{ fontSize:11, color:"#6f6749", letterSpacing:2, textTransform:"uppercase",
+            fontWeight:800, marginBottom:6 }}>A routine made for you</div>
+          <div style={{ fontSize:21, fontWeight:900, color:"#FFD60A", lineHeight:1.3 }}>{payload.n}</div>
+          <div style={{ fontSize:12.5, color:"#8a7f5e", marginTop:6 }}>
+            {items.length} step{items.length === 1 ? "" : "s"}
+            {mins > 0 && <span style={{ color:"#FFBE0B", fontWeight:700 }}>{` \u00b7 \u23f1 ${mins} min`}</span>}
+          </div>
+        </div>
+
+        {/* What's in it. Read-only — this is a preview, not the player. */}
+        <div style={{ ...PANEL, padding:"6px 0", marginBottom:16 }}>
+          {items.map((it, i) => {
+            const meta = PKG_TYPE_META[it.t] || { icon:"🎵", label: it.t };
+            return (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:11,
+                padding:"11px 14px",
+                borderTop: i === 0 ? "none" : "1px solid #1c1710" }}>
+                <span style={{ flexShrink:0, fontSize:11, fontWeight:900, color:"#5a5238",
+                  width:16, textAlign:"right" }}>{i + 1}</span>
+                <span style={{ flexShrink:0, fontSize:16 }}>{meta.icon}</span>
+                <span style={{ flex:1, minWidth:0, fontSize:13.5, fontWeight:700, color:"#d8cba0",
+                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                  {it.label || meta.label}
+                </span>
+                {Number(it.mins) > 0 && (
+                  <span style={{ flexShrink:0, fontSize:11.5, fontWeight:800, color:"#FFBE0B" }}>
+                    {`\u23f1 ${it.mins}m`}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {saved || already ? (
+          <div style={{ ...PANEL, textAlign:"center", padding:"20px 16px",
+            borderColor:"rgba(255,190,11,0.45)" }}>
+            <div style={{ fontSize:26, marginBottom:8 }}>{already && !saved ? "📋" : "✅"}</div>
+            <div style={{ fontSize:15, fontWeight:900, color:"#FFD60A", marginBottom:6 }}>
+              {already && !saved ? "Already in your routines" : "Saved to your routines"}
+            </div>
+            <div style={{ fontSize:12.5, color:"#8a7f5e", lineHeight:1.7, marginBottom:16 }}>
+              {already && !saved
+                ? "You've saved this one before, so we didn't add a second copy."
+                : "It's yours now — rename it, reorder the steps, or delete it any time."}
+            </div>
+            <button onClick={goToRoutines}
+              style={{ width:"100%", padding:"14px", borderRadius:13,
+                border:"1px solid rgba(255,190,11,0.5)",
+                background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+                color:"#FFD60A", fontSize:15, fontWeight:900, cursor:"pointer",
+                fontFamily:"inherit" }}>
+              Open My Practice Routines →
+            </button>
+          </div>
+        ) : (
+          <>
+            <button onClick={doSave}
+              style={{ width:"100%", padding:"16px", borderRadius:14,
+                border:"1px solid rgba(255,190,11,0.5)",
+                background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.2) 0%, rgba(255,170,30,0) 70%), #16110a",
+                color:"#FFD60A", fontSize:16, fontWeight:900, cursor:"pointer",
+                boxShadow:"0 0 22px rgba(255,160,20,0.22)", fontFamily:"inherit" }}>
+              💾 Save to my routines
+            </button>
+            {/* Honest about the boundary. Saving really is free and account-less
+                — that is the share-link rule and it is not negotiable. But My
+                Practice Routines is a Premium tab, so a free member who saves
+                and then taps through meets the upgrade gate. Say so here rather
+                than letting the gate be the first they hear of it. */}
+            <div style={{ fontSize:11.5, color:"#6f6749", textAlign:"center", marginTop:11,
+              lineHeight:1.7 }}>
+              Saving is free and needs no account — it's kept on this device, and
+              signing in later carries it to your phone. Running routines is part
+              of Premium.
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
