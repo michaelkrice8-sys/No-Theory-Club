@@ -84,8 +84,13 @@ const STORAGE_KEYS = {
 // Global slider styling (thick, easy-to-grab gold knob). Defined once so it is
 // available everywhere a .ntc-bpm-slider appears, not just inside MetronomePanel.
 const NTC_SLIDER_CSS = `
+  /* touch-action:pan-y — the slider is a 30px-tall strip spanning the full
+     width, so on a phone a scroll that happens to START on it was captured by
+     the slider instead of scrolling the page. pan-y hands vertical drags back
+     to the page and keeps horizontal ones for the thumb, which is exactly the
+     split you want on a horizontal slider. */
   .ntc-bpm-slider { -webkit-appearance:none; appearance:none; width:100%; height:30px;
-    background:transparent; cursor:pointer; outline:none; }
+    background:transparent; cursor:pointer; outline:none; touch-action:pan-y; }
   .ntc-bpm-slider::-webkit-slider-runnable-track { height:10px; border-radius:99px; background:#241d10; }
   .ntc-bpm-slider::-moz-range-track { height:10px; border-radius:99px; background:#241d10; }
   .ntc-bpm-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
@@ -123,6 +128,92 @@ const STRUM_PATTERNS = {
 const SUPABASE_URL = "https://midwiwtywipemlyxcvau.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZHdpd3R5d2lwZW1seXhjdmF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3NzQ4NDQsImV4cCI6MjA5NDM1MDg0NH0.S68BZdL37HxQHKyZCNu1pOJIJkTqkxZJznyvhjHntK8";
 
+// ─── USAGE EVENTS (instrumentation) ──────────────────────────────────────────
+// Until Sep 2026 the app measured nothing: no way to know which tab members
+// open, where they stop, or whether a gate ever turns into an upgrade. Every
+// call to track() drops one row into the Supabase `events` table (anon insert
+// only — nobody can read it back from the browser). Rows carry an anonymous
+// per-browser id and, once signed in, the member's email, so a session can be
+// tied to a member and free-vs-premium behaviour compared.
+//
+// Design rules:
+//   • track() must NEVER throw or slow the app. Everything is wrapped, batched
+//     (1.5s debounce) and sent with keepalive so a tab close still delivers.
+//   • If the table doesn't exist yet the POST fails silently. Nothing else
+//     changes, so this is safe to ship before the SQL has been run.
+//   • Keep event names short and stable — they become dashboard columns.
+//
+// The table (run once in the Supabase SQL editor):
+//   create table public.events (
+//     id bigint generated always as identity primary key,
+//     name text not null, props jsonb default '{}'::jsonb,
+//     anon_id text, email text, session_id text, entry text, host text,
+//     created_at timestamptz default now());
+//   alter table public.events enable row level security;
+//   create policy "anon can insert events" on public.events
+//     for insert to anon with check (true);
+//   grant insert on public.events to anon;
+//   grant all on public.events to service_role;
+const ANALYTICS_ENABLED = true;
+const EVENTS_URL = `${SUPABASE_URL}/rest/v1/events`;
+const ANON_ID_KEY = "ntc-anon-id";
+const trackState = {
+  email: "",                                       // set by AuthProvider once a session resolves
+  session: Math.random().toString(36).slice(2, 10), // one id per page load
+  queue: [], timer: null, anon: null,
+};
+function trackAnonId() {
+  if (trackState.anon) return trackState.anon;
+  let id = null;
+  try { id = localStorage.getItem(ANON_ID_KEY); } catch (_) {}
+  if (!id) {
+    id = "a_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    try { localStorage.setItem(ANON_ID_KEY, id); } catch (_) {}
+  }
+  trackState.anon = id;
+  return id;
+}
+// How this page load began — a share link, a deep link, or a plain visit.
+function trackEntry() {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    for (const k of ["pkg", "song", "id", "drill", "strum", "strumprog", "pattern", "routine", "daily", "generate", "gen", "routines"]) {
+      if (p.has(k)) return k === "id" ? "song" : k === "gen" ? "generate" : k;
+    }
+  } catch (_) {}
+  return "home";
+}
+function trackFlush() {
+  const rows = trackState.queue.splice(0);
+  if (!rows.length) return;
+  try {
+    fetch(EVENTS_URL, {
+      method: "POST", keepalive: true,
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`, "Prefer": "return=minimal" },
+      body: JSON.stringify(rows),
+    }).catch(() => {});
+  } catch (_) {}
+}
+function track(name, props) {
+  if (!ANALYTICS_ENABLED) return;
+  try {
+    trackState.queue.push({
+      name, props: props || {},
+      anon_id: trackAnonId(), email: trackState.email || null,
+      session_id: trackState.session, entry: trackEntry(),
+      host: (typeof window !== "undefined" && window.location.host) || null,
+      created_at: new Date().toISOString(),
+    });
+    clearTimeout(trackState.timer);
+    trackState.timer = setTimeout(trackFlush, 1500);
+  } catch (_) {}
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") trackFlush(); });
+  window.addEventListener("pagehide", trackFlush);
+}
+
 // ─── ACCESS CONTROL ──────────────────────────────────────────────────────────
 // Auth client (magic-link login + session persistence). Separate from the raw
 // REST helpers below, which continue to power Song Builder share links.
@@ -150,6 +241,7 @@ const AuthCtx = createContext({
   enabled: false,
   status: "anon",      // checking | anon | evaluating | syncing | premium | free
   authorized: true,     // convenience: gate disabled OR premium
+  tier: "",             // raw members.tier: "vip" | "premium" | "free" | "" (unknown / anon)
   userEmail: "",
   syncEpoch: 0,         // bumps when a cloud pull changed localStorage → remount readers
   engageGate: () => () => {},
@@ -198,22 +290,23 @@ function GateShell({ children, overlay = false }) {
 // Build tracker). Shown ONLY to non-premium viewers — once a member upgrades,
 // every lock disappears. Sits half on / half off the pill's top-right corner;
 // the parent must be position:relative.
+// Was a 🔒 emoji sitting half off the corner. It read as cheap next to the
+// rest of the chrome, so it is now a quiet "PREMIUM" tag and the locked
+// control itself is greyed out (see LOCKED_PILL) — the grey does the telling,
+// the tag just names it.
 function GateLockBadge() {
   return (
-    // The box must be BIGGER than the glyph. An emoji renders taller than its
-    // em box, so at fontSize:15 with lineHeight:1 the padlock's shackle spilled
-    // out of a 15px-tall span — and because this span carries a drop-shadow
-    // FILTER, the browser rasterises it to the element's own bounds and the
-    // overflow was cut clean off. Nothing was clipping it from outside; the
-    // element was simply too small for its own glyph.
-    <span aria-hidden="true" style={{ position:"absolute", top:0, right:0,
-      transform:"translate(calc(45% - 5px), calc(-45% + 5px))",
-      opacity:0.82, fontSize:15, lineHeight:"20px",
-      width:20, height:20, display:"flex",
-      alignItems:"center", justifyContent:"center", zIndex:2,
-      pointerEvents:"none", filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
+    <span aria-label="Premium" style={{ position:"absolute", top:-7, right:8,
+      fontSize:8.5, fontWeight:800, letterSpacing:1.4, textTransform:"uppercase",
+      color:"#7a6a3a", background:"#0d0a06", border:"1px solid #2a2417",
+      borderRadius:6, padding:"2px 6px", lineHeight:1, zIndex:2,
+      pointerEvents:"none", fontFamily:"'Trebuchet MS', sans-serif" }}>Premium</span>
   );
 }
+// Greyed-out treatment for a locked pill: flat, low-contrast, desaturated.
+// Applied on top of the pill's normal style, only while the lock shows.
+const LOCKED_PILL = { color:"#4f4835", background:"#0b0906", border:"1px solid #1a150d",
+  boxShadow:"none", filter:"saturate(0.4)" };
 
 function GateButton({ onClick, children, disabled }) {
   return (
@@ -236,7 +329,11 @@ function GateButton({ onClick, children, disabled }) {
 // `heading` / `blurb` let the first-visit prompt reuse this whole email → code
 // → verifyOtp flow with its own copy, instead of duplicating it. Defaults are
 // the original gate wording, so every existing caller is unchanged.
-function GateLogin({ overlay = false, heading = null, blurb = null }) {
+// `skipPremiumCheck` is set by the first-visit prompt. That prompt asks for an
+// email to SAVE PROGRESS, which is free — so answering a free member's email
+// with "This feature is for Premium members" was both confusing and wrong.
+// The premium pre-flight only makes sense when a premium FEATURE asked for it.
+function GateLogin({ overlay = false, heading = null, blurb = null, skipPremiumCheck = false }) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -273,25 +370,30 @@ function GateLogin({ overlay = false, heading = null, blurb = null }) {
     try {
       // Pre-flight: is this email premium? If the check itself fails,
       // proceed with the normal flow (never block a real member).
-      try {
-        const chk = await fetch("https://notheoryclub.com/.netlify/functions/check-member?email=" + encodeURIComponent(e));
-        if (chk.ok) {
-          const info = await chk.json();
-          if (info && info.premium === false) {
-            setNotPremium(true);
-            setBusy(false);
-            return;
+      if (!skipPremiumCheck) {
+        try {
+          const chk = await fetch("https://notheoryclub.com/.netlify/functions/check-member?email=" + encodeURIComponent(e));
+          if (chk.ok) {
+            const info = await chk.json();
+            if (info && info.premium === false) {
+              track("signin_not_premium", { from: "gate" });
+              setNotPremium(true);
+              setBusy(false);
+              return;
+            }
           }
-        }
-      } catch (_) { /* check unavailable — carry on */ }
+        } catch (_) { /* check unavailable — carry on */ }
+      }
 
       const { error: err } = await supabaseAuth.auth.signInWithOtp({
         email: e,
         options: { emailRedirectTo: window.location.href }
       });
       if (err) throw err;
+      track("signin_code_sent", { from: skipPremiumCheck ? "prompt" : "gate" });
       setSent(true);
     } catch (ex) {
+      track("signin_send_failed", { from: skipPremiumCheck ? "prompt" : "gate" });
       setError("Couldn't send the link. Please try again in a minute.");
     }
     setBusy(false);
@@ -302,11 +404,10 @@ function GateLogin({ overlay = false, heading = null, blurb = null }) {
       <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
       <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>This feature is for Premium members</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
-        Build your own drills, the Song Builder, and custom practice trackers
-        with progress that follows you across devices — it all comes with
-        No Theory Club Premium.
+        Build your own drills, the Song Builder, My Practice Routines and
+        custom trackers — it all comes with No Theory Club Premium.
       </div>
-      <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
+      <GateButton onClick={()=>{ track("upgrade_click", { from:"gate", status:"not_premium" }); trackFlush(); window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
       <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
         Already Premium? Make sure you use your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
         <span onClick={()=>{ setNotPremium(false); setEmail(""); }}
@@ -393,11 +494,10 @@ function GateWall({ email, onSignOut, overlay = false }) {
       <div style={{ fontSize:52, marginBottom:16 }}>🔒</div>
       <div style={{ fontSize:26, fontWeight:900, marginBottom:12, maxWidth:520 }}>This feature is for Premium members</div>
       <div style={{ fontSize:17, color:"#b5ae9d", lineHeight:1.75, maxWidth:430, marginBottom:26 }}>
-        Build your own drills, the Song Builder, and custom practice trackers
-        with progress that follows you across devices — it all comes with
-        No Theory Club Premium.
+        Build your own drills, the Song Builder, My Practice Routines and
+        custom trackers — it all comes with No Theory Club Premium.
       </div>
-      <GateButton onClick={()=>{ window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
+      <GateButton onClick={()=>{ track("upgrade_click", { from:"gate", status:"free" }); trackFlush(); window.location.href = UPGRADE_URL; }}>Upgrade to Premium</GateButton>
       <div style={{ fontSize:15, color:"#8a8578", lineHeight:1.85, marginTop:26, maxWidth:400 }}>
         Already Premium? Make sure you signed in with your <b style={{color:"#b5ae9d"}}>Skool account email</b>.<br/>
         Signed in as <span style={{ color:"#b5ae9d" }}>{email}</span> —{" "}
@@ -422,11 +522,13 @@ const TRACKER_KEY_7      = "ntc-7day-tracker-v1";  // the 7-Day grid
 const TRACKER_LAST_KEY   = "ntc-tracker-last-v1";  // {variant, at} — grid last used
 const ROUTINES_KEY       = "ntc-routines-v1";   // [{id,name,items,createdAt,updatedAt,deleted?}]
 const ROUTINES_LAST_KEY  = "ntc-routines-last-v1"; // {id, at} — most recently created/opened
+const DAILY_KEY          = "ntc-daily-v1";      // { done: { "YYYY-MM-DD": ISO } } — Exercise of the Day completions
 const SYNC_KEYS = [
   "ntc_drills", "ntc_patterns", "ntc_songs", "ntc_strum", "ntc_strum_tab",
   "ntc-30day-tracker-v1", TRACKER_KEY_7, TRACKER_LAST_KEY,
   CUSTOM_TRACKER_KEY, BUILD_UNLOCK_KEY, CELEBRATED_KEY,
-  "ntc-generated-v1", "ntc-songbuilder-v1", ROUTINES_KEY, ROUTINES_LAST_KEY
+  "ntc-generated-v1", "ntc-songbuilder-v1", ROUTINES_KEY, ROUTINES_LAST_KEY,
+  DAILY_KEY
 ];
 
 // DATA-SAFETY GUARD. All merges here are unions — an "empty" value (all-false
@@ -442,6 +544,7 @@ function isMeaninglessProgress(key, data) {
   }
   if (key === BUILD_UNLOCK_KEY || key === CELEBRATED_KEY) return !data.unlocked;
   if (key === CUSTOM_TRACKER_KEY) return false;
+  if (key === DAILY_KEY) return !data.done || Object.keys(data.done).length === 0;
   return Array.isArray(data) && data.length === 0;
 }
 const TRACKER_KEY = "ntc-30day-tracker-v1";
@@ -526,6 +629,15 @@ function mergeRoutines(local, cloud) {
   });
 }
 
+// Exercise-of-the-Day merge: union of completed dates. A day done on the
+// phone is done, full stop — the laptop must never un-do it. Dates are
+// calendar strings so a union can't produce duplicates.
+function mergeDaily(local, cloud) {
+  const a = (local && local.done) || {}, b = (cloud && cloud.done) || {};
+  if (!local && !cloud) return null;
+  return { done: { ...b, ...a } };
+}
+
 // "Last opened routine" pointer: newest wins, so the device you most recently
 // practised on decides what reopens.
 function mergeLastRoutine(local, cloud) {
@@ -591,6 +703,7 @@ async function syncPullAndMerge(userId) {
         : key === ROUTINES_KEY       ? mergeRoutines(local, remote)
         : key === ROUTINES_LAST_KEY  ? mergeLastRoutine(local, remote)
         : key === TRACKER_LAST_KEY   ? mergeLastRoutine(local, remote)
+        : key === DAILY_KEY          ? mergeDaily(local, remote)
         : (key === BUILD_UNLOCK_KEY || key === CELEBRATED_KEY) ? mergeUnlock(local, remote)
         : mergeList(local, remote);
       if (merged == null) continue;
@@ -724,6 +837,7 @@ function GateOverlayHost({ request, status, userEmail, onSignOut, onCancel }) {
   // Track the live request; keep the old one around briefly for the fade-out.
   useEffect(() => {
     if (request) {
+      track("gate_shown", { status });
       setShown(request);
       setVisible(false);
       const t = setTimeout(() => setVisible(true), GATE_PEEK_MS);
@@ -813,7 +927,7 @@ function GateOverlayHost({ request, status, userEmail, onSignOut, onCancel }) {
         transition:`opacity ${GATE_FADE_MS}ms ease`,
         pointerEvents: (live && visible) ? "auto" : "none" }}>
         {/* Back affordance — never trap the visitor. */}
-        <button onClick={onCancel}
+        <button onClick={()=>{ track("gate_back", { status }); onCancel(); }}
           style={{ position:"absolute", top:14, left:14, padding:"10px 16px",
             borderRadius:12, border:"1px solid rgba(255,209,102,0.25)",
             background:"rgba(255,209,102,0.05)", color:"#b5ae9d",
@@ -862,6 +976,7 @@ function FirstVisitPrompt({ onClose }) {
   // as the premium gate's peek, just a touch longer.
   const [visible, setVisible] = useState(false);
   useEffect(() => {
+    track("signin_prompt_shown");
     const t = setTimeout(() => setVisible(true), PROMPT_PEEK_MS);
     return () => clearTimeout(t);
   }, []);
@@ -885,11 +1000,14 @@ function FirstVisitPrompt({ onClose }) {
         ✕
       </button>
       <div style={{ width:"100%" }}>
-        <GateLogin overlay
+        {/* Everything promised here is FREE — streak safety and cross-device
+            sync run for any signed-in member (see AuthProvider). Premium is
+            deliberately not mentioned: this is the honest trade, not a pitch. */}
+        <GateLogin overlay skipPremiumCheck
           heading="Save your progress"
-          blurb={<>Sign in to keep your streak safe, sync across your phone and
-            laptop, and unlock Premium features. It's a code by email — no
-            password.</>} />
+          blurb={<>Sign in and your streak, drills and songs are kept safe and
+            synced across your phone and laptop. Free — it's a code by email,
+            no password.</>} />
         <div style={{ textAlign:"center", marginTop:4 }}>
           <button onClick={onClose}
             style={{ background:"none", border:"none", color:"#8a8578",
@@ -907,6 +1025,10 @@ function FirstVisitPrompt({ onClose }) {
 function AuthProvider({ children }) {
   const [status, setStatus] = useState(AUTH_ENABLED ? "checking" : "anon");
   const [userEmail, setUserEmail] = useState("");
+  // The tier as stored, kept separately from `status` because VIP and Premium
+  // are both "premium" for gating but differ for marketing: a VIP member has
+  // already bought the top plan and must never be shown the VIP pitch.
+  const [tier, setTier] = useState("");
   const [syncEpoch, setSyncEpoch] = useState(0);
   const [gateReq, setGateReq] = useState(null);
   const watcherRef = useRef(null);
@@ -925,6 +1047,8 @@ function AuthProvider({ children }) {
         openedForRef.current = null;
         if (watcherRef.current) { watcherRef.current(); watcherRef.current = null; }
         setUserEmail("");
+        setTier("");
+        trackState.email = "";
         setStatus("anon");
         return;
       }
@@ -934,53 +1058,65 @@ function AuthProvider({ children }) {
       openedForRef.current = session.user.id;
       const email = (session.user?.email || "").toLowerCase();
       setUserEmail(email);
+      trackState.email = email;
       setStatus("evaluating");
+      // Which tier, and whether the tier lookup itself succeeded. Sync runs
+      // regardless of tier; only the premium *features* depend on it.
+      let isPremium = false;
+      let rawTier = "";
       try {
         const { data, error } = await supabaseAuth
           .from("members").select("tier").maybeSingle();
         if (error) throw error;
         if (cancelled) return;
-        // "vip" is accepted as well as "premium". The webhooks normalise VIP
-        // down to 'premium' before writing, so a row should never say 'vip' —
-        // but a manual fix in the Supabase table easily could, and locking a
-        // paying VIP member out because of the spelling would be invisible
-        // until they complained.
-        const tier = (data && typeof data.tier === "string") ? data.tier.trim().toLowerCase() : "";
-        if (tier === "premium" || tier === "vip") {
-          // Pull cloud progress and merge before opening the gated features.
-          // 6s race so sync can never block practice — but the race ONLY
-          // affects when the UI opens. THE WATCHER NEVER STARTS UNTIL A PULL
-          // HAS SUCCEEDED: pushing local state without having read the cloud
-          // is how a fresh browser's blank defaults overwrite a member's real
-          // streak. On timeout the pull keeps going in the background and the
-          // watcher starts when it lands; if every retry fails, this session
-          // stays read-only (local practice still works, merges next login).
-          setStatus("syncing");
-          const pullPromise = syncPullWithRetry(session.user.id);
-          const applyPull = (result) => {
-            if (cancelled || !result || result.ok !== true) return;
-            if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
-            if (result.changed) setSyncEpoch((n) => n + 1); // refresh localStorage readers
-          };
-          const raced = await Promise.race([
-            pullPromise,
-            new Promise((res) => setTimeout(() => res("timeout"), 6000))
-          ]);
-          if (cancelled) return;
-          if (raced === "timeout") {
-            pullPromise.then(applyPull); // let it land in the background
-          } else {
-            applyPull(raced);
-          }
-          setStatus("premium");
-        } else {
-          setStatus("free");
-        }
+        // "vip" is accepted as well as "premium" for gating. Since Sep 2026
+        // the webhooks write 'vip' for the VIP plan (they used to flatten it
+        // to 'premium'), and the app keeps the raw value so VIP-only
+        // marketing can be hidden from people who already bought it.
+        rawTier = (data && typeof data.tier === "string") ? data.tier.trim().toLowerCase() : "";
+        isPremium = (rawTier === "premium" || rawTier === "vip");
       } catch (_) {
         // Membership check failed (network blip): fail CLOSED for the gated
         // features — the rest of the app is open regardless.
-        if (!cancelled) setStatus("free");
+        isPremium = false;
       }
+      if (cancelled) return;
+      setTier(rawTier);
+      track("session_start", { tier: rawTier || (isPremium ? "premium" : "free") });
+
+      // Pull cloud progress and merge — for EVERY signed-in member, not only
+      // premium. Sync used to be premium-only, which made the first-visit
+      // prompt ("sign in to save your progress") a lie for the 97% of members
+      // who are free: they signed in and nothing was saved, and on iPhone
+      // Safari's 7-day purge then wiped their streak anyway. Keeping a streak
+      // safe is the honest reason to hand over an email, so it has to be free.
+      // (The premium gate is unaffected — status still resolves to "free".)
+      //
+      // 6s race so sync can never block practice — but the race ONLY affects
+      // when the UI opens. THE WATCHER NEVER STARTS UNTIL A PULL HAS
+      // SUCCEEDED: pushing local state without having read the cloud is how a
+      // fresh browser's blank defaults overwrite a member's real streak. On
+      // timeout the pull keeps going in the background and the watcher starts
+      // when it lands; if every retry fails, this session stays read-only
+      // (local practice still works, merges next login).
+      setStatus("syncing");
+      const pullPromise = syncPullWithRetry(session.user.id);
+      const applyPull = (result) => {
+        if (cancelled || !result || result.ok !== true) return;
+        if (!watcherRef.current) watcherRef.current = startSyncWatcher(session.user.id);
+        if (result.changed) setSyncEpoch((n) => n + 1); // refresh localStorage readers
+      };
+      const raced = await Promise.race([
+        pullPromise,
+        new Promise((res) => setTimeout(() => res("timeout"), 6000))
+      ]);
+      if (cancelled) return;
+      if (raced === "timeout") {
+        pullPromise.then(applyPull); // let it land in the background
+      } else {
+        applyPull(raced);
+      }
+      setStatus(isPremium ? "premium" : "free");
     };
 
     let running = false;
@@ -1005,9 +1141,12 @@ function AuthProvider({ children }) {
     // other browser. That is a direct cause of "I keep having to log in".
     // Nobody expects a sign-out on one device to end the others.
     try { await supabaseAuth.auth.signOut({ scope: "local" }); } catch (_) {}
+    track("signout");
     openedForRef.current = null;
     if (watcherRef.current) { watcherRef.current(); watcherRef.current = null; }
     setUserEmail("");
+    setTier("");
+    trackState.email = "";
     setStatus("anon");
   }, []);
 
@@ -1051,6 +1190,7 @@ function AuthProvider({ children }) {
   }, [status]);
 
   const dismissPrompt = useCallback(() => {
+    track("signin_prompt_dismissed");
     try { sessionStorage.setItem(SIGNIN_PROMPT_DISMISSED, "1"); } catch (_) {}
     setShowPrompt(false);
   }, []);
@@ -1059,6 +1199,7 @@ function AuthProvider({ children }) {
     enabled: AUTH_ENABLED,
     status,
     authorized: !AUTH_ENABLED || status === "premium",
+    tier,
     userEmail,
     syncEpoch,
     engageGate,
@@ -1637,6 +1778,12 @@ function App() {
     const p = new URLSearchParams(window.location.search);
     return p.has("generate") || p.has("gen");
   });
+  // ?daily=1 — straight into today's Exercise of the Day. Meant for the Skool
+  // daily post and the welcome DM: one tap, no choices to make.
+  const [hasDailyParam] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).has("daily");
+  });
 
   // Landing screen: shown on a clean load (no shared exercise URL). Shared links
   // hit the early returns below and never reach this, so they skip the landing.
@@ -1648,42 +1795,48 @@ function App() {
     return new URLSearchParams(window.location.search).has("routines");
   });
 
-  const [view, setView] = useState((hasGenParam || hasRoutinesParam) ? "app" : "landing"); // "landing" | "app"
+  const [view, setView] = useState((hasGenParam || hasRoutinesParam || hasDailyParam) ? "app" : "landing"); // "landing" | "app"
   // Top-level destination. The three practice tools (Chords / Strumming / Song
   // Builder) are no longer separate tabs — they live together inside the Guitar
   // Sandbox, which keeps the bottom bar to four items on a phone.
   //   "sandbox" | "routines" | "tracker" | "devtools"
   // "generate" is deliberately NOT a destination: it's an action that opens the
   // generator overlay over whatever you were already doing.
-  const [dest, setDest] = useState(hasGenParam ? "generate" : hasRoutinesParam ? "routines" : null);
+  const [dest, setDest] = useState((hasGenParam || hasDailyParam) ? "generate" : hasRoutinesParam ? "routines" : null);
 
   // Which tool is showing inside the Sandbox. All three stay mounted (display
   // toggle) so an in-progress Build or a half-written song survives switching.
   const [sandboxTool, setSandboxTool] = useState("chords"); // "chords" | "strum" | "song"
 
-  // One-shot flag: open the generator overlay as soon as the app shell (and
-  // with it ExerciseGeneratorHost) is mounted. Set by the ?generate deep link
-  // and by the landing screen's Generate Exercise launcher.
-  const [pendingGenOpen, setPendingGenOpen] = useState(hasGenParam);
+  // One-shot flag: open the generator as soon as the app shell (and with it
+  // ExerciseGeneratorHost) is mounted. "setup" opens the setup screen (the
+  // ?generate deep link, the landing launcher); "daily" opens today's
+  // Exercise of the Day already built (the ?daily link, the home card).
+  const [pendingGen, setPendingGen] = useState(hasDailyParam ? "daily" : hasGenParam ? "setup" : null);
   useEffect(() => {
-    if (!pendingGenOpen || view !== "app") return;
-    setPendingGenOpen(false);
+    if (!pendingGen || view !== "app") return;
+    const mode = pendingGen;
+    setPendingGen(null);
     // The host's listener attaches in its own effect (children run first on
     // this same commit); the short delay is belt-and-braces for the
     // landing → app transition.
     setTimeout(() => {
-      try { window.dispatchEvent(new CustomEvent("ntc-open-generator")); } catch (_) {}
+      try {
+        const detail = mode === "daily" ? { gen: buildDailyExercise() } : {};
+        window.dispatchEvent(new CustomEvent("ntc-open-generator", { detail }));
+      } catch (_) {}
     }, 60);
-    // Consume the deep-link param so a reload doesn't reopen the generator.
+    // Consume the deep-link params so a reload doesn't reopen the generator.
     try {
       const url = new URL(window.location.href);
-      if (url.searchParams.has("generate") || url.searchParams.has("gen")) {
+      if (url.searchParams.has("generate") || url.searchParams.has("gen") || url.searchParams.has("daily")) {
         url.searchParams.delete("generate");
         url.searchParams.delete("gen");
+        url.searchParams.delete("daily");
         window.history.replaceState({}, "", url.pathname + (url.search || "") + url.hash);
       }
     } catch (_) {}
-  }, [pendingGenOpen, view]);
+  }, [pendingGen, view]);
 
   // Consume ?routines=1 so a reload doesn't pin the member to that tab forever.
   // The tab has already been selected from initial state by this point.
@@ -1714,7 +1867,13 @@ function App() {
       if (!meta) { meta = document.createElement("meta"); meta.name = "theme-color"; document.head.appendChild(meta); }
       meta.setAttribute("content", TOP_TONE);
     } catch (_) {}
-  }, []);
+    // One row per page load: how they arrived, on what, and whether it's the
+    // installed home-screen app (which is what keeps iPhone logins alive).
+    let standalone = false;
+    try { standalone = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches; } catch (_) {}
+    track("app_open", { ios: IS_IOS_SAFARI, standalone, width: window.innerWidth, height: window.innerHeight });
+    if (hasDailyParam) track("daily_open", { date: dailyDateKey(), from: "link" });
+  }, []); // eslint-disable-line
 
   // Streak shown on the landing tracker card (reads tracker's own storage).
   const [landingStreak, setLandingStreak] = useState(0);
@@ -1725,16 +1884,36 @@ function App() {
     } catch (_) {}
   }, [view]);
 
+  // Exercise of the Day for the home card. Re-read whenever the home screen
+  // shows, when a Done is recorded, and after a cloud pull (a day done on the
+  // phone should light up on the laptop). Cheap: it's one localStorage read
+  // plus a seeded build.
+  const [daily, setDaily] = useState(dailySnapshot);
+  useEffect(() => {
+    const refresh = () => setDaily(dailySnapshot());
+    refresh();
+    window.addEventListener("ntc-daily-changed", refresh);
+    return () => window.removeEventListener("ntc-daily-changed", refresh);
+  }, [view, auth.syncEpoch]);
+
   const goHome = () => { setView("landing"); setDest(null); };
   // Landing cards map to a destination, and the three tool cards additionally
   // pick which tool the Sandbox opens on.
   const pickFromLanding = (id) => {
+    track("landing_pick", { id });
     if (id === "chords" || id === "strum" || id === "song") {
       setSandboxTool(id); setDest("sandbox");
     } else {
       setDest(id);
     }
     setView("app");
+  };
+  // The home card: enter the app on the generator with today's session open.
+  const openDailyFromLanding = () => {
+    track("daily_open", { date: daily.key, diff: daily.gen.dailyDiff, from: "landing", done: daily.done });
+    genFromHomeRef.current = true;
+    setPendingGen("daily");
+    setDest("generate"); setView("app");
   };
   // Generate Exercise is an overlay, not a place. Enter the app on the Sandbox
   // and pop the generator on top once its host is mounted.
@@ -1743,8 +1922,9 @@ function App() {
   // (or the ?generate=1 link) rather than the Generate tab. If they back out of
   // the premium gate, closing the overlay would otherwise strand them in the
   // Sandbox on Chords — a tab they never chose — so send them home instead.
-  const genFromHomeRef = useRef(hasGenParam);
+  const genFromHomeRef = useRef(hasGenParam || hasDailyParam);
   const openGeneratorFromLanding = () => {
+    track("landing_pick", { id: "generate" });
     genFromHomeRef.current = true;
     setDest("generate"); setView("app");
   };
@@ -1784,6 +1964,29 @@ function App() {
   // without remounting the (state-holding) tab components.
   const fadeRef = useRef(null);
   const fadeKey = view + "/" + (dest || "sandbox");
+
+  // Leaving a tab stops whatever was playing — one place, for every route.
+  //
+  // onPillClick already dispatched this, but it is only one of the ways the
+  // destination changes: the landing cards, the home button, the generator
+  // launcher, the dev-tools entry and the back-out-of-gate path all set `dest`
+  // or `view` directly, and an exercise left running through any of those kept
+  // strumming from a tab you could no longer see. Deriving it from the
+  // destination itself means a new navigation path cannot forget to do it.
+  //
+  // sandboxTool is in the key because Chords → Strumming inside the Sandbox is
+  // a tab switch to the member even though `dest` stays "sandbox".
+  const navKeyRef = useRef(null);
+  useEffect(() => {
+    const key = view + "/" + (dest || "") + "/" + (sandboxTool || "");
+    // Skip the first run: mounting is not a navigation, and a deep link like
+    // ?generate=1 sets its destination before anything can be playing.
+    if (navKeyRef.current !== null && navKeyRef.current !== key) {
+      try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch (_) {}
+      track("tab_view", { view, dest: dest || (view === "app" ? "sandbox" : null), tool: sandboxTool });
+    }
+    navKeyRef.current = key;
+  }, [view, dest, sandboxTool]);
   useEffect(() => {
     // Start every view at the top. Tabs are toggled with display:none inside one
     // long scrolling page, so the window keeps whatever offset you had — and the
@@ -1880,6 +2083,7 @@ function App() {
   // ── Landing screen (clean visit) ──
   if(view === "landing") {
     return <LandingScreen onPick={pickFromLanding} streak={landingStreak}
+      daily={daily} onDaily={openDailyFromLanding}
       onGenerate={openGeneratorFromLanding}
       premiumLocked={auth.enabled && !auth.authorized}
       isDev={isDev} onDev={() => { setView("app"); setDest("devtools"); }} />;
@@ -1942,6 +2146,7 @@ function App() {
         <div style={{ display:"flex", gap:8, maxWidth:560, margin:"0 auto" }}>
           {tabs.map(t => {
             const on = pillValue === t.id;
+            const lockedNow = t.locked && auth.enabled && !auth.authorized;
             return (
               <button key={t.id} onClick={()=>onPillClick(t.id)} style={{
                 // minWidth:0 lets a flex item shrink BELOW its text width. Without
@@ -1960,7 +2165,8 @@ function App() {
                 cursor:"pointer", whiteSpace:"nowrap", fontFamily:"inherit",
                 boxShadow: on ? "0 0 22px rgba(255,160,20,0.18), inset 0 1px 0 rgba(255,255,255,0.04)" : "none",
                 transition:"all 0.22s ease",
-              }}>{t.label}{t.locked && auth.enabled && !auth.authorized && <GateLockBadge />}</button>
+                ...(lockedNow && !on ? LOCKED_PILL : {}),
+              }}>{t.label}{lockedNow && <GateLockBadge />}</button>
             );
           })}
         </div>
@@ -2299,8 +2505,24 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
     setCurrentBeat(-1); beatRef.current=-1;
   },[]);
 
-  const scrubbingRef = useRef(false);
-  useEffect(()=>{ if(isPlaying && !scrubbingRef.current){stopMetronome();startMetronome();} },[bpm]);
+  // Change the tempo of a RUNNING metronome without restarting it.
+  //
+  // startMetronome() deliberately resets position — beat index, chord index,
+  // count-in flags — because that is what starting means. Routing a BPM change
+  // through stop+start therefore threw the member back to beat 1 mid-exercise.
+  // This only swaps the interval period and leaves every position ref alone, so
+  // the sequence carries on from wherever it had got to.
+  //
+  // No tick() here either: firing one immediately would double up a beat.
+  const retimeMetronome = useCallback(()=>{
+    if(!intervalRef.current) return;
+    clearInterval(intervalRef.current);
+    intervalRef.current=setInterval(tick,(60/bpmRef.current/2)*1000);
+  },[tick]);
+
+  // BPM retimes. Row sizes still restart — the pattern LENGTH changed, so the
+  // old beat index no longer means anything.
+  useEffect(()=>{ if(isPlaying) retimeMetronome(); },[bpm]);            // eslint-disable-line
   useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[rowSizes]);
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
@@ -2337,6 +2559,8 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
     }
     if(isPlaying){ stopMetronome(); setIsPlaying(false); return; }
     await init();
+    track("play_start", { tool:"strum", mode, bpm, rows: mode==="build" ? rowSizes.length : 1,
+      pattern: pattern ? pattern.name : null, shared:sharedView });
     // 3 → 2 → 1 with a beep each second, then start.
     setCountdown(3);
     playClick(false); // beep on "3"
@@ -2490,9 +2714,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
         totalBlocks={totalBlocks} currentBeat={currentBeat}
         accentColor="#FFBE0B" onToggle={handleTogglePlay}
-        canPlay={true} countdown={countdown}
-        onScrubStart={()=>{ if(isPlaying){ scrubbingRef.current=true; stopMetronome(); } }}
-        onScrubEnd={()=>{ if(scrubbingRef.current){ scrubbingRef.current=false; startMetronome(); } }} />
+        canPlay={true} countdown={countdown} />
       {/* Copyright — page furniture, not wanted inside a build-a-step modal. */}
       {!onExport && (
         <div style={{ textAlign:"center", paddingTop:24, paddingBottom:8, color:"#333", fontSize:11 }}>
@@ -2712,8 +2934,17 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
     setBeatCount(0); beatRef.current=0; chordRef.current=0; setChordIndex(0);
   },[]);
 
-  const scrubbingRef = useRef(false);
-  useEffect(()=>{ if(isPlaying && !scrubbingRef.current){stopMetronome();startMetronome();} },[bpm,beatsPerChord]);
+  // See the note on retimeMetronome in StrummingTab.
+  const retimeMetronome = useCallback(()=>{
+    if(!intervalRef.current) return;
+    clearInterval(intervalRef.current);
+    intervalRef.current=setInterval(tick,(60/bpmRef.current)*1000);
+  },[tick]);
+
+  // BPM retimes in place. beatsPerChord still restarts: it changes how many
+  // beats each chord is held for, so the running count is no longer valid.
+  useEffect(()=>{ if(isPlaying) retimeMetronome(); },[bpm]);            // eslint-disable-line
+  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[beatsPerChord]); // eslint-disable-line
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
   const pack = selectedPack ? CHORD_PACKS[selectedPack] : null;
@@ -2741,6 +2972,8 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
     }
     if(!canPlay) return;
     await init();
+    track("play_start", { tool:"chords", mode:viewMode, bpm, beatsPerChord, chords:chords.length,
+      random:randomOrder, barre:chords.some(c=>Boolean(BARRE_BY_KEY[c])), shared:sharedView, pack:selectedPack||null });
     // In random mode, settle the shuffled starting chord + lookahead NOW (before the
     // countdown) so the displayed chord during 3-2-1 is the real first chord and
     // doesn't jump when playback begins.
@@ -2975,9 +3208,7 @@ function ChordsTab({ audio, chordVariants, updateVariant, sharedView=false, acti
       <MetronomePanel bpm={bpm} setBpm={setBpm} isPlaying={isPlaying}
         totalBlocks={4} currentBeat={-1} accentColor={accentColor}
         onToggle={handleTogglePlay} canPlay={canPlay} countdown={countdown}
-        disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"}
-        onScrubStart={()=>{ if(isPlaying){ scrubbingRef.current=true; stopMetronome(); } }}
-        onScrubEnd={()=>{ if(scrubbingRef.current){ scrubbingRef.current=false; startMetronome(); } }} />
+        disabledLabel={viewMode==="build"?"Select 2+ chords":"Select a pack"} />
 
       {!sharedView && viewMode==="build" && (
         <div style={{ width:"100%", marginBottom:8 }}>
@@ -3214,6 +3445,24 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
+  // Stop playback when this view is left or the browser tab is hidden — see the
+  // matching listener in StrummingTab.
+  useEffect(()=>{
+    const stop = ()=>{
+      clearInterval(countInRef.current); countInRef.current=null;
+      stopMetronome(); setIsPlaying(false); setIsPaused(false); setCountIn(0);
+    };
+    const onHide = ()=>{ if(document.hidden) stop(); };
+    window.addEventListener("ntc-stop-playback", stop);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", stop);
+    return ()=>{
+      window.removeEventListener("ntc-stop-playback", stop);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", stop);
+    };
+  },[stopMetronome]);
+
   // ── Constant-velocity scroll — set once at play start, never recalculated ──
   const runScrollRef = useRef(null);
   const scrollAccRef = useRef(0); // accumulates fractional pixels
@@ -3377,14 +3626,16 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     }, 1000);
   },[init, tick, playChordClick]);
 
+  // Nudging the tempo used to PAUSE the song outright and flip it into the
+  // paused state, so you had to press play again to carry on. It now retimes
+  // the running interval and keeps going, like every other view.
   useEffect(()=>{
     bpmRef.current = bpm;
-    if(isPlaying){
-      pauseMetronome();
-      setIsPlaying(false);
-      setIsPaused(true);
+    if(isPlaying && intervalRef.current){
+      clearInterval(intervalRef.current);
+      intervalRef.current = setInterval(tick, (60/bpmRef.current/2)*1000);
     }
-  },[bpm]);
+  },[bpm]); // eslint-disable-line
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
 
   // ── Countdown — identical to Advanced ──
@@ -4502,7 +4753,16 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     strumBeatRef.current=-1; chordIdxRef.current=0;
   },[]);
 
-  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,beatsPerChord,hasSecondRow,row1Size,row2Size]);
+  // See the note on retimeMetronome in StrummingTab.
+  const retimeMetronome = useCallback(()=>{
+    if(!intervalRef.current) return;
+    clearInterval(intervalRef.current);
+    intervalRef.current=setInterval(tick,(60/bpmRef.current/2)*1000);
+  },[tick]);
+
+  // BPM retimes. The rest change the SHAPE of the sequence, so they restart.
+  useEffect(()=>{ if(isPlaying) retimeMetronome(); },[bpm]);            // eslint-disable-line
+  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[beatsPerChord,hasSecondRow,row1Size,row2Size]); // eslint-disable-line
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInIntervalRef.current); },[]);
 
   // Stop playback if the browser tab is hidden/backgrounded or a stop event fires.
@@ -5117,6 +5377,14 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
   const [currentStrum, setCurrentStrum] = useState(-1);
   const [currentFlatIdx, setCurrentFlatIdx] = useState(-1);
   const [currentChordLabel, setCurrentChordLabel] = useState(null);
+  // Chord-carousel slide (song mode). Advanced used to draw its own three-slot
+  // prev/current/next block that just cross-faded opacity. It now uses the same
+  // ChordGrid every other chord-switching view uses, driven the same way: the
+  // strip holds still, then glides on a one-shot signal so the next chord lands
+  // in focus exactly as the chord changes.
+  const [slideSignal, setSlideSignal] = useState(0); // increment = "start the slide now"
+  const [slideDurMs, setSlideDurMs] = useState(380);
+  const slideArmedRef = useRef(false);
   const [muteMetronome, setMuteMetronome] = useState(false);
   const [capo, setCapo] = useState(0);
   const [loadedPatternName, setLoadedPatternName] = useState(null);
@@ -5268,8 +5536,35 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     currentPlayingRowRef.current=-1;
   },[]);
 
-  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[bpm,rowSizes,rowRepeats]);
+  // See the note on retimeMetronome in StrummingTab.
+  const retimeMetronome = useCallback(()=>{
+    if(!intervalRef.current) return;
+    clearInterval(intervalRef.current);
+    intervalRef.current=setInterval(tick,(60/bpmRef.current/2)*1000);
+  },[tick]);
+
+  useEffect(()=>{ if(isPlaying) retimeMetronome(); },[bpm]);            // eslint-disable-line
+  useEffect(()=>{ if(isPlaying){stopMetronome();startMetronome();} },[rowSizes,rowRepeats]); // eslint-disable-line
   useEffect(()=>()=>clearInterval(intervalRef.current),[]);
+
+  // Stop playback when this view is left (a tab switch fires "ntc-stop-playback")
+  // or the browser tab is hidden. Advanced was the one playback view with no
+  // listener, so switching tabs mid-song left it strumming out of sight.
+  useEffect(()=>{
+    const stop = ()=>{
+      clearInterval(countIntervalRef.current); countIntervalRef.current=null;
+      stopMetronome(); setIsPlaying(false); setCountIn(0); setCountInBeat(-1);
+    };
+    const onHide = ()=>{ if(document.hidden) stop(); };
+    window.addEventListener("ntc-stop-playback", stop);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", stop);
+    return ()=>{
+      window.removeEventListener("ntc-stop-playback", stop);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", stop);
+    };
+  },[stopMetronome]);
 
   // Auto-scroll view mode strum panel using translateY — starts at row 2, stops at end
   useEffect(()=>{
@@ -5499,7 +5794,57 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
   const carouselCurrent = (isPlaying || countIn > 0) ? (currentChordLabel || _preFirst) : _preFirst;
   const carouselNext    = (isPlaying || countIn > 0) ? nextChordLabel    : _preNext;
   const carouselPrev    = (isPlaying || countIn > 0) ? prevChordLabel    : null;
-  const nextIsIncoming  = blocksUntilNext <= 3;
+  // (nextIsIncoming used to drive the old three-slot fade's "incoming" styling.
+  //  ChordGrid shows the same thing by physically sliding, so it's gone.)
+
+  // ── ChordGrid inputs ──
+  // ChordGrid wants a chord LIST plus indices into it, not labels. Advanced
+  // tracks chords per block, so the list is the distinct chords in order of
+  // first appearance — one position dot per chord the song uses, exactly like
+  // the simple builder. The current/next/prev labels come from the existing
+  // playback logic untouched, so the switch still fires from the same place it
+  // always did; this only maps those labels onto indices.
+  const advChordList = (() => {
+    const seen = [];
+    for (let f = 0; f < _total; f++) {
+      const ch = blockChords[flatToArrIdx(f)];
+      if (ch && !seen.includes(ch)) seen.push(ch);
+    }
+    // Nothing assigned yet (or not playing): still show whatever we know.
+    if (!seen.length) { [carouselCurrent, carouselNext].forEach(c => { if (c && !seen.includes(c)) seen.push(c); }); }
+    return seen;
+  })();
+  // indexOf returns -1 for "unknown"; clamp so ChordGrid never indexes negative.
+  const advIdxOf = (label, fallback) => {
+    const i = label != null ? advChordList.indexOf(label) : -1;
+    return i >= 0 ? i : fallback;
+  };
+  const advCurIdx  = advIdxOf(carouselCurrent, 0);
+  const advNextIdx = advIdxOf(carouselNext, advChordList.length > 1 ? (advCurIdx + 1) % advChordList.length : advCurIdx);
+  const advPrevIdx = advIdxOf(carouselPrev, advChordList.length > 1 ? (advCurIdx - 1 + advChordList.length) % advChordList.length : advCurIdx);
+
+  // Fire the slide a couple of arrows before the switch — the same two-arrow
+  // lead the simple builder uses, so both views feel identical. One arrow is
+  // half a beat, hence the /2. `<=` rather than `===` so a chord that only
+  // lasts one or two blocks still slides (shortened) instead of snapping.
+  const SLIDE_LEAD = 2;
+  useEffect(() => {
+    if (!isPlaying || advChordList.length < 2) return;
+    if (blocksUntilNext <= SLIDE_LEAD && !slideArmedRef.current) {
+      slideArmedRef.current = true;
+      const tickMs = (60 / (bpm || 60) / 2) * 1000;
+      setSlideDurMs(Math.max(120, blocksUntilNext * tickMs));
+      setSlideSignal(v => v + 1);
+    }
+  // eslint-disable-next-line
+  }, [currentStrum, isPlaying, blocksUntilNext, bpm]);
+
+  // Re-arm once the chord has actually changed. Keyed on the chord itself, not
+  // on blocksUntilNext climbing back up — a chord that only lasts two blocks
+  // never lets that counter rise, and would then slide exactly once and never
+  // again for the rest of the song.
+  useEffect(() => { slideArmedRef.current = false; }, [currentChordLabel]);
+  useEffect(() => { if (!isPlaying) slideArmedRef.current = false; }, [isPlaying]);
 
   // ── Shared control styling ──────────────────────────────────────────────
   // Advanced used to carry its own dev-tools styling (a green Play button, a
@@ -5572,59 +5917,21 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
           )}
 
           {/* ── Chord Carousel Panel ── */}
-          {hasAnyChords && (
+          {/* The same ChordGrid the Chords tab and the simple song builder use.
+              It was a bespoke three-slot fade here, which read as a different
+              app mid-routine. songMode holds the strip still and slides it on
+              slideSignal, which is what makes the next chord arrive in focus on
+              the beat rather than cross-fading vaguely near it. */}
+          {hasAnyChords && advChordList.length >= 1 && (
             <div style={{ width:"100%", background:"#0a0a0a", border:"1px solid #2a2a2a",
-              borderRadius:20, padding:"16px 14px", marginBottom:14 }}>
+              borderRadius:20, padding:"16px 14px 10px", marginBottom:14 }}>
               <div style={{ fontSize:9, color:"#555", letterSpacing:2, textAlign:"center", marginBottom:12 }}>CHORD</div>
-              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                {[
-                  { chord: carouselPrev,    role: "prev" },
-                  { chord: carouselCurrent, role: "active" },
-                  { chord: carouselNext,    role: "next" },
-                ].map(({ chord, role }, i) => {
-                  const isActive   = role === "active";
-                  const isNext     = role === "next";
-                  const isIncoming = isNext && nextIsIncoming;
-                  const img = chord ? getChordImg(chord, chordVariants) : null;
-                  return (
-                    <div key={role} style={{
-                      flex: isActive ? "0 0 46%" : "0 0 27%",
-                      display:"flex", flexDirection:"column", alignItems:"center",
-                      opacity: isActive ? 1 : isIncoming ? 1 : 0.35,
-                      transition:"opacity 0.25s",
-                    }}>
-                      <div style={{
-                        width:"100%", borderRadius:10, overflow:"hidden", background:"#000",
-                        border: isActive
-                          ? "2px solid #FFBE0B"
-                          : isIncoming
-                            ? "2px solid rgba(255,190,11,0.7)"
-                            : "1px solid #222",
-                        boxShadow: isActive
-                          ? "0 0 16px rgba(255,190,11,0.45)"
-                          : isIncoming
-                            ? "0 0 12px rgba(255,190,11,0.25)"
-                            : "none",
-                        transition:"border 0.2s, box-shadow 0.2s",
-                      }}>
-                        {img
-                          ? <div style={{ width:"100%", overflow:"hidden", display:"flex", justifyContent:"center" }}>
-                              <img src={img} alt={chord} style={{ width:"120%", height:"auto", display:"block", flexShrink:0 }} />
-                            </div>
-                          : <div style={{ aspectRatio:"3/4", display:"flex", alignItems:"center",
-                              justifyContent:"center", fontSize: isActive ? 32 : 20, fontWeight:900,
-                              color: isActive ? "#FFBE0B" : isIncoming ? "#FFD60A" : "#555" }}>
-                              {chord || ""}
-                            </div>
-                        }
-                      </div>
-                      <div style={{ marginTop:4, fontSize: isActive ? 15 : 11, fontWeight:900,
-                        color: isActive ? "#FFBE0B" : isIncoming ? "#FFD60A" : "#555",
-                        transition:"all 0.2s" }}>{chord || ""}</div>
-                    </div>
-                  );
-                })}
-              </div>
+              <ChordGrid chords={advChordList}
+                chordIndex={advCurIdx} nextChordIndex={advNextIdx} prevChordIndex={advPrevIdx}
+                isPlaying={isPlaying} accentColor="#FFBE0B"
+                bpm={bpm} beatsPerChord={1}
+                songMode={true} slideSignal={slideSignal} slideDurMs={slideDurMs}
+                chordVariants={chordVariants} updateVariant={updateVariant} />
             </div>
           )}
 
@@ -6238,9 +6545,121 @@ function ModeTabs({ options, value, onChange, locked = [] }) {
             fontSize:14, fontWeight:900, letterSpacing:0.3,
             boxShadow: on ? "0 0 22px rgba(255,160,20,0.18)" : "none",
             cursor:"pointer", transition:"all 0.22s ease", fontFamily:"inherit",
+            ...(locked.includes(m) && !on ? LOCKED_PILL : {}),
           }}>{label}{locked.includes(m) && <GateLockBadge />}</button>
         );
       })}
+    </div>
+  );
+}
+
+// ── BARRE CHORD PICKER ──────────────────────────────────────────────────────
+// The "🤘 Barre chords · 24 shapes" toggle and its two sliding rows. Shared by
+// the Chords-tab builder (ChordPickerPanel) and the Song Builder's add-chord
+// popup, so a member who learned it in one place finds the identical control
+// in the other — and a fix lands in both at once.
+//
+// Kept behind a toggle rather than dropped into the open-chord grid. Barre
+// chords are a different technique and there are 24 of them; folded into a
+// 10-chord grid of open shapes they would swamp it.
+//
+// Two rows because the shape is what you are practising: every chord in a row
+// is the SAME grip moved up the neck, so sliding along one row is the actual
+// physical exercise. Each chip carries its fret so you know where the barre
+// goes without opening the diagram.
+//
+// The caller owns the selection: isSelected(key) / countOf(key) describe the
+// current state, isFull(sel) says whether a tap should be refused, and
+// onTap(b, sel) performs the add/remove. The picker itself stores only
+// whether it's open.
+function BarreChordPicker({ isSelected, countOf = null, isFull, onTap, accentColor = "#FFBE0B", note = null }) {
+  const [barreOpen, setBarreOpen] = useState(false);
+  return (
+    <div style={{ marginTop:8, marginBottom:12 }}>
+      <button onClick={()=>setBarreOpen(o=>!o)}
+        aria-expanded={barreOpen}
+        style={{ width:"100%", display:"flex", alignItems:"center", gap:11,
+          padding:"16px 16px", borderRadius:15, cursor:"pointer", fontFamily:"inherit",
+          border:`1.5px solid ${barreOpen ? "rgba(255,190,11,0.55)" : "rgba(255,190,11,0.26)"}`,
+          background: barreOpen
+            ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 70%), #16110a"
+            : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.07) 0%, rgba(255,170,30,0) 70%), #120e08",
+          color: barreOpen ? "#FFD60A" : "#c9bd93", transition:"all 0.2s" }}>
+        <span style={{ fontSize:21 }}>🤘</span>
+        <span style={{ flex:1, textAlign:"left", fontSize:17, fontWeight:900, letterSpacing:0.3 }}>
+          Barre chords
+        </span>
+        <span style={{ fontSize:12.5, color:"#8a7f5e", fontWeight:700 }}>
+          {barreOpen ? "" : "24 shapes"}
+        </span>
+        <span style={{ fontSize:15, transform: barreOpen ? "rotate(180deg)" : "none",
+          transition:"transform 0.2s" }}>▾</span>
+      </button>
+
+      {barreOpen && (
+        <div style={{ marginTop:8, border:"1px solid #1c1710", borderRadius:14,
+          background:"#0c0a06", padding:"11px 0 12px" }}>
+          <div style={{ fontSize:10.5, color:"#6f6749", padding:"0 13px 9px", lineHeight:1.6 }}>
+            {note || <>Slide along to move the grip up the neck. Each row changes grip
+              halfway — that switch is what keeps every chord at fret 7 or below.</>}
+          </div>
+          {[["MAJOR", BARRE_MAJORS], ["MINOR", BARRE_MINORS]].map(([rowLabel, row]) => (
+            <div key={rowLabel} style={{ marginBottom: rowLabel==="MAJOR" ? 12 : 0 }}>
+              <div style={{ fontSize:9.5, color:"#5a5238", letterSpacing:2, fontWeight:800,
+                padding:"0 13px 6px" }}>{rowLabel}</div>
+              {/* Horizontal scroller. overflowX + touch scrolling makes this a
+                  slider on a phone and a drag/wheel strip on a laptop. */}
+              <div style={{ display:"flex", gap:7, overflowX:"auto", padding:"2px 13px 6px",
+                WebkitOverflowScrolling:"touch", scrollbarWidth:"none" }}>
+                {row.map((b, bi) => {
+                  // The grip changes once per row. A divider marks it, so the
+                  // fret numbers restarting at 1 reads as a new shape rather
+                  // than a mistake.
+                  const newShape = bi > 0 && row[bi-1].shape !== b.shape;
+                  const sel = Boolean(isSelected(b.key));
+                  const count = countOf ? countOf(b.key) : 0;
+                  const full = Boolean(isFull(sel));
+                  // Array, not a fragment: this file imports only named
+                  // exports from react, so `React.Fragment` is undefined at
+                  // runtime even though it compiles.
+                  return [
+                    newShape && (
+                      <span key={b.key+"-div"} aria-hidden="true" style={{ flexShrink:0, width:1,
+                        alignSelf:"stretch", margin:"2px 4px",
+                        background:"linear-gradient(180deg, transparent, #2a2417 30%, #2a2417 70%, transparent)" }} />
+                    ),
+                    <button key={b.key} disabled={full}
+                      onClick={()=>{
+                        // Start the download on SELECT, not on the first
+                        // strum — by the time Play is pressed it has landed.
+                        try { warmBarre && warmBarre(b.key + "_down"); } catch(_) {}
+                        onTap(b, sel);
+                      }}
+                      style={{ flexShrink:0, minWidth:58, padding:"9px 10px 8px",
+                        borderRadius:12, cursor: full ? "not-allowed" : "pointer",
+                        fontFamily:"inherit", opacity: full ? 0.3 : 1,
+                        border:`1.5px solid ${sel ? accentColor : "#241d10"}`,
+                        background: sel
+                          ? `rgba(${hexToRgb(accentColor)},0.14)` : "#100d09",
+                        boxShadow: sel ? `0 0 10px rgba(${hexToRgb(accentColor)},0.28)` : "none",
+                        display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+                        transition:"all 0.15s", position:"relative" }}>
+                      <span style={{ fontSize:15, fontWeight:900,
+                        color: sel ? accentColor : "#d8cba0" }}>{b.label}</span>
+                      <span style={{ fontSize:9, fontWeight:700, letterSpacing:0.4,
+                        color: sel ? accentColor : "#5a5238" }}>{b.fret}fr</span>
+                      {count > 1 && (
+                        <span style={{ position:"absolute", top:3, right:4, fontSize:9,
+                          fontWeight:900, color:accentColor }}>×{count}</span>
+                      )}
+                    </button>
+                    ];
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -6250,7 +6669,6 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
   chordVariants, updateVariant, allowDuplicates=false, onReset }) {
   const [variantPickerChord, setVariantPickerChord] = useState(null);
   const [outsideKeyChord, setOutsideKeyChord] = useState(null);
-  const [barreOpen, setBarreOpen] = useState(false);
 
   // In duplicate mode slots may be variant keys (e.g. "C/B"); reduce to base
   // chords for key detection and allowed-chord logic.
@@ -6361,113 +6779,24 @@ function ChordPickerPanel({ customChords, setCustomChords, maxChords, accentColo
         })}
       </div>
 
-      {/* ── BARRE CHORDS ──────────────────────────────────────────────────
-          Kept behind a toggle rather than dropped into the grid above. Barre
-          chords are a different technique and there are 24 of them; folded
-          into a 10-chord grid of open shapes they would swamp it.
-
-          Two rows because the shape is what you are practising: every chord
-          in a row is the SAME grip moved up the neck, so sliding along one row
-          is the actual physical exercise. Sliding between rows would just be a
-          list of chord names. Each chip carries its fret so you know where the
-          barre goes without opening the diagram. */}
-      <div style={{ marginTop:8, marginBottom:12 }}>
-        <button onClick={()=>setBarreOpen(o=>!o)}
-          aria-expanded={barreOpen}
-          style={{ width:"100%", display:"flex", alignItems:"center", gap:11,
-            padding:"16px 16px", borderRadius:15, cursor:"pointer", fontFamily:"inherit",
-            border:`1.5px solid ${barreOpen ? "rgba(255,190,11,0.55)" : "rgba(255,190,11,0.26)"}`,
-            background: barreOpen
-              ? "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 70%), #16110a"
-              : "radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.07) 0%, rgba(255,170,30,0) 70%), #120e08",
-            color: barreOpen ? "#FFD60A" : "#c9bd93", transition:"all 0.2s" }}>
-          <span style={{ fontSize:21 }}>🤘</span>
-          <span style={{ flex:1, textAlign:"left", fontSize:17, fontWeight:900, letterSpacing:0.3 }}>
-            Barre chords
-          </span>
-          <span style={{ fontSize:12.5, color:"#8a7f5e", fontWeight:700 }}>
-            {barreOpen ? "" : "24 shapes"}
-          </span>
-          <span style={{ fontSize:15, transform: barreOpen ? "rotate(180deg)" : "none",
-            transition:"transform 0.2s" }}>▾</span>
-        </button>
-
-        {barreOpen && (
-          <div style={{ marginTop:8, border:"1px solid #1c1710", borderRadius:14,
-            background:"#0c0a06", padding:"11px 0 12px" }}>
-            <div style={{ fontSize:10.5, color:"#6f6749", padding:"0 13px 9px", lineHeight:1.6 }}>
-              Slide along to move the grip up the neck. Each row changes grip
-              halfway — that switch is what keeps every chord at fret 7 or below.
-            </div>
-            {[["MAJOR", BARRE_MAJORS], ["MINOR", BARRE_MINORS]].map(([rowLabel, row]) => (
-              <div key={rowLabel} style={{ marginBottom: rowLabel==="MAJOR" ? 12 : 0 }}>
-                <div style={{ fontSize:9.5, color:"#5a5238", letterSpacing:2, fontWeight:800,
-                  padding:"0 13px 6px" }}>{rowLabel}</div>
-                {/* Horizontal scroller. overflowX + touch scrolling makes this a
-                    slider on a phone and a drag/wheel strip on a laptop. */}
-                <div style={{ display:"flex", gap:7, overflowX:"auto", padding:"2px 13px 6px",
-                  WebkitOverflowScrolling:"touch", scrollbarWidth:"none" }}>
-                  {row.map((b, bi) => {
-                    // The grip changes once per row. A divider marks it, so the
-                    // fret numbers restarting at 1 reads as a new shape rather
-                    // than a mistake.
-                    const newShape = bi > 0 && row[bi-1].shape !== b.shape;
-                    const sel = customChords.includes(b.key);
-                    const count = allowDuplicates
-                      ? customChords.reduce((a,c)=>c===b.key?a+1:a,0) : 0;
-                    const full = allowDuplicates
-                      ? customChords.length>=maxChords
-                      : !sel && customChords.length>=maxChords;
-                    // Array, not a fragment: this file imports only named
-                    // exports from react, so `React.Fragment` is undefined at
-                    // runtime even though it compiles.
-                    return [
-                      newShape && (
-                        <span key={b.key+"-div"} aria-hidden="true" style={{ flexShrink:0, width:1,
-                          alignSelf:"stretch", margin:"2px 4px",
-                          background:"linear-gradient(180deg, transparent, #2a2417 30%, #2a2417 70%, transparent)" }} />
-                      ),
-                      <button key={b.key} disabled={full}
-                        onClick={()=>{
-                          if(isPlaying){stopMetronome();setIsPlaying(false);}
-                          // Start the download on SELECT, not on the first
-                          // strum — by the time Play is pressed it has landed.
-                          try { warmBarre && warmBarre(b.key + "_down"); } catch(_) {}
-                          if(!allowDuplicates && sel){
-                            setCustomChords(p=>p.filter(c=>c!==b.key));
-                          } else {
-                            setCustomChords(p=>[...p, b.key]);
-                          }
-                          setChordIndex(0); setBeatCount(0);
-                          if(beatRef) beatRef.current=0;
-                          if(chordRef) chordRef.current=0;
-                        }}
-                        style={{ flexShrink:0, minWidth:58, padding:"9px 10px 8px",
-                          borderRadius:12, cursor: full ? "not-allowed" : "pointer",
-                          fontFamily:"inherit", opacity: full ? 0.3 : 1,
-                          border:`1.5px solid ${sel ? accentColor : "#241d10"}`,
-                          background: sel
-                            ? `rgba(${hexToRgb(accentColor)},0.14)` : "#100d09",
-                          boxShadow: sel ? `0 0 10px rgba(${hexToRgb(accentColor)},0.28)` : "none",
-                          display:"flex", flexDirection:"column", alignItems:"center", gap:2,
-                          transition:"all 0.15s", position:"relative" }}>
-                        <span style={{ fontSize:15, fontWeight:900,
-                          color: sel ? accentColor : "#d8cba0" }}>{b.label}</span>
-                        <span style={{ fontSize:9, fontWeight:700, letterSpacing:0.4,
-                          color: sel ? accentColor : "#5a5238" }}>{b.fret}fr</span>
-                        {count > 1 && (
-                          <span style={{ position:"absolute", top:3, right:4, fontSize:9,
-                            fontWeight:900, color:accentColor }}>×{count}</span>
-                        )}
-                      </button>
-                      ];
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ── BARRE CHORDS — shared picker, see BarreChordPicker ── */}
+      <BarreChordPicker accentColor={accentColor}
+        isSelected={(k)=>customChords.includes(k)}
+        countOf={(k)=> allowDuplicates ? customChords.reduce((a,c)=>c===k?a+1:a,0) : 0}
+        isFull={(sel)=> allowDuplicates
+          ? customChords.length>=maxChords
+          : (!sel && customChords.length>=maxChords)}
+        onTap={(b, sel)=>{
+          if(isPlaying){stopMetronome();setIsPlaying(false);}
+          if(!allowDuplicates && sel){
+            setCustomChords(p=>p.filter(c=>c!==b.key));
+          } else {
+            setCustomChords(p=>[...p, b.key]);
+          }
+          setChordIndex(0); setBeatCount(0);
+          if(beatRef) beatRef.current=0;
+          if(chordRef) chordRef.current=0;
+        }} />
 
       {/* Sequence chips — tap ⚙ to change voicing, × to remove */}
       {allowDuplicates && customChords.length > 0 && (
@@ -6663,6 +6992,31 @@ function ChordGrid({ chords, chordIndex, nextChordIndex, afterChordIndex=null, p
       paint(centerForSlot(CUR_SLOT));
     }
   }); // eslint-disable-line
+
+  // Recentre when the viewport's WIDTH becomes known or changes.
+  //
+  // Every position here is derived from viewportRef.clientWidth. The effect
+  // above runs after each render, but if the very first one lands before layout
+  // the width reads 0, the strip is positioned as if the panel were zero-wide,
+  // and the active chord parks against the left edge. Nothing re-renders
+  // afterwards in a view that is just sitting there paused, so it stays wrong.
+  //
+  // That is exactly what happened when Advanced started using this component:
+  // its view renders once and then holds still, unlike the simple builder whose
+  // beat state keeps it re-rendering into a correct position by accident.
+  //
+  // Also covers rotation, the Expand toggle, and any panel resize. Guarded on
+  // the playing flag because the rAF loop owns the position during playback and
+  // a repaint would fight it.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (!wasPlayingRef.current) paint(centerForSlot(CUR_SLOT));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []); // eslint-disable-line
 
   // Playing (normal mode): continuous dwell→travel glide via rAF.
   useEffect(() => {
@@ -7139,7 +7493,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
 
 
 function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, accentColor,
-  onToggle, canPlay, disabledLabel, onScrubStart, onScrubEnd, countdown=0 }) {
+  onToggle, canPlay, disabledLabel, countdown=0 }) {
   return (
     <div style={{ background:"#0c0a06", border:"1px solid #241d10",
       borderRadius:20, padding:"22px 24px", width:"100%", boxShadow:"0 6px 22px rgba(0,0,0,0.5)" }}>
@@ -7158,12 +7512,12 @@ function MetronomePanel({ bpm, setBpm, isPlaying, totalBlocks, currentBeat, acce
             transition:"background 0.05s" }} />;
         })}
       </div>
+      {/* No scrub start/stop handlers. Dragging used to pause the metronome and
+          restart it on release — which also fired on a touch that was only
+          trying to scroll. BPM changes now retime the running interval in
+          place, so there is nothing to pause. */}
       <input type="range" min={20} max={160} value={bpm} className="ntc-bpm-slider"
         onChange={e=>setBpm(Number(e.target.value))}
-        onMouseDown={()=>onScrubStart&&onScrubStart()}
-        onMouseUp={()=>onScrubEnd&&onScrubEnd()}
-        onTouchStart={()=>onScrubStart&&onScrubStart()}
-        onTouchEnd={()=>onScrubEnd&&onScrubEnd()}
         style={{ marginBottom:6 }} />
       <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:"#5a5238", marginBottom:16 }}>
         <span>40</span><span>160</span>
@@ -7813,6 +8167,7 @@ function TrackerTab({ context = "app", hideGenerate = false, active = true, embe
   useEffect(() => () => { if (celebrateTimerRef.current) clearTimeout(celebrateTimerRef.current); }, []);
 
   function toggle(dayIdx, taskId) {
+    track("tracker_tick", { variant: gridVariant, day: dayIdx + 1, task: taskId, context });
     setData(prev => {
       const next = prev.map((day, i) => i === dayIdx ? { ...day, [taskId]: !day[taskId] } : day);
       const dayDone = TRACKER_TASKS.filter(t => next[dayIdx][t.id]).length;
@@ -8908,7 +9263,15 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     strumBeatRef.current = -1; chordIdxRef.current = 0;
   }, []);
 
-  useEffect(() => { if (isPlaying) { stopMetronome(); startMetronome(); } }, [bpm, beatsPerChord, hasSecondRow, row1Size, row2Size]); // eslint-disable-line
+  // See the note on retimeMetronome in StrummingTab.
+  const retimeMetronome = useCallback(() => {
+    if (!intervalRef.current) return;
+    clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(tick, (60 / bpmRef.current / 2) * 1000);
+  }, [tick]);
+
+  useEffect(() => { if (isPlaying) retimeMetronome(); }, [bpm]); // eslint-disable-line
+  useEffect(() => { if (isPlaying) { stopMetronome(); startMetronome(); } }, [beatsPerChord, hasSecondRow, row1Size, row2Size]); // eslint-disable-line
   useEffect(() => () => { clearInterval(intervalRef.current); clearInterval(countdownRef.current); }, []);
 
   useEffect(() => {
@@ -8936,6 +9299,8 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
     if (isPlaying) { stopMetronome(); setIsPlaying(false); return; }
     if (!songChords.length) return;
     await init();
+    track("play_start", { tool:"song", bpm, beatsPerChord, capo, chords:songChords.length,
+      random:songRandom, barre:songChords.some(c=>Boolean(BARRE_BY_KEY[c])), rows: hasSecondRow ? 2 : 1 });
     setCountdown(3);
     playClick(false);
     countdownRef.current = setInterval(() => {
@@ -8989,6 +9354,13 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
 
   const nextChordIndex = songChords.length > 0 ? (songRandom ? songNextDisplay : (chordIndex + 1) % songChords.length) : 0;
   const isLastBeat = isPlaying && beatCount === beatsPerChord - 1;
+
+  // Chords that count for key detection. Barre chords are outside the
+  // open-chord vocabulary the key sets know about, so they are left out —
+  // otherwise one barre chord would report "outside a single key" and grey
+  // out the open-chord grid behind it (same rule as ChordPickerPanel).
+  const songKeyBases = [...new Set(songChords.map(slotBase))].filter(c => !BARRE_BY_KEY[c]);
+  const songHasBarre = songChords.some(c => Boolean(BARRE_BY_KEY[c]));
 
   // The Simple | Advanced switch. Rendered from both branches so the tabs sit
   // in the same place either way.
@@ -9069,7 +9441,8 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
         {songChords.length > 0 && (
           <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginTop:10, letterSpacing:0.5 }}>
             {(() => {
-              const keys = getPossibleKeys([...new Set(songChords.map(slotBase))]);
+              if (!songKeyBases.length) return songHasBarre ? "Barre chords — any key goes" : "";
+              const keys = getPossibleKeys(songKeyBases);
               return keys.length ? `KEY: ${keys.map(k => k.label).join(" · ")}` : "Outside a single key — that's allowed";
             })()}
           </div>
@@ -9085,7 +9458,7 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
           <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#100d09",
             border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px 14px",
-            maxWidth:420, width:"100%", maxHeight:"84dvh",
+            maxWidth:560, width:"100%", maxHeight:"84dvh",
             display:"flex", flexDirection:"column", overflow:"hidden" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4, flexShrink:0 }}>
               <div style={{ width:44 }} />
@@ -9098,13 +9471,20 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                 : <div style={{ width:44 }} />}
             </div>
             <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12, flexShrink:0 }}>
-              {songChords.length}/10 · basic shape added — tap a chip's ⚙ to change voicing
+              {songChords.length}/10 · basic shape added — tap a chip's ⚙ to change voicing · barre chords below
             </div>
-            {/* Scrollable grid; Done stays pinned to the window's bottom margin */}
-            <div style={{ overflowY:"auto", flex:1, minHeight:0, display:"grid",
-              gridTemplateColumns:"repeat(3,1fr)", gap:8, alignContent:"start" }}>
+            {/* Scrollable area; Done stays pinned to the window's bottom margin.
+                auto-fill rather than a fixed 3 columns: three columns of chord
+                diagrams in a 420px shell turned 10 chords into 4 tall rows,
+                which overflowed 84dvh on a laptop and forced a scrollbar with
+                Fmaj7 clipped. The column count now follows the width — still 3
+                on a phone, 5 on a laptop — so it fits without scrolling.
+                The barre picker sits under the grid inside the same scroller. */}
+            <div style={{ overflowY:"auto", flex:1, minHeight:0 }}>
+            <div style={{ display:"grid",
+              gridTemplateColumns:"repeat(auto-fill, minmax(88px, 1fr))", gap:8, alignContent:"start" }}>
               {ALL_CHORDS.map(chord => {
-                const allowed = getAllowedChords([...new Set(songChords.map(slotBase))]);
+                const allowed = getAllowedChords(songKeyBases);
                 const outside = allowed && !allowed.has(chord);
                 const full = songChords.length >= 10;
                 // Slots this chord already occupies (1-based) — duplicates allowed.
@@ -9115,6 +9495,7 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                     stopIfPlaying();
                     const newIdx = songChords.length;
                     if (newIdx >= 10) return;
+                    track("song_add_chord", { chord, barre:false });
                     setSongChords(prev => prev.length >= 10 ? prev : [...prev, chord]);
                     // Straight to the voicings for the slot just added — basic
                     // shape already selected, one tap to keep or swap.
@@ -9143,6 +9524,25 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
                 );
               })}
             </div>
+            {/* Barre chords — the member request that started this: full F and
+                F#m weren't reachable from the song builder, only from the
+                Chords tab. Same shared picker; a tap adds the chord as its own
+                slot (barre shapes have no voicing popup — the shape IS the
+                voicing). The popup stays open so a run of barre chords can be
+                added in one go, exactly like the open-chord grid above. */}
+            <BarreChordPicker accentColor="#FFBE0B"
+              note={<>Tap to add. Slide along a row to move the same grip up the neck —
+                each row changes grip halfway so nothing sits above fret 7.</>}
+              isSelected={(k)=>songChords.includes(k)}
+              countOf={(k)=>songChords.reduce((a,c)=>c===k?a+1:a,0)}
+              isFull={()=>songChords.length>=10}
+              onTap={(b)=>{
+                stopIfPlaying();
+                if (songChords.length >= 10) return;
+                track("song_add_chord", { chord:b.key, barre:true });
+                setSongChords(prev => prev.length >= 10 ? prev : [...prev, b.key]);
+              }} />
+            </div>
             <button onClick={()=>setAddOpen(false)} style={{ ...GLOW_BTN, width:"100%", marginTop:12,
               flexShrink:0, borderRadius:12, padding:"12px", fontSize:14 }}>Done</button>
           </div>
@@ -9159,14 +9559,14 @@ function SongBuilderTab({ audio, chordVariants, updateVariant, isDev = false, on
           <style>{`@keyframes ntcModalFade { from { opacity:0; } to { opacity:1; } }`}</style>
           <div onClick={e=>e.stopPropagation()} style={{ background:"#100d09",
             border:"1px solid rgba(255,190,11,0.3)", borderRadius:20, padding:"18px 14px",
-            maxWidth:420, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
+            maxWidth:560, width:"100%", maxHeight:"84dvh", overflowY:"auto" }}>
             <div style={{ fontSize:11, color:"#888", letterSpacing:2, textAlign:"center", marginBottom:4 }}>
               {slotBase(songChords[voicingFor])} VOICINGS
             </div>
             <div style={{ fontSize:10.5, color:"#5a5238", textAlign:"center", marginBottom:12 }}>
               basic shape selected — tap to keep or swap
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(88px, 1fr))", gap:8 }}>
               {(CHORD_VARIATION_MAP[slotBase(songChords[voicingFor])] || []).map(opt => {
                 const on = songChords[voicingFor] === opt.key;
                 return (
@@ -9524,19 +9924,143 @@ const GEN_NAME_ADJ = {
 };
 const GEN_NAME_NOUN = ["Session", "Sprint", "Circuit", "Workout", "Jam", "Run", "Set"];
 
-function genPick(pool) { return pool[Math.floor(Math.random() * pool.length)]; }
-function genSample(pool, n) {
+// `rnd` defaults to Math.random. The Exercise of the Day passes a SEEDED
+// generator instead, so every member gets the same exercise on the same date.
+function genPick(pool, rnd = Math.random) { return pool[Math.floor(rnd() * pool.length)]; }
+function genSample(pool, n, rnd = Math.random) {
   const arr = [...pool];
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rnd() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr.slice(0, Math.max(1, Math.min(n, arr.length)));
 }
-function genName(diffs) {
+function genName(diffs, rnd = Math.random) {
   const rank = { beginner: 0, easy: 1, medium: 2, hard: 3 };
   const top = diffs.reduce((a, b) => (rank[b] > rank[a] ? b : a), "beginner");
-  return `${genPick(GEN_NAME_ADJ[top])} ${genPick(GEN_NAME_NOUN)}`;
+  return `${genPick(GEN_NAME_ADJ[top], rnd)} ${genPick(GEN_NAME_NOUN, rnd)}`;
+}
+
+// Build one generated session from a setup (selection, difficulties, counts).
+// Module-level so the Exercise of the Day can build with a seeded `rnd`; the
+// generator's own Generate button calls it with the default Math.random.
+function genBuild(base, rnd = Math.random) {
+  const cDiff = base.sel.chords ? base.diff.chords : base.diff.song;
+  const sDiff = base.sel.strum ? base.diff.strum : base.diff.song;
+  // If a row rides along only inside the song, its count uses the song
+  // difficulty's default. Always clamped to the pool.
+  const cc = Math.max(2, Math.min(
+    base.sel.chords ? base.chordCount : GEN_DEFAULT_CHORDS[cDiff], genMaxChords(cDiff)));
+  const rc = Math.max(1, Math.min(
+    base.sel.strum ? base.rowCount : GEN_DEFAULT_ROWS[sDiff], GEN_MAX_ROWS));
+  return {
+    name: genName([base.sel.chords && base.diff.chords, base.sel.strum && base.diff.strum,
+      base.sel.song && base.diff.song].filter(Boolean), rnd),
+    sel: { ...base.sel }, diff: { ...base.diff },
+    chordCount: cc, rowCount: rc,
+    chords: genSample(GEN_CHORD_POOLS[cDiff], cc, rnd),
+    rows: genSample(GEN_STRUM_POOLS[sDiff], rc, rnd),
+  };
+}
+
+// ─── EXERCISE OF THE DAY ─────────────────────────────────────────────────────
+// One exercise per calendar day, the same for every member — like a daily
+// puzzle. It is built from the date alone (seeded random), so nothing is
+// stored or fetched: two phones on two continents open the same thing, and it
+// changes at local midnight. The home screen shows it first, above the tools,
+// because a beginner opening the app doesn't know what to practise — this
+// answers that before they have to decide.
+//
+// Difficulty is drawn from a weighted mix, seeded by the date like the rest
+// of the exercise. Mostly Easy, some Medium, rarely Hard: the daily is meant
+// to be the thing everyone can do, not the thing that scares a newcomer off.
+// Weights are out of 100 and can be tuned freely; Beginner is left out on
+// purpose (it exists for the generator's own ladder, not the daily).
+const DAILY_MIX = { easy: 65, medium: 25, hard: 10 };
+function dailyPickDiff(rnd) {
+  const total = Object.values(DAILY_MIX).reduce((a, b) => a + b, 0);
+  let roll = rnd() * total;
+  for (const [diff, w] of Object.entries(DAILY_MIX)) {
+    if (roll < w) return diff;
+    roll -= w;
+  }
+  return "easy";
+}
+// Local calendar date as "YYYY-MM-DD" — LOCAL, not UTC, or the exercise would
+// roll over mid-evening in the Americas.
+function dailyDateKey(d = new Date()) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function dailyDateFrom(key) { return new Date(key + "T12:00:00"); } // noon: DST-proof
+function dailyLabel(key) {
+  try { return dailyDateFrom(key).toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" }); }
+  catch (_) { return key; }
+}
+// Short form for tight spots (the home card eyebrow): "Sep 13".
+function dailyLabelShort(key) {
+  try { return dailyDateFrom(key).toLocaleDateString(undefined, { month:"short", day:"numeric" }); }
+  catch (_) { return key; }
+}
+// FNV-1a string hash → 32-bit seed, then a small fast PRNG (mulberry32).
+function dailyHash(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function dailyRng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function buildDailyExercise(dateKey = dailyDateKey()) {
+  const rnd = dailyRng(dailyHash("ntc-daily:" + dateKey));
+  const diff = dailyPickDiff(rnd);
+  const g = genBuild({
+    sel: { chords: true, strum: true, song: true },
+    diff: { chords: diff, strum: diff, song: diff },
+    chordCount: GEN_DEFAULT_CHORDS[diff], rowCount: GEN_DEFAULT_ROWS[diff],
+  }, rnd);
+  g.daily = dateKey;   // marks this session as THE daily one (drives the UI)
+  g.dailyDiff = diff;
+  return g;
+}
+// Completions: { done: { "YYYY-MM-DD": ISO } }. Synced (union merge) so a day
+// done on the phone counts on the laptop.
+function dailyRead() {
+  try {
+    const o = JSON.parse(localStorage.getItem(DAILY_KEY) || "null");
+    return o && o.done && typeof o.done === "object" ? o : { done: {} };
+  } catch (_) { return { done: {} }; }
+}
+function dailyIsDone(dateKey) { return Boolean(dailyRead().done[dateKey]); }
+function dailyMarkDone(dateKey) {
+  const o = dailyRead();
+  if (o.done[dateKey]) return o;
+  o.done[dateKey] = new Date().toISOString();
+  safeSetItem(DAILY_KEY, JSON.stringify(o));
+  try { window.dispatchEvent(new Event("ntc-daily-changed")); } catch (_) {}
+  return o;
+}
+// A REAL streak: consecutive calendar days, counted back from today (or from
+// yesterday if today isn't done yet, so the streak doesn't read as broken at
+// breakfast). Unlike the tracker grid this can't be gamed by ticking rows.
+function dailyStreak(done, todayKey = dailyDateKey()) {
+  const d = dailyDateFrom(todayKey);
+  if (!done[dailyDateKey(d)]) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (done[dailyDateKey(d)]) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+// Everything the home card needs, in one read.
+function dailySnapshot() {
+  const key = dailyDateKey();
+  const gen = buildDailyExercise(key);
+  const done = dailyRead().done;
+  return { key, gen, done: Boolean(done[key]), streak: dailyStreak(done, key), total: Object.keys(done).length };
 }
 
 // Map 8-char pattern rows onto the 64-slot strumActive array (row r = slots
@@ -9650,12 +10174,45 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
     if (inline && !active && stage) { setStage(null); }
   }, [inline, active, stage, onPick]);
 
-  // Open on the launcher's event.
+  // Open on the launcher's event. If the event carries a ready-made session
+  // (the Exercise of the Day), skip setup and land straight in the view.
   useEffect(() => {
-    const open = () => { setStage("setup"); setShowLoad(false); };
+    const open = (e) => {
+      setShowLoad(false);
+      const g = e && e.detail && e.detail.gen;
+      if (g) {
+        setGen(g);
+        setActiveKey(g.sel.chords ? "drill" : g.sel.strum ? "strum" : "song");
+        setStage("view");
+      } else {
+        setStage("setup");
+      }
+    };
     window.addEventListener("ntc-open-generator", open);
     return () => window.removeEventListener("ntc-open-generator", open);
   }, []);
+
+  // Exercise of the Day: is the session on screen today's, and is it done?
+  // Re-read on every change so the Done button never lies after a sync.
+  const [dailyDone, setDailyDone] = useState(false);
+  useEffect(() => {
+    if (!gen || !gen.daily) { setDailyDone(false); return; }
+    const refresh = () => setDailyDone(dailyIsDone(gen.daily));
+    refresh();
+    window.addEventListener("ntc-daily-changed", refresh);
+    return () => window.removeEventListener("ntc-daily-changed", refresh);
+  }, [gen]);
+  const markDailyDone = () => {
+    if (!gen || !gen.daily) return;
+    const o = dailyMarkDone(gen.daily);
+    track("daily_done", { date: gen.daily, diff: gen.dailyDiff, streak: dailyStreak(o.done, gen.daily) });
+    setDailyDone(true);
+  };
+  const openToday = () => {
+    const g = buildDailyExercise();
+    track("daily_open", { date: g.daily, diff: g.dailyDiff, from: "generator" });
+    setGen(g); setActiveKey("drill"); setStage("view");
+  };
 
 
   const stopPlayback = () => { try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch (_) {} };
@@ -9717,27 +10274,11 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   };
   const toggleSel = (id) => setSel(prev => ({ ...prev, [id]: !prev[id] }));
 
-  const buildGen = (base) => {
-    const cDiff = base.sel.chords ? base.diff.chords : base.diff.song;
-    const sDiff = base.sel.strum ? base.diff.strum : base.diff.song;
-    // If a row rides along only inside the song, its count uses the song
-    // difficulty's default. Always clamped to the pool.
-    const cc = Math.max(2, Math.min(
-      base.sel.chords ? base.chordCount : GEN_DEFAULT_CHORDS[cDiff], genMaxChords(cDiff)));
-    const rc = Math.max(1, Math.min(
-      base.sel.strum ? base.rowCount : GEN_DEFAULT_ROWS[sDiff], GEN_MAX_ROWS));
-    return {
-      name: genName([base.sel.chords && base.diff.chords, base.sel.strum && base.diff.strum,
-        base.sel.song && base.diff.song].filter(Boolean)),
-      sel: { ...base.sel }, diff: { ...base.diff },
-      chordCount: cc, rowCount: rc,
-      chords: genSample(GEN_CHORD_POOLS[cDiff], cc),
-      rows: genSample(GEN_STRUM_POOLS[sDiff], rc),
-    };
-  };
+  const buildGen = (base) => genBuild(base);
 
   const generate = () => {
     if (!anySelected || generating) return;
+    track("generate", { sel, diff, chordCount, rowCount, picker: Boolean(onPick), context });
     setGenerating(true);
     // A short shimmer beat before the reveal — generation is instant, delight isn't.
     setTimeout(() => {
@@ -9768,6 +10309,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   const regenerate = () => {
     if (!gen) return;
     stopPlayback();
+    track("generate_regen", { tab: activeKey });
     setGen(prev => {
       const next = { ...prev };
       const rerollChords = activeKey === "drill" || activeKey === "song";
@@ -10013,6 +10555,17 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             {generating ? "Generating…" : "✨ Generate"}
           </button>
 
+          {/* Today's exercise — the home screen leads with it, but someone who
+              came in through the Generate pill should find it here too. Not
+              offered inside the routine step picker (a routine is curated). */}
+          {!onPick && (
+            <button onClick={openToday} style={{ width:"100%", marginTop:10, padding:"12px",
+              borderRadius:13, border:"1px solid rgba(255,190,11,0.3)", background:"transparent",
+              color:"#c9a03a", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+              ⚡ Or do today's exercise · {dailyLabel(dailyDateKey())}
+            </button>
+          )}
+
           {/* Load saved */}
           {savedList.length > 0 && (
             <button onClick={()=>setShowLoad(v=>!v)} style={{ width:"100%", marginTop:10, padding:"12px",
@@ -10076,9 +10629,16 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <button onClick={()=>{ stopPlayback(); setStage("setup"); }} style={{ padding:"7px 12px",
             borderRadius:10, border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
-            fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>← Setup</button>
-          <div style={{ fontSize:9, color:"#6f6749", letterSpacing:2, textTransform:"uppercase" }}>
-            Generated Practice
+            fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+            whiteSpace:"nowrap", flexShrink:0 }}>
+            {gen.daily ? "⚡ Make your own" : "← Setup"}
+          </button>
+          {/* The daily eyebrow is longer than "Generated Practice", so it gets
+              a flexible middle column and may wrap to two centred lines on a
+              narrow phone; the buttons either side never do. */}
+          <div style={{ flex:1, minWidth:0, margin:"0 8px", textAlign:"center", lineHeight:1.4,
+            fontSize:9, color: gen.daily ? "#c9a03a" : "#6f6749", letterSpacing:2, textTransform:"uppercase" }}>
+            {gen.daily ? `Today's exercise · ${dailyLabel(gen.daily)}` : "Generated Practice"}
           </div>
           <button onClick={close} aria-label="Close" style={{ width:32, height:32, borderRadius:10,
             border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e", fontSize:15,
@@ -10094,8 +10654,27 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           </div>
           <div style={{ fontSize:11.5, color:"#776b4d", marginTop:4, fontWeight:600 }}>{metaLine}</div>
         </div>
-        <div style={{ display:"flex", gap:8, justifyContent:"center", margin:"12px 0 14px" }}>
-          {activeKey !== "tracker" && (
+        <div style={{ display:"flex", gap:8, justifyContent:"center", margin:"12px 0 14px", flexWrap:"wrap" }}>
+          {/* The daily is the same for everyone by design, so it can't be
+              re-rolled — the Done button takes Regenerate's place. Marking it
+              done is the whole habit loop: it feeds the calendar streak on
+              the home screen. It's a signal, not a lock — nothing stops
+              someone tapping it early, and that's fine. */}
+          {gen.daily && (
+            dailyDone ? (
+              <div style={{ padding:"11px 22px", borderRadius:12, fontSize:13.5, fontWeight:900,
+                border:"1px solid rgba(126,217,87,0.55)", background:"rgba(126,217,87,0.08)",
+                color:"#7ED957", fontFamily:"inherit" }}>
+                ✓ Done for today · 🔥 {dailyStreak(dailyRead().done, gen.daily)}-day streak
+              </div>
+            ) : (
+              <button onClick={markDailyDone} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
+                borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
+                ✓ Mark today done
+              </button>
+            )
+          )}
+          {activeKey !== "tracker" && !gen.daily && (
             <button onClick={regenerate} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
               borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
               <span style={{ position:"absolute", inset:0, pointerEvents:"none",
@@ -10614,12 +11193,37 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
   // use, so signing in mid-session lights it up without a reload.
   const isDev = DEV_EMAILS.includes((auth.userEmail || "").toLowerCase());
 
+  // Annual-plan nudge. Routines are the most "I'm in this for the long haul"
+  // feature in the app, so it's the natural place to suggest a year. The app
+  // can't tell monthly from annual members (the members table only stores
+  // tier), so it is dismissable and stays away for 30 days once closed.
+  const ANNUAL_DISMISS_KEY = "ntc-annual-dismissed-v1";
+  const [annualHidden, setAnnualHidden] = useState(() => {
+    try { return Date.now() - Number(localStorage.getItem(ANNUAL_DISMISS_KEY) || 0) < 30 * 86400e3; }
+    catch (_) { return false; }
+  });
+  // Never pitch VIP to a VIP. They already paid for exactly this, and a card
+  // asking them to buy it again is the fastest way to look like we don't
+  // know who they are.
+  const isVip = auth.tier === "vip";
+  const dismissAnnual = () => {
+    track("annual_dismiss", { from: "routines" });
+    safeSetItem(ANNUAL_DISMISS_KEY, String(Date.now()));
+    setAnnualHidden(true);
+  };
+  const goAnnual = () => {
+    track("annual_click", { from: "routines", status: auth.status });
+    trackFlush();
+    window.location.href = UPGRADE_URL;
+  };
+
   const live = routines.filter(r => !r.deleted);
 
   // Opening a routine RUNS it. Editing is a deliberate second step behind the
   // Edit button — before this, tapping a routine dropped you straight back into
   // the builder, so a routine could be made but never actually used.
   const playRoutine = useCallback((r) => {
+    track("routine_play", { steps: (r.items || []).length, mins: routineMinutes(r) });
     setPlayingId(r.id); routineLastWrite(r.id);
   }, []);
   const openRoutine = useCallback((r) => {
@@ -10719,6 +11323,7 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
     };
     persist([row, ...routines.filter(r => r.id !== id)]);
     routineLastWrite(id);
+    track("routine_save", { steps: items.length, mins: routineMinutes(row), isNew: openId === "new" });
     setOpenId(id); setDirty(false);
     setJustSaved(true);
     // Drop back into the player so the thing you just built is immediately
@@ -10744,6 +11349,7 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
     try {
       const id = await routineShareInsert(r);
       const url = `${window.location.origin}${window.location.pathname}?routine=${id}`;
+      track("share_create", { type: "routine", id });
       setShareLink(url);
       if (navigator.clipboard?.writeText) {
         navigator.clipboard.writeText(url).then(() => setShareCopied(true)).catch(() => {});
@@ -10863,6 +11469,43 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
           boxShadow:"0 0 22px rgba(255,160,20,0.22)", fontFamily:"inherit", marginBottom:18 }}>
           + New routine
         </button>
+
+        {/* VIP push — see the note by ANNUAL_DISMISS_KEY. Never a wall: one
+            card, one ✕, and it goes to the same Skool plans page the gate
+            uses. The pitch is the thing only VIP gets — a practice plan built
+            by Michael — with the full year underneath it. The price and the
+            bullet list mirror the Skool VIP tier ($184/year at the time of
+            writing); keep them in step with the plans page. */}
+        {!annualHidden && !isVip && (
+          <div style={{ ...PANEL, position:"relative", marginBottom:18, padding:"16px 16px 14px",
+            borderColor:"rgba(255,190,11,0.35)",
+            background:"radial-gradient(130% 120% at 50% 0%, rgba(255,170,30,0.10) 0%, rgba(255,170,30,0) 65%), #0d0a06" }}>
+            <button onClick={dismissAnnual} aria-label="Hide this"
+              style={{ position:"absolute", top:8, right:10, background:"none", border:"none",
+                color:"#6f6749", fontSize:17, cursor:"pointer", fontFamily:"inherit", padding:"2px 6px" }}>✕</button>
+            <div style={{ fontSize:10, fontWeight:800, letterSpacing:2.5, textTransform:"uppercase",
+              color:"#c9a03a", marginBottom:6 }}>VIP · Full year</div>
+            <div style={{ fontSize:17, fontWeight:900, color:"#f3ead2", lineHeight:1.25, marginBottom:8,
+              paddingRight:22 }}>
+              Want a practice plan built for you?
+            </div>
+            <div style={{ fontSize:12.5, color:"#9a8f6e", lineHeight:1.65, marginBottom:10 }}>
+              Go VIP and I'll build you a custom 3-month practice routine and
+              roadmap — plus the Learn Any Song System and everything inside,
+              for the whole year.
+            </div>
+            <ul style={{ margin:"0 0 12px", padding:0, listStyle:"none", fontSize:12.5,
+              color:"#d8cba0", lineHeight:1.8 }}>
+              <li>✓ Custom 3-month routine + roadmap, built for you</li>
+              <li>✓ Learn Any Song System</li>
+              <li>✓ Priority support &amp; video feedback</li>
+            </ul>
+            <button onClick={goAnnual} style={{ ...GLOW_BTN, width:"100%", borderRadius:12,
+              padding:"12px", fontSize:14 }}>
+              Join VIP · $184/year →
+            </button>
+          </div>
+        )}
 
         {/* Share link panel. Sits ABOVE the list rather than inside a row on
             purpose — the rows carry pointer-event drag handlers and a transform,
@@ -11364,7 +12007,9 @@ function PackageShareView({ audio, chordVariants, updateVariant }) {
       .then(row => {
         if(cancelled) return;
         if(!row){ setStatus("notfound"); return; }
-        setPkg(row.data || null);
+        const d = row.data || null;
+        track("pkg_open", { id, items: (d && d.items ? d.items.length : 0), day: (d && d.day) || null, name: (d && d.n) || null });
+        setPkg(d);
         setStatus("ready");
         // Keep the ?pkg= param in the URL so a refresh reloads this package
         // instead of dropping the member back to the home page.
@@ -11522,6 +12167,7 @@ function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = f
   // place its own home button leads.
   const finish = () => {
     try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(e){}
+    track(onFinish ? "routine_finish" : "pkg_finish", { items: items.length, day: pkg?.day || null });
     if (onFinish) { onFinish(); return; }
     window.location.href = window.location.origin + window.location.pathname;
   };
@@ -11892,7 +12538,7 @@ function RoutineShareView() {
 // ─── LANDING SCREEN ──────────────────────────────────────────────────────────
 // Clean title screen shown on a fresh visit (no shared exercise URL). The four
 // cards navigate to each tab. Fade-in + warm-glow dark buttons.
-function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev = null, premiumLocked = false }) {
+function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev = null, premiumLocked = false, daily = null, onDaily = null }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMounted(true), 20); return () => clearTimeout(t); }, []);
 
@@ -11959,14 +12605,16 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
   // Wrapping the width clamp first is what makes this safe: putting the height
   // rule inside the clamp let the width formula (which drops below 10 under
   // 480px) leak through and shrink ordinary phones too.
-  const LU = "max(6.3px, min(clamp(10px, calc(10px + (100vw - 480px) * 0.0104167), 13px), 1.20dvh))";
+  // 1.17dvh (was 1.20): the Exercise of the Day card added ~6 units to the
+  // page, so the height budget per unit came down a hair to keep the whole
+  // screen inside the viewport on 375×667 and 320×568 phones.
+  const LU = "max(6.3px, min(clamp(10px, calc(10px + (100vw - 480px) * 0.0104167), 13px), 1.17dvh))";
   const lu = (n) => `calc(var(--ntc-l) * ${n})`;
 
   // Right-rail geometry, shared by the cards and the Generate launcher so every
   // padlock sits on the same vertical line.
   const CARD_PAD_X  = lu(1.5);
   const CHEV_W      = lu(1);
-  const LOCK_W      = lu(2);   // > glyph size; a filtered box crops its own overflow
   const LOCK_GAP    = lu(0.9);
   // Distance from a row's right edge to the LEFT edge of the lock slot.
   const LOCK_RIGHT  = lu(3.4); // = CARD_PAD_X + CHEV_W + LOCK_GAP
@@ -11985,12 +12633,16 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
         onMouseLeave={()=>setHover(null)}
         style={{
           position:"relative", width:"100%",
-          border:`1px solid ${isHover ? "rgba(255,190,11,0.45)" : "#241d10"}`,
+          border:`1px solid ${isHover ? "rgba(255,190,11,0.45)" : showLock ? "#1a150d" : "#241d10"}`,
           borderRadius:lu(1.6), padding:`${lu(1.4)} ${CARD_PAD_X}`, cursor:"pointer", textAlign:"left",
           display:"flex", alignItems:"center", gap:lu(1.2), color:"#fff", fontFamily:"inherit",
+          // Locked: a flat, greyed block. No glow, no gradient, desaturated
+          // icon — it reads as "not yours yet" before any label does.
           background: isHover
             ? "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.14) 0%, rgba(255,170,30,0) 60%), #14100a"
+            : showLock ? "#0b0906"
             : "radial-gradient(120% 140% at 0% 50%, rgba(255,170,30,0.06) 0%, rgba(255,170,30,0) 55%), #0e0b07",
+          filter: showLock && !isHover ? "saturate(0.35)" : "none",
           boxShadow: isHover ? "0 8px 26px rgba(0,0,0,0.5), 0 0 22px rgba(255,160,20,0.18)" : "none",
           transform: isHover ? "translateY(-2px)" : "translateY(0)",
           transition:"transform 0.18s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease",
@@ -12029,10 +12681,16 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
               <span style={{ fontSize:lu(0.9), color:"#776b4d", letterSpacing:1, marginTop:lu(0.2) }}>DAYS</span>
             </span>
           )}
-          <span aria-hidden="true" style={{ width:LOCK_W, height:lu(2), display:"flex",
-            alignItems:"center", justifyContent:"center", fontSize:lu(1.5), lineHeight:lu(2),
-            opacity: showLock ? 0.95 : 0,
-            filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.85))" }}>🔒</span>
+          {/* Only rendered while locked. The chevron is pinned to the right
+              edge of every card regardless, so nothing needs a placeholder —
+              and an invisible tag was stealing width from the titles. */}
+          {showLock && (
+            <span aria-label="Premium" style={{
+              fontSize:lu(0.75), fontWeight:800, letterSpacing:1.2, textTransform:"uppercase",
+              color:"#7a6a3a", background:"#0d0a06", border:"1px solid #2a2417",
+              borderRadius:lu(0.6), padding:`${lu(0.3)} ${lu(0.5)}`, lineHeight:1,
+              whiteSpace:"nowrap", flexShrink:0 }}>Premium</span>
+          )}
           <span style={{ width:CHEV_W, textAlign:"center", fontSize:lu(2.1), fontWeight:900,
             color: isHover ? "#FFBE0B" : "#3a3325",
             transform: isHover ? "translateX(3px)" : "translateX(0)",
@@ -12091,7 +12749,7 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
         {/* Hero */}
         {/* The "Guitar Practice Tool" eyebrow used to sit here. It said the same
             thing as the tagline two lines below, so it was pure vertical cost. */}
-        <div style={{ textAlign:"center", padding:`${lu(2.2)} 0 ${lu(0.4)}`, ...rise(0) }}>
+        <div style={{ textAlign:"center", padding:`${lu(1.6)} 0 ${lu(0.4)}`, ...rise(0) }}>
           <div style={{ fontSize:lu(4.4), lineHeight:0.95, fontWeight:900, letterSpacing:0.5,
             background:"linear-gradient(135deg,#FFE27A 0%, #FFBE0B 45%, #F77F00 100%)",
             WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent",
@@ -12105,10 +12763,82 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
             background:"linear-gradient(90deg,#FFD60A,#F77F00)", margin:`${lu(1.2)} auto 0`, opacity:0.85 }} />
         </div>
 
-        <div style={{ margin:`${lu(1.2)} 0 ${lu(1)}`, fontSize:lu(1.3), color:"#6f6749", fontWeight:700,
-          letterSpacing:2, textTransform:"uppercase", textAlign:"center", ...rise(0.12) }}>
-          What do you want to work on?
-        </div>
+        {/* ── EXERCISE OF THE DAY ── the first thing on the screen, because a
+            beginner opening the app doesn't know what to practise and this
+            answers it. Same exercise for every member today; tomorrow it
+            changes. The "What do you want to work on?" eyebrow that used to sit
+            here is gone — this card IS the answer, and the vertical space it
+            took is what keeps the home screen fitting without a scroll. */}
+        {daily && onDaily && (() => {
+          const g = daily.gen;
+          const dm = GEN_DIFF_META[g.dailyDiff] || GEN_DIFF_META.easy;
+          const done = daily.done;
+          return (
+            <button onClick={onDaily} aria-label="Open today's exercise"
+              style={{ width:"100%", textAlign:"left", cursor:"pointer", fontFamily:"inherit",
+                color:"#fff", position:"relative", overflow:"hidden", boxSizing:"border-box",
+                borderRadius:lu(1.8), padding:`${lu(0.9)} ${lu(1.4)} ${lu(1)}`,
+                margin:`${lu(0.8)} 0 ${lu(0.8)}`,
+                border:`1px solid ${done ? "rgba(126,217,87,0.45)" : "rgba(255,190,11,0.5)"}`,
+                background: done
+                  ? "radial-gradient(130% 120% at 50% 0%, rgba(126,217,87,0.10) 0%, rgba(126,217,87,0) 65%), #0b0906"
+                  : "radial-gradient(130% 120% at 50% 0%, rgba(255,170,30,0.16) 0%, rgba(255,170,30,0) 65%), #0d0a06",
+                boxShadow: done ? "none" : "0 0 30px rgba(255,160,20,0.14)",
+                ...rise(0.12) }}>
+              {!done && (
+                <span aria-hidden="true" style={{ position:"absolute", inset:0, pointerEvents:"none",
+                  background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.08) 50%, transparent 60%)",
+                  transform:"translateX(-100%)", animation:"ntcGenShine 7s ease 1s infinite" }} />
+              )}
+              <style>{`@keyframes ntcGenShine { 0% { transform:translateX(-100%); } 28%, 100% { transform:translateX(100%); } }`}</style>
+              {/* Row 1 — eyebrow + streak */}
+              <span style={{ display:"flex", alignItems:"center", gap:lu(0.8) }}>
+                {/* Short date and lighter tracking: with the weekday in, this
+                    line clipped its difficulty off the end on a 390px phone. */}
+                <span style={{ flex:1, minWidth:0, fontSize:lu(1.1), fontWeight:800, letterSpacing:1.2,
+                  textTransform:"uppercase", color: done ? "#7ED957" : "#c9a03a",
+                  whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                  ⚡ Exercise of the day · {dailyLabelShort(daily.key)}
+                  <span style={{ color: dm.color }}> · {dm.label}</span>
+                </span>
+                {daily.streak > 0 && (
+                  <span title="Days in a row" style={{ flexShrink:0, fontSize:lu(1), fontWeight:900,
+                    color:"#FFBE0B", background:"rgba(255,190,11,0.08)",
+                    border:"1px solid rgba(255,190,11,0.3)", borderRadius:lu(0.9),
+                    padding:`${lu(0.2)} ${lu(0.6)}` }}>🔥 {daily.streak}</span>
+                )}
+              </span>
+              {/* Row 2 — what's in it + Start. The generated session name
+                  ("Midnight Jam") used to sit here in big type; it was a
+                  random label that told you nothing, so the chords themselves
+                  are the headline now. */}
+              <span style={{ display:"flex", alignItems:"center", gap:lu(1), marginTop:lu(0.5) }}>
+                {/* One line, always. The difficulty lives in the eyebrow and
+                    "· song" is gone (the daily always has one), which is what
+                    keeps this fitting a 390px phone at this size. A Hard day
+                    with six chords still clips with an ellipsis rather than
+                    wrapping under the Start button. */}
+                <span style={{ flex:1, minWidth:0, fontSize:lu(1.6), fontWeight:800, lineHeight:1.3,
+                  color: done ? "#b5ae9d" : "#e8e2d2",
+                  whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                  {/* Plain names only: "F (Easy)" is how the picker labels the
+                      easy F, but in a one-line summary the bracket is noise. */}
+                  {g.chords.map(c => c === "G_anchor" ? "G" : slotLabel(c).replace(/ \(Easy\)$/, "")).join("  ")}
+                  <span style={{ color:"#8a7f5e", fontWeight:600 }}>
+                    {` · ${g.rows.length} strum ${g.rows.length === 1 ? "row" : "rows"}`}
+                  </span>
+                </span>
+                <span style={{ flexShrink:0, fontSize:lu(1.3), fontWeight:900, whiteSpace:"nowrap",
+                  padding:`${lu(0.6)} ${lu(1.2)}`, borderRadius:lu(1),
+                  border:`1px solid ${done ? "rgba(126,217,87,0.5)" : "rgba(255,190,11,0.55)"}`,
+                  background: done ? "rgba(126,217,87,0.08)" : "rgba(255,190,11,0.1)",
+                  color: done ? "#7ED957" : "#FFD60A" }}>
+                  {done ? "✓ Done" : "▶ Start"}
+                </span>
+              </span>
+            </button>
+          );
+        })()}
 
         {/* ── 1. GUITAR SANDBOX — the three practice tools plus the
                generator, boxed together. Generate keeps its own shine-launcher
@@ -12152,7 +12882,7 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
           </div>
         )}
 
-        <div style={{ paddingTop:lu(1.4), fontSize:lu(1.1), color:"#332e22",
+        <div style={{ paddingTop:lu(1), fontSize:lu(1.1), color:"#332e22",
           textAlign:"center", ...rise(0.7) }}>
           © {new Date().getFullYear()} No Theory Club · All rights reserved.
         </div>
