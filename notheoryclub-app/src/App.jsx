@@ -1893,7 +1893,40 @@ function App() {
     const refresh = () => setDaily(dailySnapshot());
     refresh();
     window.addEventListener("ntc-daily-changed", refresh);
-    return () => window.removeEventListener("ntc-daily-changed", refresh);
+
+    // ── Midnight rollover ──
+    // Once today is done the card clears itself, so something has to bring
+    // TOMORROW's back. A phone left on the home screen overnight (or an
+    // installed home-screen app resumed the next morning) would otherwise sit
+    // on a stale "done" state until a manual reload.
+    //
+    // Two triggers, because neither alone is enough: a timer fires for a tab
+    // that stays awake, and the visibility check catches a device that was
+    // asleep — background timers are throttled or frozen, so the timer cannot
+    // be trusted to have fired at all.
+    let timer = null;
+    const armMidnight = () => {
+      clearTimeout(timer);
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      // +2s of slack so the new date has definitely ticked over when we read it.
+      timer = setTimeout(() => { refresh(); armMidnight(); }, midnight - now + 2000);
+    };
+    armMidnight();
+
+    const onWake = () => {
+      if (document.visibilityState !== "visible") return;
+      refresh();      // cheap: one localStorage read plus a seeded rebuild
+      armMidnight();  // re-arm against the CURRENT clock
+    };
+    document.addEventListener("visibilitychange", onWake);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("ntc-daily-changed", refresh);
+      document.removeEventListener("visibilitychange", onWake);
+    };
   }, [view, auth.syncEpoch]);
 
   const goHome = () => { setView("landing"); setDest(null); };
@@ -12778,7 +12811,36 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
             changes. The "What do you want to work on?" eyebrow that used to sit
             here is gone — this card IS the answer, and the vertical space it
             took is what keeps the home screen fitting without a scroll. */}
-        {daily && onDaily && (() => {
+        {/* Done for today → the card gives way to one quiet line. A full card
+            with a ✓ Done button reads as an unfinished task you keep being
+            asked about; the Done button looks like it should dismiss, so it
+            does. The streak and a way back in survive, because the streak is
+            the reward and a member may well want a second run — but neither
+            takes a card slot. Tomorrow's card returns on its own (see the
+            midnight rollover in App). */}
+        {daily && onDaily && daily.done && (
+          <button onClick={onDaily} aria-label="Practise today's exercise again"
+            style={{ width:"100%", cursor:"pointer", fontFamily:"inherit",
+              background:"none", border:"none", padding:`${lu(0.9)} 0 ${lu(0.5)}`,
+              margin:`${lu(0.3)} 0 ${lu(0.2)}`, textAlign:"center",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              gap:lu(0.7), flexWrap:"wrap", ...rise(0.12) }}>
+            <span style={{ fontSize:lu(1.2), fontWeight:800, color:"#7ED957",
+              letterSpacing:0.3, whiteSpace:"nowrap" }}>
+              ✓ Today's exercise done
+            </span>
+            {daily.streak > 0 && (
+              <span style={{ fontSize:lu(1.2), fontWeight:900, color:"#FFBE0B",
+                whiteSpace:"nowrap" }}>
+                🔥 {daily.streak}-day streak
+              </span>
+            )}
+            <span style={{ fontSize:lu(1.05), fontWeight:600, color:"#5a5238",
+              whiteSpace:"nowrap" }}>· practise again</span>
+          </button>
+        )}
+
+        {daily && onDaily && !daily.done && (() => {
           const g = daily.gen;
           const dm = GEN_DIFF_META[g.dailyDiff] || GEN_DIFF_META.easy;
           const done = daily.done;
