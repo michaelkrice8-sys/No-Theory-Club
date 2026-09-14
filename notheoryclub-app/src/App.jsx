@@ -609,6 +609,31 @@ function mergeList(local, cloud) {
 function routineSortKey(r, i) {
   return typeof r.order === "number" ? r.order : 1e6 + i;
 }
+// A routine's own tracker merges as a UNION of ticks, not newest-wins.
+//
+// This is the one part of a routine that must not follow the rest. Everything
+// else about a routine — its name, its steps, their order — is an edit, and for
+// edits the newest version is right. A tick is not an edit, it is a record that
+// practice happened, and the union rule from mergeTracker applies: tick Monday
+// on the phone and Tuesday on the laptop and BOTH are true. Letting the whole
+// routine go newest-wins would silently drop one of them, which is exactly how
+// streaks die (see the DATA-SAFETY GUARD note above SYNC_KEYS).
+//
+// Ticks are a sparse "<day>-<col>" map, so the union is a key merge and a
+// changed step count can never corrupt the grid — surplus keys simply go
+// unread. `days` is config, so it follows the newer routine like any edit.
+function mergeRoutineTracker(newer, older) {
+  const a = newer && newer.tracker, b = older && older.tracker;
+  if (!a && !b) return undefined;
+  if (!a) return b;
+  if (!b) return a;
+  const on = {};
+  for (const k of new Set([...Object.keys(a.on || {}), ...Object.keys(b.on || {})])) {
+    if (Boolean((a.on || {})[k]) || Boolean((b.on || {})[k])) on[k] = true;
+  }
+  return { days: Number(a.days) || Number(b.days) || 7, on };
+}
+
 function mergeRoutines(local, cloud) {
   if (!Array.isArray(local)) return Array.isArray(cloud) ? cloud : null;
   if (!Array.isArray(cloud)) return local;
@@ -619,7 +644,10 @@ function mergeRoutines(local, cloud) {
     if (!prev) { byId.set(r.id, r); continue; }
     const a = Date.parse(r.updatedAt || 0) || 0;
     const b = Date.parse(prev.updatedAt || 0) || 0;
-    if (a >= b) byId.set(r.id, r);
+    // Newest wins for the routine itself; its ticks are unioned across both.
+    const newer = a >= b ? r : prev, older = a >= b ? prev : r;
+    const tracker = mergeRoutineTracker(newer, older);
+    byId.set(r.id, tracker ? { ...newer, tracker } : newer);
   }
   const merged = [...byId.values()];
   return merged.sort((x, y) => {
@@ -1893,7 +1921,40 @@ function App() {
     const refresh = () => setDaily(dailySnapshot());
     refresh();
     window.addEventListener("ntc-daily-changed", refresh);
-    return () => window.removeEventListener("ntc-daily-changed", refresh);
+
+    // ── Midnight rollover ──
+    // Once today is done the card clears itself, so something has to bring
+    // TOMORROW's back. A phone left on the home screen overnight (or an
+    // installed home-screen app resumed the next morning) would otherwise sit
+    // on a stale "done" state until a manual reload.
+    //
+    // Two triggers, because neither alone is enough: a timer fires for a tab
+    // that stays awake, and the visibility check catches a device that was
+    // asleep — background timers are throttled or frozen, so the timer cannot
+    // be trusted to have fired at all.
+    let timer = null;
+    const armMidnight = () => {
+      clearTimeout(timer);
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      // +2s of slack so the new date has definitely ticked over when we read it.
+      timer = setTimeout(() => { refresh(); armMidnight(); }, midnight - now + 2000);
+    };
+    armMidnight();
+
+    const onWake = () => {
+      if (document.visibilityState !== "visible") return;
+      refresh();      // cheap: one localStorage read plus a seeded rebuild
+      armMidnight();  // re-arm against the CURRENT clock
+    };
+    document.addEventListener("visibilitychange", onWake);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("ntc-daily-changed", refresh);
+      document.removeEventListener("visibilitychange", onWake);
+    };
   }, [view, auth.syncEpoch]);
 
   const goHome = () => { setView("landing"); setDest(null); };
@@ -9996,6 +10057,11 @@ function dailyLabel(key) {
   try { return dailyDateFrom(key).toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" }); }
   catch (_) { return key; }
 }
+// Long form for the daily view's title: "Sunday, September 13".
+function dailyLabelLong(key) {
+  try { return dailyDateFrom(key).toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric" }); }
+  catch (_) { return key; }
+}
 // Short form for tight spots (the home card eyebrow): "Sep 13".
 function dailyLabelShort(key) {
   try { return dailyDateFrom(key).toLocaleDateString(undefined, { month:"short", day:"numeric" }); }
@@ -10638,19 +10704,23 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               narrow phone; the buttons either side never do. */}
           <div style={{ flex:1, minWidth:0, margin:"0 8px", textAlign:"center", lineHeight:1.4,
             fontSize:9, color: gen.daily ? "#c9a03a" : "#6f6749", letterSpacing:2, textTransform:"uppercase" }}>
-            {gen.daily ? `Today's exercise · ${dailyLabel(gen.daily)}` : "Generated Practice"}
+            {gen.daily ? "Exercise of the day" : "Generated Practice"}
           </div>
           <button onClick={close} aria-label="Close" style={{ width:32, height:32, borderRadius:10,
             border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e", fontSize:15,
             cursor:"pointer", fontFamily:"inherit" }}>✕</button>
         </div>
 
-        {/* Title + Regenerate / Save — above all views */}
+        {/* Title + Regenerate / Save — above all views. The daily shows its
+            DATE as the title, not the generated name: the name is a random
+            label ("Midnight Jam") that means nothing, while the date is what
+            makes it today's. Member-generated sessions keep their names so a
+            saved one can be told apart in the Load list. */}
         <div style={{ textAlign:"center", margin:"14px 0 6px" }}>
           <div style={{ fontSize:26, fontWeight:900, letterSpacing:0.4,
             background:"linear-gradient(135deg,#FFE27A,#FFBE0B 50%,#F77F00)",
             WebkitBackgroundClip:"text", backgroundClip:"text", WebkitTextFillColor:"transparent" }}>
-            {gen.name}
+            {gen.daily ? dailyLabelLong(gen.daily) : gen.name}
           </div>
           <div style={{ fontSize:11.5, color:"#776b4d", marginTop:4, fontWeight:600 }}>{metaLine}</div>
         </div>
@@ -11086,6 +11156,77 @@ function routineMinutes(r) {
   return ((r && r.items) || []).reduce((sum, it) => sum + (Number(it.mins) || 0), 0);
 }
 
+// ── A ROUTINE'S OWN TRACKER ──────────────────────────────────────────────────
+// Deliberately NOT the 30-Day tracker and not the custom-tracker builder. Those
+// track days against tasks you type in; this one is generated from the routine
+// itself — one column per step, one row per day — so there is nothing to author.
+// You pick a number of days and the grid already knows what the columns are.
+//
+// Ticks live in a SPARSE map keyed "<day>-<col>" rather than a 2-D array. Three
+// reasons: the union merge across devices becomes a plain key merge; adding or
+// removing a step cannot corrupt rows, because a stale column key is simply
+// never read; and an untouched grid stores nothing at all.
+const RTRACK_MIN_DAYS = 1;
+const RTRACK_MAX_DAYS = 30;
+const RTRACK_DEFAULT_DAYS = 7;
+
+const rtKey = (day, col) => day + "-" + col;
+const rtDays = (r) => Math.max(RTRACK_MIN_DAYS,
+  Math.min(RTRACK_MAX_DAYS, Number(r && r.tracker && r.tracker.days) || RTRACK_DEFAULT_DAYS));
+const rtOn = (r, day, col) =>
+  Boolean(r && r.tracker && r.tracker.on && r.tracker.on[rtKey(day, col)]);
+
+// Toggle one cell. Unticking DELETES the key rather than storing false — an
+// absent key and a false one mean the same thing to every reader, and keeping
+// the map sparse is what makes the union merge safe.
+function rtToggle(tracker, day, col) {
+  const on = { ...((tracker && tracker.on) || {}) };
+  const k = rtKey(day, col);
+  if (on[k]) delete on[k]; else on[k] = true;
+  return { days: Number(tracker && tracker.days) || RTRACK_DEFAULT_DAYS, on };
+}
+
+// Progress across the grid, counting only cells that still have a column.
+function rtProgress(r) {
+  const cols = ((r && r.items) || []).length;
+  const days = rtDays(r);
+  const total = cols * days;
+  if (!total) return { done: 0, total: 0, pct: 0 };
+  let done = 0;
+  for (let d = 0; d < days; d++) for (let c = 0; c < cols; c++) if (rtOn(r, d, c)) done++;
+  return { done, total, pct: Math.round((done / total) * 100) };
+}
+
+// A day counts as complete only when every step that day is ticked.
+function rtDayComplete(r, day) {
+  const cols = ((r && r.items) || []).length;
+  if (!cols) return false;
+  for (let c = 0; c < cols; c++) if (!rtOn(r, day, c)) return false;
+  return true;
+}
+
+// Column headings have to survive going from 1 step to 8 in the same width.
+// Shortening is driven by the column COUNT, not by measuring text: the grid is
+// the same width either way, so the count is what actually decides how much
+// room each heading gets. Cut on a word boundary when one is near the limit,
+// otherwise hard-cut with an ellipsis so it always reads as truncated.
+function rtHeadChars(cols) {
+  if (cols <= 2) return 14;
+  if (cols === 3) return 10;
+  if (cols === 4) return 8;
+  if (cols === 5) return 6;
+  if (cols === 6) return 5;
+  return 4;
+}
+function rtShort(label, max) {
+  const t = String(label || "").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sp = cut.lastIndexOf(" ");
+  if (sp >= Math.max(3, max - 4)) return cut.slice(0, sp) + "\u2026";
+  return cut.replace(/\s+$/, "") + "\u2026";
+}
+
 // ── SHARING A ROUTINE ────────────────────────────────────────────────────────
 // Founder-only outbound, open inbound: Michael builds a routine for someone,
 // shares a ?routine= link, and ANYONE who opens it can save a copy to their own
@@ -11170,6 +11311,11 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
   const [playingId, setPlayingId] = useState(null); // routine open in the player
   const [name, setName] = useState("");
   const [items, setItems] = useState([]);
+  // The routine's own tracker, while it is being edited. null = no tracker.
+  const [tracker, setTracker] = useState(null);
+  // Which routine's tracker grid is open, as an overlay. Separate from the
+  // editor so a member can tick today's practice without entering edit mode.
+  const [trackFor, setTrackFor] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
@@ -11228,6 +11374,7 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
   }, []);
   const openRoutine = useCallback((r) => {
     setOpenId(r.id); setName(r.name || ""); setItems(r.items || []);
+    setTracker(r.tracker || null);
     setDirty(false); routineLastWrite(r.id);
   }, []);
 
@@ -11308,7 +11455,7 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
   }); // eslint-disable-line
 
   const startNew = () => {
-    setOpenId("new"); setName(""); setItems([]); setDirty(false);
+    setOpenId("new"); setName(""); setItems([]); setTracker(null); setDirty(false);
   };
 
   const save = () => {
@@ -11316,11 +11463,17 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
     const id = openId === "new" ? newRoutineId() : openId;
     const clean = (name || "").trim() || "Untitled routine";
     const existing = routines.find(r => r.id === id);
+    // Spread `existing` first so fields this editor doesn't manage survive a
+    // save. Rebuilding the row from scratch used to drop `srcId`, which is what
+    // tells a shared routine apart from one you made, and would now drop the
+    // tracker's ticks the moment you renamed the routine.
     const row = {
+      ...(existing || {}),
       id, name: clean, items,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
+    if (tracker) row.tracker = tracker; else delete row.tracker;
     persist([row, ...routines.filter(r => r.id !== id)]);
     routineLastWrite(id);
     track("routine_save", { steps: items.length, mins: routineMinutes(row), isNew: openId === "new" });
@@ -11423,6 +11576,15 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
           color:"#FFD60A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
           {playing.name}
         </div>
+        {playing.tracker && (
+          <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
+              setPlayingId(null); setTrackFor(playing.id); }}
+            aria-label="Open the tracker" title="Tracker"
+            style={{ padding:"8px 11px", borderRadius:10,
+              border:"1px solid rgba(255,190,11,0.45)", background:"rgba(255,190,11,0.08)",
+              color:"#FFD60A", fontSize:13, cursor:"pointer",
+              fontFamily:"inherit", flexShrink:0 }}>📊</button>
+        )}
         <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
             setPlayingId(null); openRoutine(playing); }}
           style={{ padding:"8px 13px", borderRadius:10,
@@ -11454,11 +11616,163 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
     document.body
   );
 
+  // ── TRACKER GRID OVERLAY ───────────────────────────────────────────────
+  // Reachable without entering edit mode: ticking off today's practice is the
+  // common action, editing the routine is the rare one.
+  const tracking = trackFor ? routines.find(r => r.id === trackFor && !r.deleted) : null;
+
+  const toggleCell = (rid, day, col) => {
+    const now = new Date().toISOString();
+    persist(routines.map(r => r.id === rid
+      ? { ...r, tracker: rtToggle(r.tracker, day, col), updatedAt: now }
+      : r));
+  };
+
+  const trackerOverlay = tracking && tracking.tracker && createPortal((() => {
+    const steps = tracking.items || [];
+    const cols = steps.length;
+    const days = rtDays(tracking);
+    const prog = rtProgress(tracking);
+    const headChars = rtHeadChars(cols);
+
+    // Everything below is driven by the column COUNT, because that is what the
+    // width has to absorb. The grid keeps a floor on column width and scrolls
+    // sideways inside its own box rather than squeezing past legibility — the
+    // page body itself never scrolls horizontally.
+    const headFont = cols <= 3 ? 11 : cols <= 5 ? 10 : cols <= 6 ? 9 : 8.5;
+    const cellH    = cols <= 4 ? 34 : cols <= 6 ? 30 : 27;
+    const minCol   = cols <= 4 ? 52 : cols <= 6 ? 44 : 38;
+    const DAY_W    = 34;
+
+    return (
+      <div style={{ position:"fixed", inset:0, zIndex:99975, overflowY:"auto",
+        fontFamily:"'Trebuchet MS', sans-serif",
+        background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)" }}>
+        <div style={{ position:"sticky", top:0, zIndex:5, display:"flex", alignItems:"center",
+          gap:10, padding:"12px 14px", background:"rgba(13,11,8,0.94)",
+          backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)",
+          borderBottom:"1px solid #1c1710" }}>
+          <button onClick={()=>setTrackFor(null)}
+            style={{ padding:"8px 13px", borderRadius:10, border:"1px solid #241d10",
+              background:"#100d09", color:"#8a7f5e", fontSize:12, fontWeight:800,
+              cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>← Routines</button>
+          <div style={{ flex:1, minWidth:0, textAlign:"center", fontSize:14, fontWeight:900,
+            color:"#FFD60A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            {tracking.name}
+          </div>
+          <div style={{ width:86, flexShrink:0 }} />
+        </div>
+
+        <div style={{ maxWidth:560, margin:"0 auto", padding:"16px 14px 40px" }}>
+          {/* Progress */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between",
+              marginBottom:7 }}>
+              <span style={{ fontSize:11, color:"#6f6749", letterSpacing:2, fontWeight:800,
+                textTransform:"uppercase" }}>Progress</span>
+              <span style={{ fontSize:12.5, color:"#8a7f5e", fontWeight:700,
+                fontVariantNumeric:"tabular-nums" }}>
+                {prog.done} / {prog.total} · <span style={{ color:"#FFD60A" }}>{prog.pct}%</span>
+              </span>
+            </div>
+            <div style={{ height:6, borderRadius:99, background:"#1a1510", overflow:"hidden" }}>
+              <div style={{ width:`${prog.pct}%`, height:"100%", borderRadius:99,
+                background:"linear-gradient(90deg,#FFD60A,#F77F00)",
+                transition:"width 0.25s ease" }} />
+            </div>
+          </div>
+
+          {cols === 0 ? (
+            <div style={{ ...PANEL, textAlign:"center", padding:"30px 18px" }}>
+              <div style={{ fontSize:30, marginBottom:10 }}>📊</div>
+              <div style={{ fontSize:14, fontWeight:800, color:"#d8cba0", marginBottom:6 }}>
+                No steps yet
+              </div>
+              <div style={{ fontSize:12.5, color:"#8a7f5e", lineHeight:1.7 }}>
+                The tracker builds a column for each step in the routine. Add a
+                step and it will appear here.
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...PANEL, padding:"12px 10px" }}>
+              {/* Own horizontal scroller — a routine with a lot of steps scrolls
+                  inside this box instead of pushing the page sideways. */}
+              <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+                <div style={{ minWidth:"min-content" }}>
+
+                  {/* Heading row */}
+                  <div style={{ display:"grid", gap:4,
+                    gridTemplateColumns:`${DAY_W}px repeat(${cols}, minmax(${minCol}px, 1fr))`,
+                    marginBottom:6 }}>
+                    <div style={{ fontSize:9, color:"#5a5238", letterSpacing:1,
+                      fontWeight:800, alignSelf:"end", textAlign:"center" }}>DAY</div>
+                    {steps.map((it, c) => {
+                      const meta = PKG_TYPE_META[it.t] || {};
+                      return (
+                        <div key={c} style={{ textAlign:"center", minWidth:0 }}>
+                          <div style={{ fontSize: cols <= 5 ? 13 : 11, lineHeight:1.2 }}>{meta.icon || "\ud83c\udfb5"}</div>
+                          <div title={it.label || meta.label}
+                            style={{ fontSize:headFont, fontWeight:800, color:"#8a7f5e",
+                              lineHeight:1.25, marginTop:2, overflow:"hidden",
+                              wordBreak:"break-word" }}>
+                            {rtShort(it.label || meta.label || "Step", headChars)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* One row per day */}
+                  {Array.from({ length: days }).map((_, d) => {
+                    const complete = rtDayComplete(tracking, d);
+                    return (
+                      <div key={d} style={{ display:"grid", gap:4,
+                        gridTemplateColumns:`${DAY_W}px repeat(${cols}, minmax(${minCol}px, 1fr))`,
+                        marginBottom:4 }}>
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"center",
+                          fontSize:11, fontWeight:900, fontVariantNumeric:"tabular-nums",
+                          color: complete ? "#FFD60A" : "#5a5238" }}>{d + 1}</div>
+                        {steps.map((_s, c) => {
+                          const on = rtOn(tracking, d, c);
+                          return (
+                            <button key={c} onClick={()=>toggleCell(tracking.id, d, c)}
+                              aria-pressed={on}
+                              aria-label={`Day ${d+1}, ${steps[c].label || "step " + (c+1)}`}
+                              style={{ height:cellH, minWidth:0, borderRadius:8, cursor:"pointer",
+                                fontFamily:"inherit", padding:0,
+                                display:"flex", alignItems:"center", justifyContent:"center",
+                                border: on ? "1px solid rgba(255,190,11,0.65)" : "1px solid #241d10",
+                                background: on ? "rgba(255,190,11,0.14)" : "#0c0a06",
+                                color: on ? "#FFD60A" : "#2f2a1d",
+                                fontSize: cols <= 6 ? 14 : 12, fontWeight:900,
+                                transition:"background 0.12s, border-color 0.12s" }}>
+                              {on ? "\u2713" : ""}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize:11.5, color:"#5a5238", lineHeight:1.7, marginTop:12,
+            textAlign:"center" }}>
+            Ticks save as you go and follow you to your other devices.
+          </div>
+        </div>
+      </div>
+    );
+  })(), document.body);
+
   // ── LIST VIEW ──
   if (openId === null) {
     return (
       <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 40px" }}>
         {playerOverlay}
+        {trackerOverlay}
         <SectionHeader title="📋 My Practice Routines"
           sub="Line up your own drills, patterns and songs into a routine you can run every day." />
 
@@ -11609,9 +11923,23 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
                     {` \u00b7 \u23f1 ${routineMinutes(r)} min`}
                   </span>
                 )}
+                {r.tracker && (r.items || []).length > 0 && (
+                  <span style={{ color:"#FFD60A", fontWeight:700 }}>
+                    {` \u00b7 \ud83d\udcca ${rtProgress(r).pct}%`}
+                  </span>
+                )}
                 {r.updatedAt ? ` \u00b7 ${new Date(r.updatedAt).toLocaleDateString()}` : ""}
               </div>
             </button>
+
+            {r.tracker && (
+              <button onClick={()=>setTrackFor(r.id)} aria-label={`Open the tracker for ${r.name}`}
+                title="Tracker"
+                style={{ flexShrink:0, background:"rgba(255,190,11,0.07)",
+                  border:"1px solid rgba(255,190,11,0.3)", color:"#FFD60A",
+                  fontSize:14, cursor:"pointer", padding:"8px 10px", borderRadius:10,
+                  fontFamily:"inherit" }}>📊</button>
+            )}
 
             {isDev && (
               <button onClick={()=>doShare(r)} aria-label={`Share ${r.name}`} title="Create a share link"
@@ -11771,6 +12099,86 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
               ⚡ Generate one for me
             </button>
           </div>
+        )}
+      </div>
+
+      {/* ── TRACKER ──────────────────────────────────────────────────────
+          Nothing to author here on purpose. The columns ARE the steps, so the
+          only decision left is how many days, and the grid follows. */}
+      <div style={PANEL}>
+        <div style={{ fontSize:11, color:"#888", letterSpacing:2, marginBottom:10 }}>TRACKER</div>
+        {!tracker ? (
+          <>
+            <div style={{ fontSize:13, color:"#8a7f5e", lineHeight:1.7, marginBottom:12 }}>
+              Tick off each step as you practise it, day by day. The grid builds
+              itself from the steps above — you only choose how many days.
+            </div>
+            <button onClick={()=>{ setTracker({ days:RTRACK_DEFAULT_DAYS, on:{} }); setDirty(true); }}
+              style={{ width:"100%", padding:"12px 8px", borderRadius:12,
+                border:"1px solid rgba(255,190,11,0.4)",
+                background:"radial-gradient(120% 160% at 50% 0%, rgba(255,170,30,0.14) 0%, rgba(255,170,30,0) 70%), #16110a",
+                color:"#FFD60A", fontSize:13, fontWeight:800, cursor:"pointer",
+                fontFamily:"inherit" }}>
+              📊 Add a tracker
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <button onClick={()=>{ setTracker(t=>({ ...t, days: Math.max(RTRACK_MIN_DAYS, (Number(t.days)||RTRACK_DEFAULT_DAYS) - 1) })); setDirty(true); }}
+                disabled={(Number(tracker.days)||RTRACK_DEFAULT_DAYS) <= RTRACK_MIN_DAYS}
+                aria-label="One day fewer"
+                style={{ width:34, height:34, flexShrink:0, borderRadius:10, cursor:"pointer",
+                  border:"1px solid rgba(255,190,11,0.28)", background:"#0c0a06",
+                  color:"#FFBE0B", fontSize:17, fontWeight:900, fontFamily:"inherit",
+                  display:"flex", alignItems:"center", justifyContent:"center" }}>−</button>
+              <div style={{ flex:1, textAlign:"center" }}>
+                <div style={{ fontSize:20, fontWeight:900, color:"#FFD60A", lineHeight:1.1 }}>
+                  {Number(tracker.days)||RTRACK_DEFAULT_DAYS}
+                </div>
+                <div style={{ fontSize:10, color:"#6f6749", letterSpacing:1.5,
+                  textTransform:"uppercase", fontWeight:800 }}>
+                  {(Number(tracker.days)||RTRACK_DEFAULT_DAYS) === 1 ? "day" : "days"}
+                </div>
+              </div>
+              <button onClick={()=>{ setTracker(t=>({ ...t, days: Math.min(RTRACK_MAX_DAYS, (Number(t.days)||RTRACK_DEFAULT_DAYS) + 1) })); setDirty(true); }}
+                disabled={(Number(tracker.days)||RTRACK_DEFAULT_DAYS) >= RTRACK_MAX_DAYS}
+                aria-label="One day more"
+                style={{ width:34, height:34, flexShrink:0, borderRadius:10, cursor:"pointer",
+                  border:"1px solid rgba(255,190,11,0.28)", background:"#0c0a06",
+                  color:"#FFBE0B", fontSize:17, fontWeight:900, fontFamily:"inherit",
+                  display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
+            </div>
+
+            <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+              {[7,14,30].map(d => {
+                const on = (Number(tracker.days)||RTRACK_DEFAULT_DAYS) === d;
+                return (
+                  <button key={d} onClick={()=>{ setTracker(t=>({ ...t, days:d })); setDirty(true); }}
+                    style={{ flex:1, padding:"9px 0", borderRadius:10, cursor:"pointer",
+                      border:`1px solid ${on ? "rgba(255,190,11,0.5)" : "#241d10"}`,
+                      background: on ? "rgba(255,190,11,0.1)" : "#100d09",
+                      color: on ? "#FFD60A" : "#8a7f5e", fontSize:13, fontWeight:800,
+                      fontFamily:"inherit" }}>{d} days</button>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize:12, color:"#6f6749", lineHeight:1.7, marginBottom:12 }}>
+              {items.length === 0
+                ? "Add a step above and it becomes a column."
+                : `${items.length} step${items.length===1?"":"s"} \u00d7 ${Number(tracker.days)||RTRACK_DEFAULT_DAYS} days \u2014 ${items.length * (Number(tracker.days)||RTRACK_DEFAULT_DAYS)} boxes.`}
+              {" "}Shortening the tracker only hides the later days; their ticks
+              come back if you lengthen it again.
+            </div>
+
+            <button onClick={()=>{ setTracker(null); setDirty(true); }}
+              style={{ width:"100%", padding:"10px", borderRadius:11, cursor:"pointer",
+                border:"1px solid rgba(231,76,60,0.35)", background:"rgba(231,76,60,0.07)",
+                color:"#ff6b5e", fontSize:12, fontWeight:800, fontFamily:"inherit" }}>
+              Remove tracker
+            </button>
+          </>
         )}
       </div>
 
@@ -12769,7 +13177,36 @@ function LandingScreen({ onPick, streak, onGenerate = null, isDev = false, onDev
             changes. The "What do you want to work on?" eyebrow that used to sit
             here is gone — this card IS the answer, and the vertical space it
             took is what keeps the home screen fitting without a scroll. */}
-        {daily && onDaily && (() => {
+        {/* Done for today → the card gives way to one quiet line. A full card
+            with a ✓ Done button reads as an unfinished task you keep being
+            asked about; the Done button looks like it should dismiss, so it
+            does. The streak and a way back in survive, because the streak is
+            the reward and a member may well want a second run — but neither
+            takes a card slot. Tomorrow's card returns on its own (see the
+            midnight rollover in App). */}
+        {daily && onDaily && daily.done && (
+          <button onClick={onDaily} aria-label="Practise today's exercise again"
+            style={{ width:"100%", cursor:"pointer", fontFamily:"inherit",
+              background:"none", border:"none", padding:`${lu(0.9)} 0 ${lu(0.5)}`,
+              margin:`${lu(0.3)} 0 ${lu(0.2)}`, textAlign:"center",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              gap:lu(0.7), flexWrap:"wrap", ...rise(0.12) }}>
+            <span style={{ fontSize:lu(1.2), fontWeight:800, color:"#7ED957",
+              letterSpacing:0.3, whiteSpace:"nowrap" }}>
+              ✓ Today's exercise done
+            </span>
+            {daily.streak > 0 && (
+              <span style={{ fontSize:lu(1.2), fontWeight:900, color:"#FFBE0B",
+                whiteSpace:"nowrap" }}>
+                🔥 {daily.streak}-day streak
+              </span>
+            )}
+            <span style={{ fontSize:lu(1.05), fontWeight:600, color:"#5a5238",
+              whiteSpace:"nowrap" }}>· practise again</span>
+          </button>
+        )}
+
+        {daily && onDaily && !daily.done && (() => {
           const g = daily.gen;
           const dm = GEN_DIFF_META[g.dailyDiff] || GEN_DIFF_META.easy;
           const done = daily.done;
