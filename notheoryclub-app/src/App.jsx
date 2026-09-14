@@ -11227,6 +11227,167 @@ function rtShort(label, max) {
   return cut.replace(/\s+$/, "") + "\u2026";
 }
 
+// A routine's tracker grid, drawn in the SAME visual language as the 30-Day
+// tracker: one card, a header strip, a row per day with a DAY label, tick boxes
+// and a per-day progress ring. The only structural difference is that the
+// columns come from the routine's steps instead of the three fixed categories,
+// so the widths have to flex where the 30-Day grid can hard-code them.
+//
+// Everything that has to give as the column count grows is decided here, in one
+// place, from `cols`: the day column narrows, the boxes shrink, and past six
+// steps the per-day ring is dropped rather than squeezed. Below that the grid
+// scrolls inside its own card and the page never scrolls sideways.
+function RoutineTrackerGrid({ routine, onToggle }) {
+  const steps = (routine && routine.items) || [];
+  const cols = steps.length;
+  const days = rtDays(routine);
+  const prog = rtProgress(routine);
+  const headChars = rtHeadChars(cols);
+
+  const dayW  = cols <= 4 ? 68 : cols <= 6 ? 56 : 46;
+  const box   = cols <= 4 ? 30 : cols <= 6 ? 26 : 22;
+  const minCol= cols <= 4 ? 52 : cols <= 6 ? 44 : 36;
+  const showRing = cols <= 6;
+  const ringW = showRing ? 44 : 0;
+  const dayFont = cols <= 6 ? 14 : 12;
+  const headFont = cols <= 3 ? 10 : cols <= 6 ? 9 : 8.5;
+  const rowH  = cols <= 4 ? 54 : cols <= 6 ? 48 : 42;
+  const tmpl = `${dayW}px repeat(${cols}, minmax(${minCol}px, 1fr))` + (showRing ? ` ${ringW}px` : "");
+
+  if (!cols) return (
+    <div style={{ border:"1px solid #241d10", borderRadius:18, background:"#0c0a06",
+      padding:"34px 20px", textAlign:"center" }}>
+      <div style={{ fontSize:30, marginBottom:10 }}>📊</div>
+      <div style={{ fontSize:14, fontWeight:800, color:"#d8cba0", marginBottom:6 }}>No steps yet</div>
+      <div style={{ fontSize:12.5, color:"#8a7f5e", lineHeight:1.7 }}>
+        The tracker builds a column for each step in the routine.
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Overall progress — same strip the 30-Day tracker uses. */}
+      <div style={{ marginBottom:20 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <span style={{ fontSize:10, color:"#6f6749", textTransform:"uppercase",
+            letterSpacing:1.5, fontWeight:700 }}>Overall Progress</span>
+          <span style={{ fontSize:12, color:"#FFBE0B", fontWeight:800,
+            fontVariantNumeric:"tabular-nums" }}>{prog.done} / {prog.total} ticks</span>
+        </div>
+        <div style={{ height:7, background:"#1a160d", borderRadius:99, overflow:"hidden",
+          border:"1px solid #241d10" }}>
+          <div style={{ height:"100%", width:`${prog.pct}%`, borderRadius:99,
+            background:"linear-gradient(90deg,#FFD60A,#F77F00)",
+            boxShadow:"0 0 12px rgba(255,170,20,0.5)", transition:"width 0.5s ease" }} />
+        </div>
+      </div>
+
+      <div style={{ border:"1px solid #241d10", borderRadius:18, overflow:"hidden",
+        background:"#0c0a06" }}>
+        <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+          <div style={{ minWidth:"min-content" }}>
+
+            {/* Header strip */}
+            <div style={{ display:"grid", gridTemplateColumns:tmpl, background:"#100d09",
+              borderBottom:"1px solid #1c1710", padding:"12px 14px", gap:8, alignItems:"end" }}>
+              <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1,
+                color:"#5a5238", fontWeight:700 }}>Day</div>
+              {steps.map((it, c) => {
+                const meta = PKG_TYPE_META[it.t] || {};
+                return (
+                  <div key={c} title={it.label || meta.label}
+                    style={{ fontSize:headFont, textTransform:"uppercase", letterSpacing:0.6,
+                      color:"#5a5238", fontWeight:700, display:"flex", flexDirection:"column",
+                      alignItems:"center", gap:3, textAlign:"center", lineHeight:1.3, minWidth:0 }}>
+                    <span style={{ fontSize: cols <= 6 ? 13 : 11 }}>{meta.icon || "🎵"}</span>
+                    {rtShort(it.label || meta.label || "Step", headChars)}
+                  </div>
+                );
+              })}
+              {showRing && (
+                <div style={{ fontSize:9, textTransform:"uppercase", letterSpacing:1,
+                  color:"#5a5238", fontWeight:700, textAlign:"right" }}>%</div>
+              )}
+            </div>
+
+            {/* One row per day */}
+            {Array.from({ length: days }).map((_, d) => {
+              let done = 0;
+              for (let c = 0; c < cols; c++) if (rtOn(routine, d, c)) done++;
+              const pct = Math.round((done / cols) * 100);
+              const isComplete = pct === 100, isPartial = pct > 0 && pct < 100;
+              const emoji = isComplete ? "⭐" : isPartial ? "🔥" : null;
+              const r = 12, cx = 16, cy = 16;
+              const circ = 2 * Math.PI * r;
+              const ringColor = isComplete ? "#FFD60A" : isPartial ? "#F77F00" : "#222";
+              return (
+                <div key={d} style={{ display:"grid", gridTemplateColumns:tmpl, alignItems:"center",
+                  padding:"0 14px", gap:8, borderBottom:"1px solid #141008", minHeight:rowH,
+                  background: isComplete
+                    ? "linear-gradient(90deg, rgba(247,127,0,0.07), transparent)" : "transparent",
+                  transition:"background 0.3s" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
+                    <span style={{ fontSize:dayFont, fontWeight:900, letterSpacing:0.3,
+                      color: done > 0 ? "#FFBE0B" : "#3a3325", whiteSpace:"nowrap" }}>
+                      Day {d + 1}
+                    </span>
+                    {emoji && cols <= 6 && <span style={{ fontSize:13 }}>{emoji}</span>}
+                  </div>
+                  {steps.map((_s, c) => {
+                    const on = rtOn(routine, d, c);
+                    return (
+                      <div key={c} style={{ display:"flex", justifyContent:"center" }}>
+                        <div onClick={()=>onToggle(d, c)} role="checkbox" aria-checked={on} tabIndex={0}
+                          aria-label={`Day ${d+1}, ${steps[c].label || "step " + (c+1)}`}
+                          onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onToggle(d,c); } }}
+                          style={{ width:box, height:box, borderRadius:8, cursor:"pointer",
+                            display:"flex", alignItems:"center", justifyContent:"center",
+                            border:`2px solid ${on ? "rgba(255,190,11,0.6)" : "#2a2417"}`,
+                            background: on
+                              ? "radial-gradient(130% 130% at 50% 0%, rgba(255,190,11,0.22), rgba(255,140,0,0.12)), #16110a"
+                              : "#0e0b06",
+                            boxShadow: on
+                              ? "0 0 12px rgba(255,170,20,0.35), inset 0 0 6px rgba(255,190,11,0.15)" : "none",
+                            transition:"all 0.16s" }}>
+                          {on && (
+                            <div style={{ width: box >= 26 ? 10 : 8, height: box >= 26 ? 6 : 5,
+                              borderLeft:"2px solid #FFD60A", borderBottom:"2px solid #FFD60A",
+                              transform:"rotate(-45deg) translate(1px,-1px)" }} />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {showRing && (
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end" }}>
+                      <svg width="32" height="32" viewBox="0 0 32 32">
+                        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c160d" strokeWidth="3" />
+                        {pct > 0 && (
+                          <circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth="3"
+                            strokeDasharray={circ} strokeDashoffset={circ - (pct / 100) * circ}
+                            strokeLinecap="round" transform="rotate(-90 16 16)" />
+                        )}
+                        <text x="16" y="20" textAnchor="middle" fontSize="9" fontWeight="800"
+                          fill={pct > 0 ? "#FFBE0B" : "#3a3325"}>{pct}</text>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize:11.5, color:"#5a5238", lineHeight:1.7, marginTop:12,
+        textAlign:"center" }}>
+        Ticks save as you go and follow you to your other devices.
+      </div>
+    </div>
+  );
+}
+
 // ── SHARING A ROUTINE ────────────────────────────────────────────────────────
 // Founder-only outbound, open inbound: Michael builds a routine for someone,
 // shares a ?routine= link, and ANYONE who opens it can save a copy to their own
@@ -11313,9 +11474,9 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
   const [items, setItems] = useState([]);
   // The routine's own tracker, while it is being edited. null = no tracker.
   const [tracker, setTracker] = useState(null);
-  // Which routine's tracker grid is open, as an overlay. Separate from the
-  // editor so a member can tick today's practice without entering edit mode.
-  const [trackFor, setTrackFor] = useState(null);
+  // When true the player opens straight on its Tracker tab, so a member can
+  // tick yesterday off without playing through the exercises first.
+  const [openOnTracker, setOpenOnTracker] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
@@ -11368,8 +11529,11 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
   // Opening a routine RUNS it. Editing is a deliberate second step behind the
   // Edit button — before this, tapping a routine dropped you straight back into
   // the builder, so a routine could be made but never actually used.
-  const playRoutine = useCallback((r) => {
+  const playRoutine = useCallback((r, onTracker = false) => {
     track("routine_play", { steps: (r.items || []).length, mins: routineMinutes(r) });
+    // Explicit rather than sticky: without this, opening the tracker once left
+    // every later run starting on it.
+    setOpenOnTracker(onTracker);
     setPlayingId(r.id); routineLastWrite(r.id);
   }, []);
   const openRoutine = useCallback((r) => {
@@ -11481,7 +11645,7 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
     setJustSaved(true);
     // Drop back into the player so the thing you just built is immediately
     // usable rather than leaving you staring at the builder again.
-    setTimeout(() => { setJustSaved(false); setOpenId(null); setPlayingId(id); }, 900);
+    setTimeout(() => { setJustSaved(false); setOpenId(null); setOpenOnTracker(false); setPlayingId(id); }, 900);
   };
 
   const removeRoutine = (id) => {
@@ -11576,15 +11740,6 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
           color:"#FFD60A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
           {playing.name}
         </div>
-        {playing.tracker && (
-          <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
-              setPlayingId(null); setTrackFor(playing.id); }}
-            aria-label="Open the tracker" title="Tracker"
-            style={{ padding:"8px 11px", borderRadius:10,
-              border:"1px solid rgba(255,190,11,0.45)", background:"rgba(255,190,11,0.08)",
-              color:"#FFD60A", fontSize:13, cursor:"pointer",
-              fontFamily:"inherit", flexShrink:0 }}>📊</button>
-        )}
         <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
             setPlayingId(null); openRoutine(playing); }}
           style={{ padding:"8px 13px", borderRadius:10,
@@ -11610,17 +11765,18 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
         // where the reader didn't choose the chords, still get it.
         <PackageView pkg={{ items: playing.items, anchor: false }} audio={audio}
           chordVariants={chordVariants} updateVariant={updateVariant} allowTimers={true}
-          onFinish={()=>setPlayingId(null)} />
+          onFinish={()=>setPlayingId(null)}
+          routineTracker={playing.tracker
+            ? { routine: playing, onToggle: (d, c) => toggleCell(playing.id, d, c) }
+            : null}
+          initialTabKey={openOnTracker ? "tracker" : null} />
       )}
     </div>,
     document.body
   );
 
-  // ── TRACKER GRID OVERLAY ───────────────────────────────────────────────
-  // Reachable without entering edit mode: ticking off today's practice is the
-  // common action, editing the routine is the rare one.
-  const tracking = trackFor ? routines.find(r => r.id === trackFor && !r.deleted) : null;
-
+  // Ticking a box writes straight through to the routine list, which is what
+  // syncs. `persist` renumbers order and saves, exactly as an edit would.
   const toggleCell = (rid, day, col) => {
     const now = new Date().toISOString();
     persist(routines.map(r => r.id === rid
@@ -11628,151 +11784,11 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
       : r));
   };
 
-  const trackerOverlay = tracking && tracking.tracker && createPortal((() => {
-    const steps = tracking.items || [];
-    const cols = steps.length;
-    const days = rtDays(tracking);
-    const prog = rtProgress(tracking);
-    const headChars = rtHeadChars(cols);
-
-    // Everything below is driven by the column COUNT, because that is what the
-    // width has to absorb. The grid keeps a floor on column width and scrolls
-    // sideways inside its own box rather than squeezing past legibility — the
-    // page body itself never scrolls horizontally.
-    const headFont = cols <= 3 ? 11 : cols <= 5 ? 10 : cols <= 6 ? 9 : 8.5;
-    const cellH    = cols <= 4 ? 34 : cols <= 6 ? 30 : 27;
-    const minCol   = cols <= 4 ? 52 : cols <= 6 ? 44 : 38;
-    const DAY_W    = 34;
-
-    return (
-      <div style={{ position:"fixed", inset:0, zIndex:99975, overflowY:"auto",
-        fontFamily:"'Trebuchet MS', sans-serif",
-        background:"radial-gradient(ellipse at top, #1a1208 0%, #0d0d0a 60%)" }}>
-        <div style={{ position:"sticky", top:0, zIndex:5, display:"flex", alignItems:"center",
-          gap:10, padding:"12px 14px", background:"rgba(13,11,8,0.94)",
-          backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)",
-          borderBottom:"1px solid #1c1710" }}>
-          <button onClick={()=>setTrackFor(null)}
-            style={{ padding:"8px 13px", borderRadius:10, border:"1px solid #241d10",
-              background:"#100d09", color:"#8a7f5e", fontSize:12, fontWeight:800,
-              cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>← Routines</button>
-          <div style={{ flex:1, minWidth:0, textAlign:"center", fontSize:14, fontWeight:900,
-            color:"#FFD60A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-            {tracking.name}
-          </div>
-          <div style={{ width:86, flexShrink:0 }} />
-        </div>
-
-        <div style={{ maxWidth:560, margin:"0 auto", padding:"16px 14px 40px" }}>
-          {/* Progress */}
-          <div style={{ marginBottom:14 }}>
-            <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between",
-              marginBottom:7 }}>
-              <span style={{ fontSize:11, color:"#6f6749", letterSpacing:2, fontWeight:800,
-                textTransform:"uppercase" }}>Progress</span>
-              <span style={{ fontSize:12.5, color:"#8a7f5e", fontWeight:700,
-                fontVariantNumeric:"tabular-nums" }}>
-                {prog.done} / {prog.total} · <span style={{ color:"#FFD60A" }}>{prog.pct}%</span>
-              </span>
-            </div>
-            <div style={{ height:6, borderRadius:99, background:"#1a1510", overflow:"hidden" }}>
-              <div style={{ width:`${prog.pct}%`, height:"100%", borderRadius:99,
-                background:"linear-gradient(90deg,#FFD60A,#F77F00)",
-                transition:"width 0.25s ease" }} />
-            </div>
-          </div>
-
-          {cols === 0 ? (
-            <div style={{ ...PANEL, textAlign:"center", padding:"30px 18px" }}>
-              <div style={{ fontSize:30, marginBottom:10 }}>📊</div>
-              <div style={{ fontSize:14, fontWeight:800, color:"#d8cba0", marginBottom:6 }}>
-                No steps yet
-              </div>
-              <div style={{ fontSize:12.5, color:"#8a7f5e", lineHeight:1.7 }}>
-                The tracker builds a column for each step in the routine. Add a
-                step and it will appear here.
-              </div>
-            </div>
-          ) : (
-            <div style={{ ...PANEL, padding:"12px 10px" }}>
-              {/* Own horizontal scroller — a routine with a lot of steps scrolls
-                  inside this box instead of pushing the page sideways. */}
-              <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
-                <div style={{ minWidth:"min-content" }}>
-
-                  {/* Heading row */}
-                  <div style={{ display:"grid", gap:4,
-                    gridTemplateColumns:`${DAY_W}px repeat(${cols}, minmax(${minCol}px, 1fr))`,
-                    marginBottom:6 }}>
-                    <div style={{ fontSize:9, color:"#5a5238", letterSpacing:1,
-                      fontWeight:800, alignSelf:"end", textAlign:"center" }}>DAY</div>
-                    {steps.map((it, c) => {
-                      const meta = PKG_TYPE_META[it.t] || {};
-                      return (
-                        <div key={c} style={{ textAlign:"center", minWidth:0 }}>
-                          <div style={{ fontSize: cols <= 5 ? 13 : 11, lineHeight:1.2 }}>{meta.icon || "\ud83c\udfb5"}</div>
-                          <div title={it.label || meta.label}
-                            style={{ fontSize:headFont, fontWeight:800, color:"#8a7f5e",
-                              lineHeight:1.25, marginTop:2, overflow:"hidden",
-                              wordBreak:"break-word" }}>
-                            {rtShort(it.label || meta.label || "Step", headChars)}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* One row per day */}
-                  {Array.from({ length: days }).map((_, d) => {
-                    const complete = rtDayComplete(tracking, d);
-                    return (
-                      <div key={d} style={{ display:"grid", gap:4,
-                        gridTemplateColumns:`${DAY_W}px repeat(${cols}, minmax(${minCol}px, 1fr))`,
-                        marginBottom:4 }}>
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize:11, fontWeight:900, fontVariantNumeric:"tabular-nums",
-                          color: complete ? "#FFD60A" : "#5a5238" }}>{d + 1}</div>
-                        {steps.map((_s, c) => {
-                          const on = rtOn(tracking, d, c);
-                          return (
-                            <button key={c} onClick={()=>toggleCell(tracking.id, d, c)}
-                              aria-pressed={on}
-                              aria-label={`Day ${d+1}, ${steps[c].label || "step " + (c+1)}`}
-                              style={{ height:cellH, minWidth:0, borderRadius:8, cursor:"pointer",
-                                fontFamily:"inherit", padding:0,
-                                display:"flex", alignItems:"center", justifyContent:"center",
-                                border: on ? "1px solid rgba(255,190,11,0.65)" : "1px solid #241d10",
-                                background: on ? "rgba(255,190,11,0.14)" : "#0c0a06",
-                                color: on ? "#FFD60A" : "#2f2a1d",
-                                fontSize: cols <= 6 ? 14 : 12, fontWeight:900,
-                                transition:"background 0.12s, border-color 0.12s" }}>
-                              {on ? "\u2713" : ""}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div style={{ fontSize:11.5, color:"#5a5238", lineHeight:1.7, marginTop:12,
-            textAlign:"center" }}>
-            Ticks save as you go and follow you to your other devices.
-          </div>
-        </div>
-      </div>
-    );
-  })(), document.body);
-
   // ── LIST VIEW ──
   if (openId === null) {
     return (
       <div style={{ maxWidth:560, margin:"0 auto", padding:"18px 16px 40px" }}>
         {playerOverlay}
-        {trackerOverlay}
         <SectionHeader title="📋 My Practice Routines"
           sub="Line up your own drills, patterns and songs into a routine you can run every day." />
 
@@ -11933,7 +11949,8 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
             </button>
 
             {r.tracker && (
-              <button onClick={()=>setTrackFor(r.id)} aria-label={`Open the tracker for ${r.name}`}
+              <button onClick={()=>playRoutine(r, true)}
+                aria-label={`Open the tracker for ${r.name}`}
                 title="Tracker"
                 style={{ flexShrink:0, background:"rgba(255,190,11,0.07)",
                   border:"1px solid rgba(255,190,11,0.3)", color:"#FFD60A",
@@ -12482,9 +12499,16 @@ function PackageShareView({ audio, chordVariants, updateVariant }) {
 // allowTimers is opt-in and only My Practice Routines passes it. Shared ?pkg=
 // links carry no `mins` on their items anyway, but gating it here means a
 // package can never sprout a countdown by accident.
-function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = false, onFinish = null }) {
+function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = false, onFinish = null,
+  routineTracker = null, initialTabKey = null }) {
   const items = Array.isArray(pkg?.items) ? pkg.items : [];
-  const hasTracker = !!pkg?.tracker;
+  // Two different trackers can end a run, and only one of them ever applies:
+  //   pkg.tracker      — the shared 30-Day tracker, for ?pkg= links
+  //   routineTracker   — a routine's own grid, built from its steps
+  // Both sit in the same final tab slot, so the run always ends the same way.
+  const hasDayTracker = !!pkg?.tracker;
+  const hasRoutineTracker = !!(routineTracker && routineTracker.routine);
+  const hasTracker = hasDayTracker || hasRoutineTracker;
 
   // "Anchor chords" toggle: each exercise panel applies the swap live via the
   // `anchored` prop (G/C/Em/D → anchored shapes), so it stays mounted and the
@@ -12511,13 +12535,16 @@ function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = f
   }));
   if(hasTracker) tabs.push({ key:"tracker", icon:"🔥", label:"Tracker", item:null });
 
-  const [activeKey, setActiveKey] = useState(tabs[0]?.key || "tracker");
+  // initialTabKey lets a caller open straight on a tab — the routines list uses
+  // it to jump to the tracker without making you sit through the exercises.
+  const [activeKey, setActiveKey] = useState(
+    (initialTabKey && tabs.some(t => t.key === initialTabKey)) ? initialTabKey : (tabs[0]?.key || "tracker"));
   const activeIdx = tabs.findIndex(t => t.key === activeKey);
 
   // Streak for the pinned strip (reads the tracker's own storage).
   const [streak, setStreak] = useState(0);
   useEffect(() => {
-    if(!hasTracker) return;
+    if(!hasDayTracker) return;
     try {
       const saved = localStorage.getItem(TRACKER_STORAGE_KEY);
       if(saved) setStreak(trackerStreak(JSON.parse(saved)));
@@ -12602,8 +12629,10 @@ function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = f
         </div>
       </div>
 
-      {/* Pinned streak strip (only when tracker is included) — tap to open Tracker */}
-      {hasTracker && (
+      {/* Pinned streak strip — 30-Day tracker only. A routine's tracker has no
+          streak of its own, and showing the 30-Day one here would be a number
+          about a different thing entirely. */}
+      {hasDayTracker && (
         <div onClick={()=>go("tracker")} role="button" tabIndex={0}
           onKeyDown={e=>{ if(e.key==="Enter"||e.key===" ") go("tracker"); }}
           style={{ margin:"4px 14px 0", flexShrink:0, cursor:"pointer",
@@ -12663,7 +12692,11 @@ function PackageView({ pkg, audio, chordVariants, updateVariant, allowTimers = f
           <div key={t.key}
             style={{ display: t.key===activeKey ? "block" : "none",
               animation: t.key===activeKey ? "ntcPkgFade 0.35s ease both" : "none" }}>
-            {t.key==="tracker" ? <TrackerTab context="package" /> : renderItem(t.item)}
+            {t.key==="tracker"
+              ? (hasRoutineTracker
+                  ? <RoutineTrackerGrid routine={routineTracker.routine} onToggle={routineTracker.onToggle} />
+                  : <TrackerTab context="package" />)
+              : renderItem(t.item)}
           </div>
         ))}
 
