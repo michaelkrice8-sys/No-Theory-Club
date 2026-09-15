@@ -1806,11 +1806,32 @@ function App() {
     const p = new URLSearchParams(window.location.search);
     return p.has("generate") || p.has("gen");
   });
-  // ?daily=1 — straight into today's Exercise of the Day. Meant for the Skool
-  // daily post and the welcome DM: one tap, no choices to make.
+  // ?daily — straight into the Exercise of the Day. Meant for the Skool daily
+  // post and the welcome DM: one tap, no choices to make.
+  //
+  // Two forms, because a post can mean two different things by "the daily":
+  //   ?daily=1            always TODAY's — an evergreen link for a pinned post
+  //   ?daily=2026-09-15   that day's, forever — for a post that describes it
+  //
+  // The dated form matters because the exercise is derived from the date alone.
+  // Without it, a post saying "today it's G–C–Em–D at 60bpm" starts lying the
+  // moment the clock rolls over. Anything that isn't a valid date falls back to
+  // today, so every ?daily=1 link already in the wild keeps working.
   const [hasDailyParam] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).has("daily");
+  });
+  const [dailyDateParam] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const v = new URLSearchParams(window.location.search).get("daily");
+    return dailyIsValidKey(v) ? v : null;
+  });
+  // ?spin=N — the founder-picked variant of that day. Bounded and integer-only
+  // so a junk value can't send the seed somewhere strange.
+  const [dailySpinParam] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    const n = Number(new URLSearchParams(window.location.search).get("spin"));
+    return Number.isInteger(n) && n > 0 && n <= 999 ? n : 0;
   });
 
   // Landing screen: shown on a clean load (no shared exercise URL). Shared links
@@ -1850,7 +1871,12 @@ function App() {
     // landing → app transition.
     setTimeout(() => {
       try {
-        const detail = mode === "daily" ? { gen: buildDailyExercise() } : {};
+        // A link that names its own spin wins: a post saying "today it's X"
+        // must keep showing X even after a different variant is published.
+        // A bare ?daily=1 follows whatever is live.
+        const dKey = dailyDateParam || dailyDateKey();
+        const detail = mode === "daily"
+          ? { gen: buildDailyExercise(dKey, dailySpinParam || dailyOverrideSpinFor(dKey)) } : {};
         window.dispatchEvent(new CustomEvent("ntc-open-generator", { detail }));
       } catch (_) {}
     }, 60);
@@ -1861,10 +1887,23 @@ function App() {
         url.searchParams.delete("generate");
         url.searchParams.delete("gen");
         url.searchParams.delete("daily");
+        url.searchParams.delete("spin");
         window.history.replaceState({}, "", url.pathname + (url.search || "") + url.hash);
       }
     } catch (_) {}
   }, [pendingGen, view]);
+
+  // Confirm today's published variant in the background. Nothing waits on this:
+  // if it never resolves, every member still has the deterministic daily.
+  useEffect(() => {
+    const key = dailyDateKey();
+    const before = dailyOverrideSpinFor(key);
+    dailyOverrideFetch(key).then(next => {
+      if (next && next.spin !== before) {
+        try { window.dispatchEvent(new Event("ntc-daily-override-changed")); } catch (_) {}
+      }
+    });
+  }, []);
 
   // Consume ?routines=1 so a reload doesn't pin the member to that tab forever.
   // The tab has already been selected from initial state by this point.
@@ -1921,6 +1960,9 @@ function App() {
     const refresh = () => setDaily(dailySnapshot());
     refresh();
     window.addEventListener("ntc-daily-changed", refresh);
+    // A published variant arriving from the background fetch has to redraw the
+    // card, or it keeps showing the unpinned exercise until the next reload.
+    window.addEventListener("ntc-daily-override-changed", refresh);
 
     // ── Midnight rollover ──
     // Once today is done the card clears itself, so something has to bring
@@ -1953,6 +1995,7 @@ function App() {
     return () => {
       clearTimeout(timer);
       window.removeEventListener("ntc-daily-changed", refresh);
+      window.removeEventListener("ntc-daily-override-changed", refresh);
       document.removeEventListener("visibilitychange", onWake);
     };
   }, [view, auth.syncEpoch]);
@@ -9914,7 +9957,18 @@ const GEN_CHORD_POOLS = {
 const GEN_DEFAULT_CHORDS = { beginner: 2, easy: 2, medium: 4, hard: 6 };
 const GEN_DEFAULT_ROWS   = { beginner: 1, easy: 1, medium: 2, hard: 3 };
 const GEN_MAX_ROWS = 6;
-function genMaxChords(diff) { return Math.min(6, GEN_CHORD_POOLS[diff].length); }
+// The most chords this difficulty can offer while staying inside ONE key.
+//
+// Derived, not hard-coded: it asks each key how many of this pool it can
+// supply and takes the best. Medium's pool is exactly C G Am F Em D — six
+// chords that no single key contains (F belongs to C major, D to G major), so
+// offering six forced a mixed-key set every time. It now tops out at five.
+function genMaxChords(diff) {
+  const pool = GEN_CHORD_POOLS[diff];
+  const best = GEN_KEYS.reduce((m, k) =>
+    Math.max(m, pool.filter(c => k.chords.has(genChordKeyBase(c))).length), 0);
+  return Math.max(2, Math.min(6, best || pool.length));
+}
 
 // Is this set of chords made of anchored shapes? ChordsTab, StrummingTab and
 // the song builder all UNDO "_anchor" slot keys — C_anchor becomes plain C —
@@ -9996,6 +10050,49 @@ function genSample(pool, n, rnd = Math.random) {
   }
   return arr.slice(0, Math.max(1, Math.min(n, arr.length)));
 }
+// ── EVERY GENERATED SET SITS IN ONE KEY ─────────────────────────────────────
+// genSample used to shuffle the whole difficulty pool and take N. For Hard —
+// 18 chords spanning half a dozen keys — that regularly produced sets like
+// E + F + Bm + B7, which no song contains and nobody should drill. Practising a
+// change between two chords that never meet is wasted reps.
+//
+// So: pick the KEY first, then draw only from chords that live in it.
+//
+// Separate from KEY_SETS on purpose. That one drives the song builder's
+// out-of-key warning and is strictly diatonic; widening it would change what
+// that flags. This list is diatonic PLUS the secondary dominants a beginner
+// actually meets in real songs — B7 in E minor, E7 into Am, A7 into D — which
+// are in key in the sense that matters here: they show up together.
+const GEN_KEYS = [
+  { label: "G major",  chords: new Set(["G","C","D","Em","Am","Bm","Am7","B7"]) },
+  { label: "C major",  chords: new Set(["C","F","Fmaj7","G","Am","Dm","Em","Am7","E7"]) },
+  { label: "D major",  chords: new Set(["D","G","A","Bm","Em","A7"]) },
+  { label: "A major",  chords: new Set(["A","D","E","Bm","E7","A7"]) },
+  { label: "F major",  chords: new Set(["F","Fmaj7","C","Dm","Am","Am7"]) },
+];
+
+// Pool entries carry decoration the key sets don't: "G_anchor" is a G, and a
+// slash chord is named by what is to the LEFT of the slash — C/G is a C with a
+// G in the bass, so it belongs wherever C belongs. Sevenths are NOT reduced:
+// A7 is not A, it functions differently, so each key lists the ones it wants.
+function genChordKeyBase(c) {
+  let b = String(c).replace(/_anchor$/, "");
+  const slash = b.indexOf("/");
+  if (slash > 0) b = b.slice(0, slash);
+  return b;
+}
+
+// Returns { chords, key }. Falls back to the old behaviour rather than failing
+// if no key can supply enough chords — a generated exercise must always appear.
+function genSampleInKey(pool, n, rnd = Math.random) {
+  const opts = GEN_KEYS
+    .map(k => ({ label: k.label, avail: pool.filter(c => k.chords.has(genChordKeyBase(c))) }))
+    .filter(o => o.avail.length >= n);
+  if (!opts.length) return { chords: genSample(pool, n, rnd), key: null };
+  const chosen = opts[Math.floor(rnd() * opts.length)];
+  return { chords: genSample(chosen.avail, n, rnd), key: chosen.label };
+}
+
 function genName(diffs, rnd = Math.random) {
   const rank = { beginner: 0, easy: 1, medium: 2, hard: 3 };
   const top = diffs.reduce((a, b) => (rank[b] > rank[a] ? b : a), "beginner");
@@ -10019,7 +10116,8 @@ function genBuild(base, rnd = Math.random) {
       base.sel.song && base.diff.song].filter(Boolean), rnd),
     sel: { ...base.sel }, diff: { ...base.diff },
     chordCount: cc, rowCount: rc,
-    chords: genSample(GEN_CHORD_POOLS[cDiff], cc, rnd),
+    ...(() => { const p = genSampleInKey(GEN_CHORD_POOLS[cDiff], cc, rnd);
+                return { chords: p.chords, key: p.key }; })(),
     rows: genSample(GEN_STRUM_POOLS[sDiff], rc, rnd),
   };
 }
@@ -10053,6 +10151,15 @@ function dailyDateKey(d = new Date()) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 function dailyDateFrom(key) { return new Date(key + "T12:00:00"); } // noon: DST-proof
+
+// Is this a real "YYYY-MM-DD"? Shape alone isn't enough — "2026-13-45" passes a
+// regex and then silently seeds a nonsense exercise, so the parsed date has to
+// round-trip back to the same string.
+function dailyIsValidKey(key) {
+  if (typeof key !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+  const d = dailyDateFrom(key);
+  return !isNaN(d.getTime()) && dailyDateKey(d) === key;
+}
 function dailyLabel(key) {
   try { return dailyDateFrom(key).toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" }); }
   catch (_) { return key; }
@@ -10082,8 +10189,18 @@ function dailyRng(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-function buildDailyExercise(dateKey = dailyDateKey()) {
-  const rnd = dailyRng(dailyHash("ntc-daily:" + dateKey));
+// `spin` re-rolls the same date into a different exercise. Founder-only, and
+// LOCAL: the daily is derived from the date with no server state, so nothing
+// here can change what other members see on their home screen. What it is for
+// is picking a variant you like and linking THAT in a post — the spin rides
+// along in the share link, so whoever opens it gets the one you chose.
+//
+// Spin 0 must hash byte-identically to the old single-argument version. It is
+// the exercise every member is getting right now, and quietly reseeding it
+// would change today's daily for the whole community.
+function buildDailyExercise(dateKey = dailyDateKey(), spin = 0) {
+  const n = Number(spin) > 0 ? Math.floor(Number(spin)) : 0;
+  const rnd = dailyRng(dailyHash("ntc-daily:" + dateKey + (n > 0 ? ":" + n : "")));
   const diff = dailyPickDiff(rnd);
   const g = genBuild({
     sel: { chords: true, strum: true, song: true },
@@ -10092,8 +10209,74 @@ function buildDailyExercise(dateKey = dailyDateKey()) {
   }, rnd);
   g.daily = dateKey;   // marks this session as THE daily one (drives the UI)
   g.dailyDiff = diff;
+  g.dailySpin = n;     // 0 = the one everybody gets
   return g;
 }
+// ── PUBLISHED OVERRIDE ───────────────────────────────────────────────────────
+// A respin only changes the founder's own screen, because the daily is derived
+// from the date with no server state. Publishing one row makes it everyone's.
+//
+// The read is deliberately NON-BLOCKING and fails to spin 0. The daily's whole
+// character is that it needs no network: two phones on two continents open the
+// same thing instantly. So the card renders from the cache (or spin 0) right
+// away, a background fetch confirms it, and the UI only rebuilds if the answer
+// differs. Offline, mid-flight, or before the table even exists, every member
+// still gets a daily — just the unpinned one.
+//
+// Writing is gated by RLS on the table, not by this code. The founder check in
+// the UI is discoverability; the policy is the actual permission, because the
+// anon key is public and any client-side test is advisory at best.
+const DAILY_OVERRIDE_KEY = "ntc-daily-override-v1";
+let dailyOverrideCache = null;   // { date, spin }
+
+function dailyOverrideRead() {
+  if (dailyOverrideCache) return dailyOverrideCache;
+  try {
+    const o = JSON.parse(localStorage.getItem(DAILY_OVERRIDE_KEY) || "null");
+    if (o && typeof o.date === "string" && Number.isFinite(Number(o.spin))) {
+      dailyOverrideCache = { date: o.date, spin: Number(o.spin) || 0 };
+      return dailyOverrideCache;
+    }
+  } catch (_) {}
+  return null;
+}
+// Only ever answers for the date asked about — yesterday's published variant
+// must not leak into today.
+function dailyOverrideSpinFor(dateKey) {
+  const o = dailyOverrideRead();
+  return (o && o.date === dateKey) ? (Number(o.spin) || 0) : 0;
+}
+async function dailyOverrideFetch(dateKey) {
+  try {
+    const { data, error } = await supabaseAuth
+      .from("daily_override").select("spin").eq("date", dateKey).maybeSingle();
+    if (error) return null;                       // no table yet, offline, blocked
+    const spin = data ? (Number(data.spin) || 0) : 0;
+    const next = { date: dateKey, spin };
+    dailyOverrideCache = next;
+    try { localStorage.setItem(DAILY_OVERRIDE_KEY, JSON.stringify(next)); } catch (_) {}
+    return next;
+  } catch (_) { return null; }
+}
+// Founder-only in the UI; RLS is what actually enforces it. spin 0 deletes the
+// row rather than storing a zero, so "no override" has exactly one meaning.
+async function dailyOverridePublish(dateKey, spin) {
+  const n = Number(spin) > 0 ? Math.floor(Number(spin)) : 0;
+  if (n === 0) {
+    const { error } = await supabaseAuth.from("daily_override").delete().eq("date", dateKey);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabaseAuth.from("daily_override")
+      .upsert({ date: dateKey, spin: n, updated_at: new Date().toISOString() }, { onConflict: "date" });
+    if (error) throw new Error(error.message);
+  }
+  const next = { date: dateKey, spin: n };
+  dailyOverrideCache = next;
+  try { localStorage.setItem(DAILY_OVERRIDE_KEY, JSON.stringify(next)); } catch (_) {}
+  try { window.dispatchEvent(new Event("ntc-daily-override-changed")); } catch (_) {}
+  return next;
+}
+
 // Completions: { done: { "YYYY-MM-DD": ISO } }. Synced (union merge) so a day
 // done on the phone counts on the laptop.
 function dailyRead() {
@@ -10124,7 +10307,7 @@ function dailyStreak(done, todayKey = dailyDateKey()) {
 // Everything the home card needs, in one read.
 function dailySnapshot() {
   const key = dailyDateKey();
-  const gen = buildDailyExercise(key);
+  const gen = buildDailyExercise(key, dailyOverrideSpinFor(key));
   const done = dailyRead().done;
   return { key, gen, done: Boolean(done[key]), streak: dailyStreak(done, key), total: Object.keys(done).length };
 }
@@ -10258,6 +10441,11 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
     return () => window.removeEventListener("ntc-open-generator", open);
   }, []);
 
+  // Founder-only controls. Same test dev tools use, read from the live session
+  // email so signing in mid-session lights it up without a reload.
+  const genAuth = useContext(AuthCtx);
+  const isFounder = DEV_EMAILS.includes((genAuth.userEmail || "").toLowerCase());
+
   // Exercise of the Day: is the session on screen today's, and is it done?
   // Re-read on every change so the Done button never lies after a sync.
   const [dailyDone, setDailyDone] = useState(false);
@@ -10274,8 +10462,68 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
     track("daily_done", { date: gen.daily, diff: gen.dailyDiff, streak: dailyStreak(o.done, gen.daily) });
     setDailyDone(true);
   };
+  // Copy a link to the daily that is on screen. Deliberately the DATED form,
+  // not ?daily=1: whoever opens it should land on the exercise being talked
+  // about, not on whatever today happens to be. Free and open like every other
+  // share link — a member passing today's exercise to a friend is the point.
+  const [dailyCopied, setDailyCopied] = useState(false);
+  // Re-roll the same date. Founder-only, and it only changes YOUR screen —
+  // see buildDailyExercise. Spin 0 is always reachable again so you can get
+  // back to the one members are actually seeing.
+  const respinDaily = () => {
+    if (!gen || !gen.daily) return;
+    const next = (Number(gen.dailySpin) || 0) + 1;
+    track("daily_respin", { date: gen.daily, spin: next });
+    stopPlayback();
+    setGen(buildDailyExercise(gen.daily, next));
+    setActiveKey("drill");
+  };
+  // Make the variant on screen the one every member gets. The RLS policy on
+  // daily_override is what permits this; if it refuses, say so plainly rather
+  // than leaving the button looking like it worked.
+  const [publishState, setPublishState] = useState("idle"); // idle|saving|done|error
+  const [publishErr, setPublishErr] = useState(null);
+  const publishDaily = async () => {
+    if (!gen || !gen.daily) return;
+    setPublishState("saving"); setPublishErr(null);
+    try {
+      const spin = Number(gen.dailySpin) || 0;
+      await dailyOverridePublish(gen.daily, spin);
+      track("daily_publish", { date: gen.daily, spin });
+      setPublishState("done");
+      setTimeout(() => setPublishState("idle"), 2600);
+    } catch (e) {
+      console.error("Publish daily failed:", e);
+      setPublishErr(String(e.message || e));
+      setPublishState("error");
+    }
+  };
+
+  const resetDailySpin = () => {
+    if (!gen || !gen.daily) return;
+    stopPlayback();
+    setGen(buildDailyExercise(gen.daily, 0));
+    setActiveKey("drill");
+  };
+
+  const shareDaily = () => {
+    if (!gen || !gen.daily) return;
+    const spin = Number(gen.dailySpin) || 0;
+    const url = `${window.location.origin}${window.location.pathname}?daily=${gen.daily}`
+      + (spin > 0 ? `&spin=${spin}` : "");
+    track("daily_share", { date: gen.daily, diff: gen.dailyDiff, spin });
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(() => { setDailyCopied(true); setTimeout(() => setDailyCopied(false), 2200); })
+        .catch(() => { window.prompt("Copy this link:", url); });
+    } else {
+      window.prompt("Copy this link:", url);
+    }
+  };
+
   const openToday = () => {
-    const g = buildDailyExercise();
+    const k = dailyDateKey();
+    const g = buildDailyExercise(k, dailyOverrideSpinFor(k));
     track("daily_open", { date: g.daily, diff: g.dailyDiff, from: "generator" });
     setGen(g); setActiveKey("drill"); setStage("view");
   };
@@ -10380,7 +10628,14 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
       const next = { ...prev };
       const rerollChords = activeKey === "drill" || activeKey === "song";
       const rerollRows = activeKey === "strum" || activeKey === "song";
-      if (rerollChords) next.chords = genSample(GEN_CHORD_POOLS[prev.sel.chords ? prev.diff.chords : prev.diff.song], prev.chordCount);
+      if (rerollChords) {
+        // Re-rolling the chord grid picks a fresh key as well — otherwise a
+        // reroll would quietly reintroduce the mixed-key sets this replaced.
+        const picked = genSampleInKey(
+          GEN_CHORD_POOLS[prev.sel.chords ? prev.diff.chords : prev.diff.song], prev.chordCount);
+        next.chords = picked.chords;
+        next.key = picked.key;
+      }
       if (rerollRows) next.rows = genSample(GEN_STRUM_POOLS[prev.sel.strum ? prev.diff.strum : prev.diff.song], prev.rowCount);
       return next;
     });
@@ -10683,6 +10938,9 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
     gen.sel.chords && `${GEN_DIFF_META[gen.diff.chords].label} chords`,
     gen.sel.strum && `${GEN_DIFF_META[gen.diff.strum].label} strumming`,
     gen.sel.song && `${GEN_DIFF_META[gen.diff.song].label} song`,
+    // Naming the key is the whole point of the change: these chords belong
+    // together, and that is worth telling the person practising them.
+    gen.key && `key of ${gen.key}`,
   ].filter(Boolean).join(" · ");
 
   const go = (key) => { stopPlayback(); setActiveKey(key); };
@@ -10704,7 +10962,11 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               narrow phone; the buttons either side never do. */}
           <div style={{ flex:1, minWidth:0, margin:"0 8px", textAlign:"center", lineHeight:1.4,
             fontSize:9, color: gen.daily ? "#c9a03a" : "#6f6749", letterSpacing:2, textTransform:"uppercase" }}>
-            {gen.daily ? "Exercise of the day" : "Generated Practice"}
+            {gen.daily
+              ? (Number(gen.dailySpin) > 0
+                  ? `Exercise of the day · variant ${gen.dailySpin} · only you`
+                  : "Exercise of the day")
+              : "Generated Practice"}
           </div>
           <button onClick={close} aria-label="Close" style={{ width:32, height:32, borderRadius:10,
             border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e", fontSize:15,
@@ -10751,6 +11013,51 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
                 background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.13) 50%, transparent 60%)",
                 transform:"translateX(-100%)", animation:"ntcGenShine 6.4s ease 1s infinite" }} />
               🎲 Regenerate
+            </button>
+          )}
+          {gen.daily && isFounder && (
+            <button onClick={respinDaily} style={{ padding:"11px 22px", borderRadius:12,
+              border:"1px solid rgba(90,200,250,0.45)", background:"rgba(90,200,250,0.08)",
+              color:"#5AC8FA", fontSize:13.5, fontWeight:800, cursor:"pointer",
+              fontFamily:"inherit" }}>
+              🎲 Respin
+            </button>
+          )}
+          {gen.daily && isFounder && (
+            <button onClick={publishDaily} disabled={publishState==="saving"}
+              title="Make this the exercise every member sees today"
+              style={{ padding:"11px 20px", borderRadius:12,
+                border:`1px solid ${publishState==="done" ? "rgba(126,217,87,0.6)"
+                  : publishState==="error" ? "rgba(231,76,60,0.55)" : "rgba(126,217,87,0.4)"}`,
+                background: publishState==="error" ? "rgba(231,76,60,0.08)" : "rgba(126,217,87,0.08)",
+                color: publishState==="error" ? "#ff6b5e" : "#7ED957",
+                fontSize:13.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+              {publishState==="saving" ? "Publishing…"
+                : publishState==="done" ? "Published to everyone ✓"
+                : publishState==="error" ? "Publish failed"
+                : (Number(gen.dailySpin) > 0 ? "📢 Publish to everyone" : "📢 Publish the original")}
+            </button>
+          )}
+          {gen.daily && isFounder && publishErr && (
+            <div style={{ flexBasis:"100%", fontSize:11.5, color:"#ff6b5e",
+              textAlign:"center", lineHeight:1.6 }}>
+              {publishErr}
+            </div>
+          )}
+          {gen.daily && isFounder && Number(gen.dailySpin) > 0 && (
+            <button onClick={resetDailySpin} style={{ padding:"11px 16px", borderRadius:12,
+              border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
+              fontSize:12.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>
+              ↺ The live one
+            </button>
+          )}
+          {gen.daily && (
+            <button onClick={shareDaily} style={{ padding:"11px 22px", borderRadius:12,
+              border:`1px solid ${dailyCopied ? "rgba(126,217,87,0.6)" : "rgba(255,190,11,0.35)"}`,
+              background:"#14100a", color: dailyCopied ? "#7ED957" : "#c9a03a",
+              fontSize:13.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit",
+              transition:"all 0.2s" }}>
+              {dailyCopied ? "Link copied ✓" : "🔗 Share"}
             </button>
           )}
           <button onClick={saveCurrent} style={{ padding:"11px 22px", borderRadius:12,
