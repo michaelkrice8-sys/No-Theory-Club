@@ -11361,15 +11361,17 @@ function RoutineTrackerGrid({ routine, onToggle }) {
                   })}
                   {showRing && (
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end" }}>
+                      {/* Ring only — no number, same as the 30-Day tracker.
+                          Rendered even at 0%, where a full dash offset draws
+                          nothing: mounting the circle on the first tick instead
+                          would give it no previous offset to travel from, so the
+                          very first tick would snap while every later one slid. */}
                       <svg width="32" height="32" viewBox="0 0 32 32">
                         <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c160d" strokeWidth="3" />
-                        {pct > 0 && (
-                          <circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth="3"
-                            strokeDasharray={circ} strokeDashoffset={circ - (pct / 100) * circ}
-                            strokeLinecap="round" transform="rotate(-90 16 16)" />
-                        )}
-                        <text x="16" y="20" textAnchor="middle" fontSize="9" fontWeight="800"
-                          fill={pct > 0 ? "#FFBE0B" : "#3a3325"}>{pct}</text>
+                        <circle cx={cx} cy={cy} r={r} fill="none" stroke={ringColor} strokeWidth="3"
+                          strokeDasharray={circ} strokeDashoffset={circ - (pct / 100) * circ}
+                          strokeLinecap="round" transform={`rotate(-90 ${cx} ${cy})`}
+                          style={{ transition:"stroke-dashoffset 0.4s ease, stroke 0.3s ease" }} />
                       </svg>
                     </div>
                   )}
