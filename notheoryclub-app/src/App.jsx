@@ -12113,7 +12113,7 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
       <div style={{ position:"sticky", top:0, zIndex:5,
         display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
         background:"rgba(13,11,8,0.94)", backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)",
-        WebkitBackdropFilter:"blur(8px)", borderBottom:"1px solid #1c1710" }}>
+        borderBottom:"1px solid #1c1710" }}>
         <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
             setPlayingId(null); }}
           style={{ padding:"8px 13px", borderRadius:10, border:"1px solid #241d10",
@@ -12816,6 +12816,12 @@ function PackageShareView({ audio, chordVariants, updateVariant }) {
         if(cancelled) return;
         if(!row){ setStatus("notfound"); return; }
         const d = row.data || null;
+        // Routines and packages share the `packages` table, told apart by
+        // `kind`. The routine view already refuses a package id; without the
+        // mirror of that check, a routine id opened as ?pkg= rendered as a
+        // half-right package — its steps shown, but with the anchor button a
+        // routine deliberately hides and none of its step timers.
+        if(d && d.kind === ROUTINE_SHARE_KIND){ setStatus("notfound"); return; }
         track("pkg_open", { id, items: (d && d.items ? d.items.length : 0), day: (d && d.day) || null, name: (d && d.n) || null });
         setPkg(d);
         setStatus("ready");
