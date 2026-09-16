@@ -1207,13 +1207,10 @@ function AuthProvider({ children }) {
     let dismissed = false;
     try { dismissed = sessionStorage.getItem(SIGNIN_PROMPT_DISMISSED) === "1"; } catch (_) {}
     if (dismissed) return;
-    // Share links stay frictionless — see the note on FirstVisitPrompt.
-    let onShareLink = false;
-    try {
-      const p = new URLSearchParams(window.location.search);
-      onShareLink = ["pkg","song","id","drill","strum","strumprog","pattern","routine"].some(k => p.has(k));
-    } catch (_) {}
-    if (onShareLink) return;
+    // Share links stay frictionless — see the note on FirstVisitPrompt. Uses
+    // the value captured at load, not the live URL, because ?daily= and
+    // ?generate= are gone from the URL by the time this runs.
+    if (ARRIVED_ON_SHARE_LINK) return;
     setShowPrompt(true);
   }, [status]);
 
@@ -1314,6 +1311,25 @@ async function packageFetch(id) {
 // Accounts allowed into the legacy Build-a-Song authoring suite (dev tools).
 // Checked against the authenticated Supabase session email — no login, no access.
 const DEV_EMAILS = ["michael.k.rice8@gmail.com"];
+
+// Did this visit ARRIVE on a shared link? Captured once, at module load, which
+// is the only moment it can be read reliably.
+//
+// Reading window.location.search later does not work for every link. ?pkg= and
+// the single-exercise params stay in the URL for the life of the visit, but the
+// generator's deep links — ?daily=, ?generate=, ?gen= — are deliberately
+// STRIPPED once consumed so a reload doesn't reopen the overlay. A check that
+// runs after that strip sees a bare URL and concludes the member typed the
+// address in, which is how ?daily= ended up showing a sign-in prompt to
+// everyone who tapped it in Skool.
+const ARRIVED_ON_SHARE_LINK = (() => {
+  if (typeof window === "undefined") return false;
+  try {
+    const p = new URLSearchParams(window.location.search);
+    return ["pkg","song","id","drill","strum","strumprog","pattern","routine",
+            "daily","generate","gen"].some(k => p.has(k));
+  } catch (_) { return false; }
+})();
 
 const DIRS16 = Array(16).fill(null).map((_,i) => i%2===0 ? "↓" : "↑");
 const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
@@ -10136,6 +10152,13 @@ function genBuild(base, rnd = Math.random) {
 // Weights are out of 100 and can be tuned freely; Beginner is left out on
 // purpose (it exists for the generator's own ladder, not the daily).
 const DAILY_MIX = { easy: 65, medium: 25, hard: 10 };
+
+// Every step of the daily carries the same five-minute timer, for everyone.
+// Fixed rather than per-member on purpose: the daily is the one exercise the
+// whole community does together, so "five minutes on each" is a shared
+// instruction, not a setting to fiddle with. Same component the routines use,
+// and the same contract — it chimes, it never moves you on by itself.
+const DAILY_STEP_MINUTES = 5;
 function dailyPickDiff(rnd) {
   const total = Object.values(DAILY_MIX).reduce((a, b) => a + b, 0);
   let roll = rnd() * total;
@@ -11087,6 +11110,21 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
           })}
         </div>
 
+        {/* Daily step timer. Keyed by tab so moving to the next step gives you a
+            clean five minutes rather than whatever was left on the last one —
+            the same reason the routine player keys its timer this way. The
+            tracker tab is not a step, so it gets none. */}
+        {gen.daily && activeKey !== "tracker" && (() => {
+          const i = tabs.findIndex(t => t.key === activeKey);
+          const nextTab = i >= 0 ? tabs[i + 1] : null;
+          return (
+            <RoutineStepTimer key={`daily-timer-${activeKey}`}
+              minutes={DAILY_STEP_MINUTES}
+              label={tabs[i]?.label || "This step"}
+              onNext={nextTab ? () => go(nextTab.key) : null} />
+          );
+        })()}
+
         {/* Panels — mounted via display toggle; keyed by content so a regenerate
             remounts only the panels whose exercise actually changed. */}
         <style>{`@keyframes ntcPanelReveal { 0%, 40% { opacity:0; } 100% { opacity:1; } }`}</style>
@@ -11208,6 +11246,35 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   };
 
   const closeModal = () => { setBuildType(null); setEditIdx(null); setEditParam(null); };
+
+  // Receives a finished exercise from whichever builder the modal opened.
+  //
+  // This and editItem below were referenced by the JSX but never defined here —
+  // the Package Builder was built from the same shape as My Practice Routines
+  // and these two did not come across with it. Neither is reachable until a
+  // build modal opens, which is why it looked fine until you actually tried to
+  // add or edit a step: then the reference threw and the error boundary took
+  // the whole screen. Dev-only surface, so nobody but the founder could hit it.
+  const handleBuilderExport = (t, d) => {
+    const it = { t, d, label: itemLabel({ t, d }) };
+    if (editIdx != null) setItems(p => p.map((x, i) => i === editIdx ? it : x));
+    else setItems(p => [...p, it]);
+    setBuildType(null); setEditIdx(null); setEditParam(null);
+  };
+
+  // Reopen an existing step in the builder it came from. The item's `t` is the
+  // storage type ("strumprog"); the modal wants the build mode ("simple"), and
+  // PKG_TYPE_META already holds that mapping, so it stays the one place the two
+  // vocabularies are tied together. openSeq forces a remount so the builder
+  // re-reads initialParam instead of keeping the last step's state.
+  const editItem = (i) => {
+    const it = items[i];
+    if (!it) return;
+    setEditIdx(i);
+    setEditParam(it.d);
+    setOpenSeq(n => n + 1);
+    setBuildType(PKG_TYPE_META[it.t]?.buildMode || "drill");
+  };
 
   const doSave = async () => {
     if(items.length < 1 && !includeTracker){ alert("Add at least one exercise (or include the tracker)."); return; }
