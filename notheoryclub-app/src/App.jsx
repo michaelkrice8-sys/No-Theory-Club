@@ -1207,13 +1207,10 @@ function AuthProvider({ children }) {
     let dismissed = false;
     try { dismissed = sessionStorage.getItem(SIGNIN_PROMPT_DISMISSED) === "1"; } catch (_) {}
     if (dismissed) return;
-    // Share links stay frictionless — see the note on FirstVisitPrompt.
-    let onShareLink = false;
-    try {
-      const p = new URLSearchParams(window.location.search);
-      onShareLink = ["pkg","song","id","drill","strum","strumprog","pattern","routine"].some(k => p.has(k));
-    } catch (_) {}
-    if (onShareLink) return;
+    // Share links stay frictionless — see the note on FirstVisitPrompt. Uses
+    // the value captured at load, not the live URL, because ?daily= and
+    // ?generate= are gone from the URL by the time this runs.
+    if (ARRIVED_ON_SHARE_LINK) return;
     setShowPrompt(true);
   }, [status]);
 
@@ -1314,6 +1311,25 @@ async function packageFetch(id) {
 // Accounts allowed into the legacy Build-a-Song authoring suite (dev tools).
 // Checked against the authenticated Supabase session email — no login, no access.
 const DEV_EMAILS = ["michael.k.rice8@gmail.com"];
+
+// Did this visit ARRIVE on a shared link? Captured once, at module load, which
+// is the only moment it can be read reliably.
+//
+// Reading window.location.search later does not work for every link. ?pkg= and
+// the single-exercise params stay in the URL for the life of the visit, but the
+// generator's deep links — ?daily=, ?generate=, ?gen= — are deliberately
+// STRIPPED once consumed so a reload doesn't reopen the overlay. A check that
+// runs after that strip sees a bare URL and concludes the member typed the
+// address in, which is how ?daily= ended up showing a sign-in prompt to
+// everyone who tapped it in Skool.
+const ARRIVED_ON_SHARE_LINK = (() => {
+  if (typeof window === "undefined") return false;
+  try {
+    const p = new URLSearchParams(window.location.search);
+    return ["pkg","song","id","drill","strum","strumprog","pattern","routine",
+            "daily","generate","gen"].some(k => p.has(k));
+  } catch (_) { return false; }
+})();
 
 const DIRS16 = Array(16).fill(null).map((_,i) => i%2===0 ? "↓" : "↑");
 const ALL_CHORDS = ["G","C","Em","D","Am","A","E","Dm","Bm","Fmaj7"];
@@ -1844,6 +1860,16 @@ function App() {
     return new URLSearchParams(window.location.search).has("routines");
   });
 
+  // True only while the Exercise of the Day is the thing on screen. The shell
+  // hides its own nav pills then: the generator draws its own tab strip, and
+  // two near-identical rows was most of what made that screen busy.
+  const [onDailyView, setOnDailyView] = useState(false);
+  useEffect(() => {
+    const handler = (e) => setOnDailyView(!!(e && e.detail && e.detail.on));
+    window.addEventListener("ntc-daily-view", handler);
+    return () => window.removeEventListener("ntc-daily-view", handler);
+  }, []);
+
   const [view, setView] = useState((hasGenParam || hasRoutinesParam || hasDailyParam) ? "app" : "landing"); // "landing" | "app"
   // Top-level destination. The three practice tools (Chords / Strumming / Song
   // Builder) are no longer separate tabs — they live together inside the Guitar
@@ -2242,8 +2268,15 @@ function App() {
         </div>
       </div>
 
-      {/* Tab Bar — dark / warm-glow */}
-      <div style={{ position:"sticky", top:0, zIndex:100,
+      {/* Tab Bar — dark / warm-glow.
+          Hidden while the daily is open. `activeTab === "generate"` is ANDed in
+          deliberately: the generator stays mounted behind other tabs, so on its
+          own the flag could linger and leave another tab with no navigation.
+          Tying it to the tab you are actually on makes that impossible. The
+          daily keeps its own exits either way — the ✕, "Make your own", and the
+          house button above. */}
+      <div style={{ display: (onDailyView && activeTab === "generate") ? "none" : "block",
+        position:"sticky", top:0, zIndex:100,
         padding:"6px 16px 14px",
         background:"linear-gradient(180deg, rgba(13,11,8,0.96) 0%, rgba(13,11,8,0.85) 55%, rgba(13,11,8,0) 100%)",
         backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)" }}>
@@ -10136,6 +10169,13 @@ function genBuild(base, rnd = Math.random) {
 // Weights are out of 100 and can be tuned freely; Beginner is left out on
 // purpose (it exists for the generator's own ladder, not the daily).
 const DAILY_MIX = { easy: 65, medium: 25, hard: 10 };
+
+// Every step of the daily carries the same five-minute timer, for everyone.
+// Fixed rather than per-member on purpose: the daily is the one exercise the
+// whole community does together, so "five minutes on each" is a shared
+// instruction, not a setting to fiddle with. Same component the routines use,
+// and the same contract — it chimes, it never moves you on by itself.
+const DAILY_STEP_MINUTES = 5;
 function dailyPickDiff(rnd) {
   const total = Object.values(DAILY_MIX).reduce((a, b) => a + b, 0);
   let roll = rnd() * total;
@@ -10445,6 +10485,24 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   // email so signing in mid-session lights it up without a reload.
   const genAuth = useContext(AuthCtx);
   const isFounder = DEV_EMAILS.includes((genAuth.userEmail || "").toLowerCase());
+
+  // Let the app shell know the daily is on screen so it can drop its own nav
+  // pills — the generator already has its own tab strip, and two rows of nearly
+  // identical pills was the bulk of the clutter. A window event because that is
+  // how everything else here signals across components.
+  //
+  // Declared UP HERE with the other hooks, not down beside the view's JSX: the
+  // component returns early for the setup stage, so a hook placed after that
+  // runs on some renders and not others — React counts hooks by call order and
+  // refuses to reconcile when the count changes.
+  useEffect(() => {
+    const on = stage === "view" && !!(gen && gen.daily);
+    try { window.dispatchEvent(new CustomEvent("ntc-daily-view", { detail:{ on } })); } catch (_) {}
+    return () => {
+      // Leaving the generator must never strand the shell without its nav.
+      try { window.dispatchEvent(new CustomEvent("ntc-daily-view", { detail:{ on:false } })); } catch (_) {}
+    };
+  }, [stage, gen]);
 
   // Exercise of the Day: is the session on screen today's, and is it done?
   // Re-read on every change so the Done button never lies after a sync.
@@ -10933,11 +10991,25 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   if (gen.sel.chords) tabs.push({ key:"drill", icon:"🤚", label:"Chords" });
   if (gen.sel.strum)  tabs.push({ key:"strum", icon:"🎸", label:"Strum" });
   if (gen.sel.song)   tabs.push({ key:"song",  icon:"🎵", label:"Song" });
-  tabs.push({ key:"tracker", icon:"🔥", label:trackerTabLabel });
+  // The daily gets no Tracker tab. Its completion is "Mark today done" in the
+  // header — a second, different tracker sitting next to it was two answers to
+  // the same question. A member-generated session still has it.
+  if (!gen.daily) tabs.push({ key:"tracker", icon:"🔥", label:trackerTabLabel });
+  // When every part shares a difficulty — which the daily always does — say it
+  // once. "Easy chords · Easy strumming · Easy song" is the same word three
+  // times for no extra information.
+  const _pickedDiffs = [
+    gen.sel.chords && gen.diff.chords,
+    gen.sel.strum && gen.diff.strum,
+    gen.sel.song && gen.diff.song,
+  ].filter(Boolean);
+  const _oneDiff = _pickedDiffs.length > 1 && new Set(_pickedDiffs).size === 1
+    ? GEN_DIFF_META[_pickedDiffs[0]].label : null;
   const metaLine = [
-    gen.sel.chords && `${GEN_DIFF_META[gen.diff.chords].label} chords`,
-    gen.sel.strum && `${GEN_DIFF_META[gen.diff.strum].label} strumming`,
-    gen.sel.song && `${GEN_DIFF_META[gen.diff.song].label} song`,
+    _oneDiff,
+    !_oneDiff && gen.sel.chords && `${GEN_DIFF_META[gen.diff.chords].label} chords`,
+    !_oneDiff && gen.sel.strum && `${GEN_DIFF_META[gen.diff.strum].label} strumming`,
+    !_oneDiff && gen.sel.song && `${GEN_DIFF_META[gen.diff.song].label} song`,
     // Naming the key is the whole point of the change: these chords belong
     // together, and that is worth telling the person practising them.
     gen.key && `key of ${gen.key}`,
@@ -10994,21 +11066,21 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               someone tapping it early, and that's fine. */}
           {gen.daily && (
             dailyDone ? (
-              <div style={{ padding:"11px 22px", borderRadius:12, fontSize:13.5, fontWeight:900,
+              <div style={{ padding:"11px 15px", borderRadius:12, fontSize:13.5, fontWeight:900,
                 border:"1px solid rgba(126,217,87,0.55)", background:"rgba(126,217,87,0.08)",
                 color:"#7ED957", fontFamily:"inherit" }}>
                 ✓ Done for today · 🔥 {dailyStreak(dailyRead().done, gen.daily)}-day streak
               </div>
             ) : (
               <button onClick={markDailyDone} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
-                borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
+                borderRadius:12, padding:"11px 15px", fontSize:13.5 }}>
                 ✓ Mark today done
               </button>
             )
           )}
           {activeKey !== "tracker" && !gen.daily && (
             <button onClick={regenerate} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
-              borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
+              borderRadius:12, padding:"11px 15px", fontSize:13.5 }}>
               <span style={{ position:"absolute", inset:0, pointerEvents:"none",
                 background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.13) 50%, transparent 60%)",
                 transform:"translateX(-100%)", animation:"ntcGenShine 6.4s ease 1s infinite" }} />
@@ -11016,7 +11088,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             </button>
           )}
           {gen.daily && isFounder && (
-            <button onClick={respinDaily} style={{ padding:"11px 22px", borderRadius:12,
+            <button onClick={respinDaily} style={{ padding:"11px 15px", borderRadius:12,
               border:"1px solid rgba(90,200,250,0.45)", background:"rgba(90,200,250,0.08)",
               color:"#5AC8FA", fontSize:13.5, fontWeight:800, cursor:"pointer",
               fontFamily:"inherit" }}>
@@ -11051,8 +11123,12 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               ↺ The live one
             </button>
           )}
-          {gen.daily && (
-            <button onClick={shareDaily} style={{ padding:"11px 22px", borderRadius:12,
+          {/* Founder-only. Sharing the daily is Michael's to do — it goes in the
+              Skool post and the welcome DM. This was briefly open to everyone on
+              growth-loop reasoning; that was the wrong call for THIS link, which
+              is an announcement rather than a member passing work around. */}
+          {gen.daily && isFounder && (
+            <button onClick={shareDaily} style={{ padding:"11px 15px", borderRadius:12,
               border:`1px solid ${dailyCopied ? "rgba(126,217,87,0.6)" : "rgba(255,190,11,0.35)"}`,
               background:"#14100a", color: dailyCopied ? "#7ED957" : "#c9a03a",
               fontSize:13.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit",
@@ -11060,7 +11136,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               {dailyCopied ? "Link copied ✓" : "🔗 Share"}
             </button>
           )}
-          <button onClick={saveCurrent} style={{ padding:"11px 22px", borderRadius:12,
+          <button onClick={saveCurrent} style={{ padding:"11px 15px", borderRadius:12,
             border:`1px solid ${justSaved ? "rgba(126,217,87,0.6)" : "rgba(255,190,11,0.35)"}`,
             background:"#14100a", color: justSaved ? "#7ED957" : "#c9a03a",
             fontSize:13.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit", transition:"all 0.2s" }}>
@@ -11086,6 +11162,21 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             );
           })}
         </div>
+
+        {/* Daily step timer. Keyed by tab so moving to the next step gives you a
+            clean five minutes rather than whatever was left on the last one —
+            the same reason the routine player keys its timer this way. The
+            tracker tab is not a step, so it gets none. */}
+        {gen.daily && activeKey !== "tracker" && (() => {
+          const i = tabs.findIndex(t => t.key === activeKey);
+          const nextTab = i >= 0 ? tabs[i + 1] : null;
+          return (
+            <RoutineStepTimer key={`daily-timer-${activeKey}`}
+              minutes={DAILY_STEP_MINUTES}
+              label={tabs[i]?.label || "This step"}
+              onNext={nextTab ? () => go(nextTab.key) : null} />
+          );
+        })()}
 
         {/* Panels — mounted via display toggle; keyed by content so a regenerate
             remounts only the panels whose exercise actually changed. */}
@@ -11208,6 +11299,35 @@ function PackageBuilderTab({ audio, chordVariants, updateVariant }) {
   };
 
   const closeModal = () => { setBuildType(null); setEditIdx(null); setEditParam(null); };
+
+  // Receives a finished exercise from whichever builder the modal opened.
+  //
+  // This and editItem below were referenced by the JSX but never defined here —
+  // the Package Builder was built from the same shape as My Practice Routines
+  // and these two did not come across with it. Neither is reachable until a
+  // build modal opens, which is why it looked fine until you actually tried to
+  // add or edit a step: then the reference threw and the error boundary took
+  // the whole screen. Dev-only surface, so nobody but the founder could hit it.
+  const handleBuilderExport = (t, d) => {
+    const it = { t, d, label: itemLabel({ t, d }) };
+    if (editIdx != null) setItems(p => p.map((x, i) => i === editIdx ? it : x));
+    else setItems(p => [...p, it]);
+    setBuildType(null); setEditIdx(null); setEditParam(null);
+  };
+
+  // Reopen an existing step in the builder it came from. The item's `t` is the
+  // storage type ("strumprog"); the modal wants the build mode ("simple"), and
+  // PKG_TYPE_META already holds that mapping, so it stays the one place the two
+  // vocabularies are tied together. openSeq forces a remount so the builder
+  // re-reads initialParam instead of keeping the last step's state.
+  const editItem = (i) => {
+    const it = items[i];
+    if (!it) return;
+    setEditIdx(i);
+    setEditParam(it.d);
+    setOpenSeq(n => n + 1);
+    setBuildType(PKG_TYPE_META[it.t]?.buildMode || "drill");
+  };
 
   const doSave = async () => {
     if(items.length < 1 && !includeTracker){ alert("Add at least one exercise (or include the tracker)."); return; }
@@ -12046,7 +12166,7 @@ function PracticeRoutinesTab({ audio, chordVariants, updateVariant, active }) {
       <div style={{ position:"sticky", top:0, zIndex:5,
         display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
         background:"rgba(13,11,8,0.94)", backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)",
-        WebkitBackdropFilter:"blur(8px)", borderBottom:"1px solid #1c1710" }}>
+        borderBottom:"1px solid #1c1710" }}>
         <button onClick={()=>{ try { window.dispatchEvent(new Event("ntc-stop-playback")); } catch(_){}
             setPlayingId(null); }}
           style={{ padding:"8px 13px", borderRadius:10, border:"1px solid #241d10",
@@ -12749,6 +12869,12 @@ function PackageShareView({ audio, chordVariants, updateVariant }) {
         if(cancelled) return;
         if(!row){ setStatus("notfound"); return; }
         const d = row.data || null;
+        // Routines and packages share the `packages` table, told apart by
+        // `kind`. The routine view already refuses a package id; without the
+        // mirror of that check, a routine id opened as ?pkg= rendered as a
+        // half-right package — its steps shown, but with the anchor button a
+        // routine deliberately hides and none of its step timers.
+        if(d && d.kind === ROUTINE_SHARE_KIND){ setStatus("notfound"); return; }
         track("pkg_open", { id, items: (d && d.items ? d.items.length : 0), day: (d && d.day) || null, name: (d && d.n) || null });
         setPkg(d);
         setStatus("ready");
