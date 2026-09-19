@@ -1860,6 +1860,16 @@ function App() {
     return new URLSearchParams(window.location.search).has("routines");
   });
 
+  // True only while the Exercise of the Day is the thing on screen. The shell
+  // hides its own nav pills then: the generator draws its own tab strip, and
+  // two near-identical rows was most of what made that screen busy.
+  const [onDailyView, setOnDailyView] = useState(false);
+  useEffect(() => {
+    const handler = (e) => setOnDailyView(!!(e && e.detail && e.detail.on));
+    window.addEventListener("ntc-daily-view", handler);
+    return () => window.removeEventListener("ntc-daily-view", handler);
+  }, []);
+
   const [view, setView] = useState((hasGenParam || hasRoutinesParam || hasDailyParam) ? "app" : "landing"); // "landing" | "app"
   // Top-level destination. The three practice tools (Chords / Strumming / Song
   // Builder) are no longer separate tabs — they live together inside the Guitar
@@ -2258,8 +2268,15 @@ function App() {
         </div>
       </div>
 
-      {/* Tab Bar — dark / warm-glow */}
-      <div style={{ position:"sticky", top:0, zIndex:100,
+      {/* Tab Bar — dark / warm-glow.
+          Hidden while the daily is open. `activeTab === "generate"` is ANDed in
+          deliberately: the generator stays mounted behind other tabs, so on its
+          own the flag could linger and leave another tab with no navigation.
+          Tying it to the tab you are actually on makes that impossible. The
+          daily keeps its own exits either way — the ✕, "Make your own", and the
+          house button above. */}
+      <div style={{ display: (onDailyView && activeTab === "generate") ? "none" : "block",
+        position:"sticky", top:0, zIndex:100,
         padding:"6px 16px 14px",
         background:"linear-gradient(180deg, rgba(13,11,8,0.96) 0%, rgba(13,11,8,0.85) 55%, rgba(13,11,8,0) 100%)",
         backdropFilter:"blur(8px)", WebkitBackdropFilter:"blur(8px)" }}>
@@ -10469,6 +10486,24 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   const genAuth = useContext(AuthCtx);
   const isFounder = DEV_EMAILS.includes((genAuth.userEmail || "").toLowerCase());
 
+  // Let the app shell know the daily is on screen so it can drop its own nav
+  // pills — the generator already has its own tab strip, and two rows of nearly
+  // identical pills was the bulk of the clutter. A window event because that is
+  // how everything else here signals across components.
+  //
+  // Declared UP HERE with the other hooks, not down beside the view's JSX: the
+  // component returns early for the setup stage, so a hook placed after that
+  // runs on some renders and not others — React counts hooks by call order and
+  // refuses to reconcile when the count changes.
+  useEffect(() => {
+    const on = stage === "view" && !!(gen && gen.daily);
+    try { window.dispatchEvent(new CustomEvent("ntc-daily-view", { detail:{ on } })); } catch (_) {}
+    return () => {
+      // Leaving the generator must never strand the shell without its nav.
+      try { window.dispatchEvent(new CustomEvent("ntc-daily-view", { detail:{ on:false } })); } catch (_) {}
+    };
+  }, [stage, gen]);
+
   // Exercise of the Day: is the session on screen today's, and is it done?
   // Re-read on every change so the Done button never lies after a sync.
   const [dailyDone, setDailyDone] = useState(false);
@@ -10956,11 +10991,25 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
   if (gen.sel.chords) tabs.push({ key:"drill", icon:"🤚", label:"Chords" });
   if (gen.sel.strum)  tabs.push({ key:"strum", icon:"🎸", label:"Strum" });
   if (gen.sel.song)   tabs.push({ key:"song",  icon:"🎵", label:"Song" });
-  tabs.push({ key:"tracker", icon:"🔥", label:trackerTabLabel });
+  // The daily gets no Tracker tab. Its completion is "Mark today done" in the
+  // header — a second, different tracker sitting next to it was two answers to
+  // the same question. A member-generated session still has it.
+  if (!gen.daily) tabs.push({ key:"tracker", icon:"🔥", label:trackerTabLabel });
+  // When every part shares a difficulty — which the daily always does — say it
+  // once. "Easy chords · Easy strumming · Easy song" is the same word three
+  // times for no extra information.
+  const _pickedDiffs = [
+    gen.sel.chords && gen.diff.chords,
+    gen.sel.strum && gen.diff.strum,
+    gen.sel.song && gen.diff.song,
+  ].filter(Boolean);
+  const _oneDiff = _pickedDiffs.length > 1 && new Set(_pickedDiffs).size === 1
+    ? GEN_DIFF_META[_pickedDiffs[0]].label : null;
   const metaLine = [
-    gen.sel.chords && `${GEN_DIFF_META[gen.diff.chords].label} chords`,
-    gen.sel.strum && `${GEN_DIFF_META[gen.diff.strum].label} strumming`,
-    gen.sel.song && `${GEN_DIFF_META[gen.diff.song].label} song`,
+    _oneDiff,
+    !_oneDiff && gen.sel.chords && `${GEN_DIFF_META[gen.diff.chords].label} chords`,
+    !_oneDiff && gen.sel.strum && `${GEN_DIFF_META[gen.diff.strum].label} strumming`,
+    !_oneDiff && gen.sel.song && `${GEN_DIFF_META[gen.diff.song].label} song`,
     // Naming the key is the whole point of the change: these chords belong
     // together, and that is worth telling the person practising them.
     gen.key && `key of ${gen.key}`,
@@ -11017,21 +11066,21 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               someone tapping it early, and that's fine. */}
           {gen.daily && (
             dailyDone ? (
-              <div style={{ padding:"11px 22px", borderRadius:12, fontSize:13.5, fontWeight:900,
+              <div style={{ padding:"11px 15px", borderRadius:12, fontSize:13.5, fontWeight:900,
                 border:"1px solid rgba(126,217,87,0.55)", background:"rgba(126,217,87,0.08)",
                 color:"#7ED957", fontFamily:"inherit" }}>
                 ✓ Done for today · 🔥 {dailyStreak(dailyRead().done, gen.daily)}-day streak
               </div>
             ) : (
               <button onClick={markDailyDone} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
-                borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
+                borderRadius:12, padding:"11px 15px", fontSize:13.5 }}>
                 ✓ Mark today done
               </button>
             )
           )}
           {activeKey !== "tracker" && !gen.daily && (
             <button onClick={regenerate} style={{ ...GLOW_BTN, position:"relative", overflow:"hidden",
-              borderRadius:12, padding:"11px 22px", fontSize:13.5 }}>
+              borderRadius:12, padding:"11px 15px", fontSize:13.5 }}>
               <span style={{ position:"absolute", inset:0, pointerEvents:"none",
                 background:"linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.13) 50%, transparent 60%)",
                 transform:"translateX(-100%)", animation:"ntcGenShine 6.4s ease 1s infinite" }} />
@@ -11039,7 +11088,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
             </button>
           )}
           {gen.daily && isFounder && (
-            <button onClick={respinDaily} style={{ padding:"11px 22px", borderRadius:12,
+            <button onClick={respinDaily} style={{ padding:"11px 15px", borderRadius:12,
               border:"1px solid rgba(90,200,250,0.45)", background:"rgba(90,200,250,0.08)",
               color:"#5AC8FA", fontSize:13.5, fontWeight:800, cursor:"pointer",
               fontFamily:"inherit" }}>
@@ -11074,8 +11123,12 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               ↺ The live one
             </button>
           )}
-          {gen.daily && (
-            <button onClick={shareDaily} style={{ padding:"11px 22px", borderRadius:12,
+          {/* Founder-only. Sharing the daily is Michael's to do — it goes in the
+              Skool post and the welcome DM. This was briefly open to everyone on
+              growth-loop reasoning; that was the wrong call for THIS link, which
+              is an announcement rather than a member passing work around. */}
+          {gen.daily && isFounder && (
+            <button onClick={shareDaily} style={{ padding:"11px 15px", borderRadius:12,
               border:`1px solid ${dailyCopied ? "rgba(126,217,87,0.6)" : "rgba(255,190,11,0.35)"}`,
               background:"#14100a", color: dailyCopied ? "#7ED957" : "#c9a03a",
               fontSize:13.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit",
@@ -11083,7 +11136,7 @@ function ExerciseGeneratorHost({ audio, chordVariants, updateVariant, context = 
               {dailyCopied ? "Link copied ✓" : "🔗 Share"}
             </button>
           )}
-          <button onClick={saveCurrent} style={{ padding:"11px 22px", borderRadius:12,
+          <button onClick={saveCurrent} style={{ padding:"11px 15px", borderRadius:12,
             border:`1px solid ${justSaved ? "rgba(126,217,87,0.6)" : "rgba(255,190,11,0.35)"}`,
             background:"#14100a", color: justSaved ? "#7ED957" : "#c9a03a",
             fontSize:13.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit", transition:"all 0.2s" }}>
