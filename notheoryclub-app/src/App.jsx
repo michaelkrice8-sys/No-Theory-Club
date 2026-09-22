@@ -1654,8 +1654,26 @@ function useAudio() {
   const chordBufsRef = useRef({});
   const [ready, setReady] = useState(false);
 
+  // Wake a context the browser has parked. Safe to call constantly: it only
+  // acts on a genuinely suspended context, and never throws into the caller.
+  const wakeCtx = useCallback(() => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    try { if (ctx.state === "suspended") ctx.resume().catch(() => {}); } catch (_) {}
+  }, []);
+
   const init = useCallback(async () => {
-    if (ctxRef.current) return ctxRef.current;
+    if (ctxRef.current) {
+      // THE MUTING BUG. An existing context is not necessarily a running one:
+      // iOS suspends it when the page is backgrounded, the screen locks, or a
+      // call interrupts, and Chrome does the same after long inactivity. This
+      // used to return the context untouched, so every later note was scheduled
+      // into a dead context — silence, while the metronome kept ticking on its
+      // setInterval and the UI carried on as if all was well. That is what made
+      // it look random: nothing on screen changed, the sound just stopped.
+      try { if (ctxRef.current.state === "suspended") await ctxRef.current.resume(); } catch (_) {}
+      return ctxRef.current;
+    }
     // On iOS, audio respects the hardware mute switch unless the page declares a
     // "playback" audio session. Where supported (iOS Safari 16.4+) this lets the
     // metronome/chords be heard in silent mode. Harmless / ignored elsewhere.
@@ -1675,24 +1693,58 @@ function useAudio() {
     return ctx;
   }, []);
 
+  // Coming back to the app is the common case — returning from the lock screen
+  // or another tab — and it is not a click, so nothing else would resume it.
+  // pageshow covers Safari's back/forward cache, which restores a page whole
+  // with its audio still parked.
+  useEffect(() => {
+    const onVisible = () => { if (!document.hidden) wakeCtx(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", wakeCtx);
+    window.addEventListener("focus", wakeCtx);
+    // And on the next touch, wherever it lands.
+    //
+    // resume() is subject to autoplay policy: called without a user gesture it
+    // can simply be refused, so coming back to the page is NOT reliably enough
+    // on its own — measured, not assumed. A passive listener on the document
+    // means the member only has to touch something, anything, and sound is back
+    // — rather than working out that pressing play twice fixes it.
+    document.addEventListener("pointerdown", wakeCtx, { passive: true });
+    document.addEventListener("touchstart", wakeCtx, { passive: true });
+    document.addEventListener("keydown", wakeCtx);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", wakeCtx);
+      window.removeEventListener("focus", wakeCtx);
+      document.removeEventListener("pointerdown", wakeCtx);
+      document.removeEventListener("touchstart", wakeCtx);
+      document.removeEventListener("keydown", wakeCtx);
+    };
+  }, [wakeCtx]);
+
   const playBuf = useCallback((buf, gain=1.0, semitones=0) => {
     const ctx=ctxRef.current; if(!ctx||!buf) return;
+    // Last line of defence. If the context was parked between the check above
+    // and now, this note is lost but the next one is not — better than the run
+    // staying silent until the member reloads.
+    if (ctx.state === "suspended") wakeCtx();
     const src=ctx.createBufferSource(), g=ctx.createGain();
     src.buffer=buf; src.connect(g); g.connect(ctx.destination);
     g.gain.value=gain;
     if(semitones !== 0) src.playbackRate.value = Math.pow(2, semitones/12);
     src.start(ctx.currentTime);
-  }, []);
+  }, [wakeCtx]);
 
   const playClick = useCallback((accent) => {
     const ctx=ctxRef.current; if(!ctx) return;
+    if (ctx.state === "suspended") wakeCtx();
     const o=ctx.createOscillator(), g=ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
     o.frequency.value=accent?1000:600;
     g.gain.setValueAtTime(accent?0.35:0.15, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.07);
     o.start(ctx.currentTime); o.stop(ctx.currentTime+0.07);
-  }, []);
+  }, [wakeCtx]);
 
   const playStrum = useCallback((isDown) => {
     playBuf(isDown?downRef.current:upRef.current, isDown?1.0:0.75);
@@ -5691,6 +5743,11 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     const stop = ()=>{
       clearInterval(countIntervalRef.current); countIntervalRef.current=null;
       stopMetronome(); setIsPlaying(false); setCountIn(0); setCountInBeat(-1);
+      // Close assign mode too. Its bar is portaled to <body>, so it lives
+      // OUTSIDE the wrapper the shell hides with display:none — switching tabs
+      // left a fixed bar from the Song tab stuck across the bottom of Chords,
+      // Strum, everywhere. Nothing else can hide it, so leaving must.
+      setAssignMode(false);
     };
     const onHide = ()=>{ if(document.hidden) stop(); };
     window.addEventListener("ntc-stop-playback", stop);
@@ -6363,7 +6420,12 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
             already hit with its voicing modal — same fix. */}
         {assignMode && createPortal(
           <div style={{
-            position:"fixed", bottom:0, left:0, right:0, zIndex:300,
+            // Above the builder modals (zIndex 1000). Advanced is opened inside
+            // one by both the Package Builder and the routine step builder, and
+            // at 300 this bar rendered BEHIND that modal — the layout shifted
+            // to make room for a bar you could never see, which is why it read
+            // as "the assigner doesn't pop up at all" in dev tools.
+            position:"fixed", bottom:0, left:0, right:0, zIndex:1200,
             fontFamily:"'Trebuchet MS', sans-serif",
             background:"rgba(6,6,5,0.98)", backdropFilter:"blur(16px)", WebkitBackdropFilter:"blur(16px)",
             borderTop:"2px solid rgba(255,190,11,0.35)",
