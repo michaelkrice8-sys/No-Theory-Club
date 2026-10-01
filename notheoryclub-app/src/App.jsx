@@ -2897,6 +2897,7 @@ function StrummingTab({ audio, sharedView=false, active=true, initialParam=null,
           strumSavePrompt={strumSavePrompt} setStrumSavePrompt={setStrumSavePrompt}
           strumSaveName={strumSaveName} setStrumSaveName={setStrumSaveName}
           builderOpen={builderOpen} setBuilderOpen={setBuilderOpen}
+          allowEdit={!sharedView}
           sharedViewName={hideTitle ? null : sharedViewName} />
       )}
 
@@ -3634,23 +3635,6 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
   useEffect(()=>{ sectionsRef.current=sections; },[sections]);
   useEffect(()=>()=>{ clearInterval(intervalRef.current); clearInterval(countInRef.current); if(scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); },[]);
 
-  // Stop playback when this view is left or the browser tab is hidden — see the
-  // matching listener in StrummingTab.
-  useEffect(()=>{
-    const stop = ()=>{
-      clearInterval(countInRef.current); countInRef.current=null;
-      stopMetronome(); setIsPlaying(false); setIsPaused(false); setCountIn(0);
-    };
-    const onHide = ()=>{ if(document.hidden) stop(); };
-    window.addEventListener("ntc-stop-playback", stop);
-    document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", stop);
-    return ()=>{
-      window.removeEventListener("ntc-stop-playback", stop);
-      document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("pagehide", stop);
-    };
-  },[stopMetronome]);
 
   // ── Constant-velocity scroll — set once at play start, never recalculated ──
   const runScrollRef = useRef(null);
@@ -3756,6 +3740,32 @@ function SongBuilder({ audio, chordVariants, updateVariant }) {
     setPlayPos({ secIdx:0, rowIdx:0, beat:-1, pass:0 });
     playPosRef.current = { secIdx:0, rowIdx:0, beat:-1, pass:0 };
   },[]);
+
+
+  // Stop playback when this view is left or the browser tab is hidden — see the
+  // matching listener in StrummingTab.
+  //
+  // Placed AFTER stopMetronome, not with the other effects at the top. The dep
+  // array is evaluated during render, and `const` bindings are in the temporal
+  // dead zone until their line runs — so naming stopMetronome above its own
+  // declaration threw "Cannot access before initialization" and took the whole
+  // component down before it could mount. Anything reading this value has to
+  // live below it.
+  useEffect(()=>{
+    const stop = ()=>{
+      clearInterval(countInRef.current); countInRef.current=null;
+      stopMetronome(); setIsPlaying(false); setIsPaused(false); setCountIn(0);
+    };
+    const onHide = ()=>{ if(document.hidden) stop(); };
+    window.addEventListener("ntc-stop-playback", stop);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", stop);
+    return ()=>{
+      window.removeEventListener("ntc-stop-playback", stop);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", stop);
+    };
+  },[stopMetronome]);
 
   const pauseMetronome = useCallback(()=>{
     // Pause without resetting position
@@ -4981,7 +4991,9 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
     const updated = [...savedPatterns, pattern];
     setSavedPatterns(updated);
     safeSetItem(STORAGE_KEYS.strum, JSON.stringify(updated));
-    setSavePrompt(false); setSaveName(""); setShowSaved(true);
+    setSavePrompt(false); setSaveName("");
+    // Saving means "this is finished" — show it, don't leave them in the editor.
+    setShowSaved(false); setPickerOpen(false);
   };
 
   const doShare = (p) => {
@@ -5070,6 +5082,16 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
       {/* ── SHARED LINK VIEW ─────────────────────────────── */}
       {!pickerOpen && (
         <>
+          {!sharedView && (<>
+          {/* The way back in. Same place and same look as the strumming
+              builder's — four builders behaving four ways is its own problem. */}
+          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }}>
+            <button onClick={()=>setPickerOpen(true)} style={{
+              padding:"7px 13px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
+              border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
+              fontSize:12, fontWeight:800, letterSpacing:0.3 }}>✏️ Edit</button>
+          </div>
+          </>)}
           {/* Title */}
           {loadedName && !hideTitle && (
             <div style={{ width:"100%", textAlign:"center", marginBottom:16 }}>
@@ -5225,7 +5247,7 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
                       setRow1Size(p.row1Size||8); setRow2Size(p.row2Size||8);
                       setBpm(p.bpm); setBeatsPerChord(p.beatsPerChord||2); setCapo(p.capo||0);
                       setSongRandom(!!p.random); songRandomRef.current=!!p.random;
-                      setLoadedName(p.name); setShowSaved(false);
+                      setLoadedName(p.name); setShowSaved(false); setPickerOpen(false);
                     }} style={{ padding:"6px 12px", borderRadius:8, border:"none",
                       background:"linear-gradient(135deg,#FFBE0B,#F77F00)",
                       color:"#111", fontSize:12, fontWeight:800, cursor:"pointer" }}>Load</button>
@@ -5244,13 +5266,6 @@ function SimpleBuildSong({ audio, chordVariants, updateVariant, sharedView=false
             </div>
           )}
 
-          {/* Show builder link */}
-          <button onClick={()=>setPickerOpen(true)} style={{
-            width:"100%", padding:"8px", marginTop:4,
-            borderRadius:10, border:"1px solid #2a2a2a",
-            background:"transparent", color:"#555",
-            fontSize:11, fontWeight:700, cursor:"pointer", letterSpacing:1,
-          }}>▼ SHOW BUILDER</button>
           </>)}
         </>
       )}
@@ -5815,7 +5830,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     safeSetItem(STORAGE_KEYS.patterns, JSON.stringify(updated));
     setSavePrompt(false);
     setSaveName("");
-    setShowSaved(true);
+    setShowSaved(false); setBuilderOpen(false);
   };
 
   const handleLoad = (p) => {
@@ -5828,6 +5843,7 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
     setCapo(p.capo||0);
     setLoadedPatternName(p.name);
     setShowSaved(false);
+    setBuilderOpen(false);
   };
 
   // Export current builder state as a pattern payload (for the Package builder).
@@ -6102,6 +6118,14 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
       {/* ── VIEW MODE (shared link) ──────────────────────────── */}
       {!builderOpen && (
         <>
+          {/* The way back in. Same place and same look as the strumming
+              builder's — four builders behaving four ways is its own problem. */}
+          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }}>
+            <button onClick={()=>setBuilderOpen(true)} style={{
+              padding:"7px 13px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
+              border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
+              fontSize:12, fontWeight:800, letterSpacing:0.3 }}>✏️ Edit</button>
+          </div>
           {/* Title */}
           {loadedPatternName && !hideTitle && (
             <div style={{ width:"100%", textAlign:"center", marginBottom:14 }}>
@@ -6349,11 +6373,6 @@ function AdvancedBuildSong({ audio, chordVariants, updateVariant, sharedView=fal
               onSave={handleSave} onCancel={()=>{setSavePrompt(false);setSaveName("");}} />
           )}
 
-          {/* ── Show builder toggle ── */}
-          <button onClick={()=>setBuilderOpen(true)} style={{
-            width:"100%", padding:"8px", borderRadius:10, border:"1px solid #2a2a2a",
-            background:"transparent", color:"#555", fontSize:11, fontWeight:700,
-            cursor:"pointer", letterSpacing:1, marginBottom:8 }}>▼ SHOW BUILDER</button>
           <div style={{ textAlign:"center", paddingTop:8, paddingBottom:8, color:"#333", fontSize:11 }}>
             © {new Date().getFullYear()} No Theory Club · All rights reserved.
           </div>
@@ -7374,7 +7393,7 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
   currentBeat, isPlaying, stopMetronome, setIsPlaying,
   savedStrums, setSavedStrums, showSavedStrums, setShowSavedStrums,
   strumSavePrompt, setStrumSavePrompt, strumSaveName, setStrumSaveName,
-  builderOpen, setBuilderOpen, sharedViewName }) {
+  builderOpen, setBuilderOpen, sharedViewName, allowEdit = false }) {
 
   const cycleSize = cycleRowSize;
   const sizeLabel = rowSizeLabel;
@@ -7400,7 +7419,12 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
     const updated = [...savedStrums, pattern];
     setSavedStrums(updated);
     safeSetItem(STORAGE_KEYS.strumTab, JSON.stringify(updated));
-    setStrumSavePrompt(false); setStrumSaveName(""); setShowSavedStrums(true);
+    setStrumSavePrompt(false); setStrumSaveName("");
+    // Saving is the member saying "this one is finished". Show the finished
+    // thing, not the workbench they just closed. Before this, the only way to
+    // see your own pattern cleanly was to save it, share it, and open the link
+    // in another tab.
+    setShowSavedStrums(false); setBuilderOpen(false);
   };
 
   const doLoad = (p) => {
@@ -7409,6 +7433,8 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
     setRowSizes(sizesFromPattern(p));
     if(p.bpm) setBpm(p.bpm);
     setShowSavedStrums(false);
+    // Loading one is choosing something to play, not to edit.
+    setBuilderOpen(false);
   };
 
   const doShare = (p) => {
@@ -7493,6 +7519,21 @@ function BuildStrumPanel({ buildActive, setBuildActive, rowSizes, setRowSizes,
         <div style={{ textAlign:"center", marginBottom:14 }}>
           <div style={{ fontSize:20, fontWeight:900, color:"#fff", letterSpacing:0.3,
             textShadow:"0 2px 8px rgba(0,0,0,0.5)" }}>{sharedViewName}</div>
+        </div>
+      )}
+
+      {/* The way back in. Only where there IS a builder to go back to: this same
+          view renders inside routines and ?strum= links, where editing someone
+          else's pattern is meaningless — hence allowEdit rather than always.
+          Quiet on purpose; this screen is for playing, not editing. But it must
+          exist: hiding the builder used to be a one-way door with no way back
+          short of a reload. */}
+      {allowEdit && (
+        <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:8 }}>
+          <button onClick={()=>setBuilderOpen(true)} style={{
+            padding:"7px 13px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
+            border:"1px solid #241d10", background:"#100d09", color:"#8a7f5e",
+            fontSize:12, fontWeight:800, letterSpacing:0.3 }}>✏️ Edit</button>
         </div>
       )}
 
