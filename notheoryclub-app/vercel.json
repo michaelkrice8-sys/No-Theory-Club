@@ -1,5 +1,87 @@
 {
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "pkg"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "drill"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "strum"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "strumprog"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "pattern"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "song"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "query",
+          "key": "id"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
+    }
+  ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }
