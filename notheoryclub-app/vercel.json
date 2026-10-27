@@ -76,6 +76,17 @@
       ],
       "destination": "https://notheoryclub.com/",
       "permanent": false
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "practice.notheoryclub.com"
+        }
+      ],
+      "destination": "https://notheoryclub.com/",
+      "permanent": false
     }
   ],
   "rewrites": [
